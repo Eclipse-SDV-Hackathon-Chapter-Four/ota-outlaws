@@ -26,7 +26,7 @@ critical_c = 55.0
 
 [freshness]
 # T_stale: no fresh sample for longer than this leads to DEGRADED (FSR-2.2,
-# FSR-2.9, SG-2).
+# FSR-2.3, SG-2).
 # Three times the 100 ms signal cycle.
 stale_timeout_ms = 300
 

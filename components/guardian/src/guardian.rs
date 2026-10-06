@@ -30,19 +30,16 @@ use crate::model::{
 /// events the adapters must publish. The same inputs always produce the same
 /// events.
 ///
-/// Implemented requirements: FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, FSR-2.9,
-/// FSR-3.8, and the Guardian side of FSR-D.1. Recovery (FSR-1.5, FSR-2.6) is not implemented:
-/// the thermal state is never lowered and DEGRADED is never left. Each scenario
-/// starts with a new Guardian (assumption A-4).
+/// The thermal state is never lowered and DEGRADED is never left, because
+/// recovery is not implemented. Each scenario starts with a new Guardian
+/// (assumption A-4). Which requirements are implemented is recorded in the
+/// status column of `docs/explanation/safety-concept.md`.
 #[derive(Debug, Clone)]
 pub struct Guardian {
     thermal_config: ThermalConfig,
     thermal: ThermalState,
     monitoring: MonitoringStatus,
     last_fresh_sample: Option<SampleRef>,
-    /// A frame with a newer timestamp but an unchanged alive counter arrived
-    /// since the last fresh sample (FSR-2.9).
-    repeated_frame_since_fresh: bool,
     freshness: FreshnessMonitor,
     stuck: StuckDetector,
     active_faults: BTreeSet<FaultCode>,
@@ -56,7 +53,6 @@ impl Guardian {
             thermal: ThermalState::Clear,
             monitoring: MonitoringStatus::Ok,
             last_fresh_sample: None,
-            repeated_frame_since_fresh: false,
             freshness: FreshnessMonitor::new(&config.freshness),
             stuck: StuckDetector::new(&config.stuck),
             active_faults: BTreeSet::new(),
@@ -82,19 +78,18 @@ impl Guardian {
     ///
     /// Samples that are not fresh are ignored: repeated or older source
     /// timestamps, an unchanged alive counter, and non-finite values. If only
-    /// such samples arrive, FSR-2.2 or FSR-2.9 detects the loss of fresh data.
-    /// Fresh samples whose quality is not `Ok` are reported (FSR-3.8), but not
+    /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data.
+    /// Fresh samples whose quality is not `Ok` are reported (FSR-3.4), but not
     /// evaluated.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         if !self.is_fresh(&sample) {
             if self.is_repeated_frame(&sample) {
-                self.repeated_frame_since_fresh = true;
+                self.freshness.record_repeated_frame();
             }
             return events;
         }
         self.last_fresh_sample = Some(sample.reference());
-        self.repeated_frame_since_fresh = false;
         self.freshness.record_fresh_sample(now);
 
         if sample.quality != Quality::Ok {
@@ -113,8 +108,7 @@ impl Guardian {
     pub fn on_tick(&mut self, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         if self.freshness.is_stale(now) {
-            // FSR-2.9: frames still arrive, so the source repeats itself.
-            let fault = if self.repeated_frame_since_fresh {
+            let fault = if self.freshness.source_repeats_itself() {
                 FaultCode::CounterStuck
             } else {
                 FaultCode::FreshnessLost

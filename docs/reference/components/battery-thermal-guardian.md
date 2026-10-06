@@ -67,8 +67,8 @@ let events = guardian.on_tick(Millis(now));            // every 50 ms
 ```
 
 - **`Sample`**: maximum, average, and minimum cell temperature, the source
-  timestamp and sequence number from the publisher (assumption A-1), and the
-  alive counter and quality flag of the CAN frame (assumption A-1a).
+  timestamp and sequence number from the KUKSA Proxy (assumption A-1), and the
+  alive counter and quality flag of the CAN frame (assumption A-3).
 - **`Millis`**: the Guardian's local monotonic time. The core only compares local
   times with local times, and source timestamps with source timestamps.
 - **`Event`**: what the adapters publish. Every event has an ID and the ID of
@@ -83,10 +83,10 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 
 | Detector | Requirement | Rule |
 |----------|-------------|------|
-| Freshness monitor | FSR-2.2, FSR-2.9 | A sample is fresh if its source timestamp is later than the previous fresh one, its alive counter has changed, and all values are finite. No fresh sample for longer than `T_stale` is a fault. If frames kept arriving with an unchanged counter, the fault is "counter stuck" (FSR-2.9), otherwise "freshness lost" (FSR-2.2). Checked on every tick. |
-| Quality check | FSR-3.8 | A fresh sample whose quality flag is not `OK` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
-| Stuck detector | FSR-2.4 | The maximum keeps the same value for longer than `T_stuck` while the average or minimum moves by at least `Δ_stuck`. Checked on every fresh sample. |
-| Thresholds | FSR-1.1, FSR-1.2 | The maximum reaches `θ_warn` or `θ_crit`. Checked on every fresh sample. |
+| Freshness monitor | FSR-2.2, FSR-2.3 | No [fresh sample](../../explanation/safety-concept.md#guardian-output-model) for longer than `T_stale` is a fault. If at least two frames with an unchanged alive counter arrived meanwhile, the fault is "counter stuck" (FSR-2.3), otherwise "freshness lost" (FSR-2.2). Checked on every tick. |
+| Quality check | FSR-3.4 | A fresh sample whose quality flag is not `OK` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
+| Stuck detector | FSR-2.4 | The maximum keeps the same value for longer than `T_stuck` while the average or minimum moves by at least `Δ_stuck`. Checked on every valid sample. |
+| Thresholds | FSR-1.1, FSR-1.2 | The maximum reaches `θ_warn` or `θ_crit`. Checked on every valid sample. |
 
 The Guardian detects faults, but does not find out what caused them. Telling a
 source fault from a transport fault, and diagnosing duplicated or reordered
@@ -112,14 +112,11 @@ switch a check off.
 The requirement tests load the shipped file, so CI also verifies the
 configuration.
 
-## Not implemented yet
+## Status
 
-- All adapters (see the table above). The core is not yet connected to the
-  running system.
-- Recovery (FSR-1.5, FSR-2.6). The thermal state is never lowered, and DEGRADED
-  is never left. This is safe, and each scenario starts with a new Guardian
-  (assumption A-4).
-- All Should and Could requirements of the safety concept.
+The table under [Core and adapters](#core-and-adapters) shows which parts exist.
+Which requirements are implemented is recorded in the status column of the
+[Safety Concept](../../explanation/safety-concept.md#functional-safety-requirements).
 
 ## AI Assistance
 

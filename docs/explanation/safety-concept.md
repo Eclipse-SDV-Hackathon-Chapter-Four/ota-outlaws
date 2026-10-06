@@ -250,7 +250,7 @@ covered by its unit tests; **tested** means an end-to-end campaign proves it.
 |----|-------------|--------|-----------|------|--------|
 | FSR-2.1 | When no valid sample arrives within `T_startup` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. | `T_startup` + `T_react` | Guardian started without a source | Should | planned |
 | FSR-2.2 | When no **fresh** sample arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a freshness fault. Fresh is defined in the [output model](#guardian-output-model); samples that are not fresh are ignored. | `T_stale` + `T_react` | Transport outage, transport delay longer than `T_stale`, KUKSA Proxy stopped, source dropout, duplicate, reorder | Must | implemented |
-| FSR-2.3 | When samples keep arriving but the alive counter does not change for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault (counter stuck) instead of a freshness fault. | `T_stale` + `T_react` | Source repeats the same frame (frozen ECU) | Must | implemented |
+| FSR-2.3 | When no fresh sample arrives for longer than `T_stale`, but at least two frames with an unchanged alive counter arrive meanwhile, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault (counter stuck) instead of a freshness fault. A single repeated frame, such as a duplicate, does not count. | `T_stale` + `T_react` | Source repeats the same frame (frozen ECU) | Must | implemented |
 | FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | implemented |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised as described in the [output model](#guardian-output-model). | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | implemented |
 | FSR-2.6 | The monitoring status shall return from DEGRADED to OK only after `N_recover` consecutive valid samples. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | planned |
@@ -293,17 +293,18 @@ one clock.
 
 ## Parameters
 
-These values are proposals. We will tune them after measuring real latencies in
-the end-to-end setup. The Guardian's parameter file will become the single source
-of truth; this table then only explains the values.
+For parameters the Guardian already implements, the value is only in its
+[config](../../config/guardian/safety-params.toml), which is the single source of truth. For the others, the
+table proposes a value. All values will be tuned after measuring real latencies
+in the end-to-end setup.
 
-| Parameter | Proposed value | Meaning | Used by |
-|-----------|---------------:|---------|---------|
-| `θ_warn` | 45 °C | Warning threshold for the maximum cell temperature | FSR-1.1 |
-| `θ_crit` | 55 °C | Critical threshold for the maximum cell temperature | FSR-1.2 |
-| `T_stale` | 300 ms | Freshness timeout, three times the 100 ms signal cycle | FSR-2.2, FSR-2.3 |
-| `T_stuck` | 3 s | Maximum time the maximum may stay frozen while other signals change | FSR-2.4 |
-| `Δ_stuck` | 2 °C | Minimum change of average or minimum that makes a frozen maximum suspicious. Two steps of the 1 °C CAN resolution, so that a single-step flicker does not count | FSR-2.4 |
+| Parameter | Value | Meaning | Used by |
+|-----------|-------|---------|---------|
+| `θ_warn` | [config](../../config/guardian/safety-params.toml) | Warning threshold for the maximum cell temperature | FSR-1.1 |
+| `θ_crit` | [config](../../config/guardian/safety-params.toml) | Critical threshold for the maximum cell temperature | FSR-1.2 |
+| `T_stale` | [config](../../config/guardian/safety-params.toml) | Freshness timeout, three times the 100 ms signal cycle | FSR-2.2, FSR-2.3 |
+| `T_stuck` | [config](../../config/guardian/safety-params.toml) | Maximum time the maximum may stay frozen while other signals change | FSR-2.4 |
+| `Δ_stuck` | [config](../../config/guardian/safety-params.toml) | Minimum change of average or minimum that makes a frozen maximum suspicious. Two steps of the 1 °C CAN resolution, so that a single-step flicker does not count | FSR-2.4 |
 | `T_react` | 500 ms | Reaction time of the Guardian once a condition is observable | most FSRs |
 | `T_report` | 200 ms | Maximum latency of a DFM write | FSR-D.1, FSR-D.3 |
 | `T_diag` | 2000 ms | Maximum latency until a DFM record is visible through OpenSOVD | FSR-D.2, FSR-D.4 |
