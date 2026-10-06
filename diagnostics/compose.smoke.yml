@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+
+# Optional prebuilt example test tools, not the team's Guardian implementation.
+services:
+  diagnostics-test-guardian:
+    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
+    pull_policy: never
+    entrypoint: ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/guardian"]
+    tmpfs: [/tmp]
+    ipc: "service:opensovd-dfm"
+    volumes:
+      - ./diagnostics/catalog:/catalog:ro
+      - ./diagnostics/entrypoint.sh:/diagnostics-entrypoint.sh:ro
+    environment:
+      FAULT_CATALOG: /catalog/battery_guardian.json
+      SOVD_ENTITY: battery_guardian
+      ZENOH_LISTEN: tcp/0.0.0.0:7447
+      HOST: 0.0.0.0
+      PORT: "8080"
+      RUST_LOG: info
+    depends_on:
+      opensovd-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  diagnostics-test-injector:
+    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
+    pull_policy: never
+    entrypoint: ["/usr/local/bin/fault_injector"]
+    environment:
+      ZENOH_CONNECT: tcp/diagnostics-test-guardian:7447
+      SCENARIO: overtemp
+      PUBLISH_INTERVAL_MS: "200"
+      RUST_LOG: warn
+    depends_on:
+      diagnostics-test-guardian:
+        condition: service_healthy

@@ -1,0 +1,86 @@
+{
+  "id": "battery_guardian",
+  "version": 1,
+  "faults": [
+    {
+      "id": {
+        "Text": "BatteryOverTempWarning"
+      },
+      "name": "BatteryOverTempWarning",
+      "summary": "BatteryOverTempWarning",
+      "category": "Hardware",
+      "severity": "Warn",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BatteryOverTempCritical"
+      },
+      "name": "BatteryOverTempCritical",
+      "summary": "BatteryOverTempCritical",
+      "category": "Hardware",
+      "severity": "Fatal",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BatteryTempSignalStale"
+      },
+      "name": "BatteryTempSignalStale",
+      "summary": "BatteryTempSignalStale",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BatteryTempSignalStuck"
+      },
+      "name": "BatteryTempSignalStuck",
+      "summary": "BatteryTempSignalStuck",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BatteryTempImplausible"
+      },
+      "name": "BatteryTempImplausible",
+      "summary": "BatteryTempImplausible",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    }
+  ]
+}
