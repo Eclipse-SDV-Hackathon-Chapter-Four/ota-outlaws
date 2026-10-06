@@ -159,23 +159,51 @@ flowchart LR
 
 # Misc
 
-## Can Signals
+## CAN Signals
 
-| Field Name | Bits | Datatype | Range | Unit |
-|---|---|---|---|---|
-| CellTempMax | 0-7 | `uint8` | 0...255 | °C |
-| CellTempMin | 8-15 | `uint8` | 0...255 | °C |
-| CellTempAvg | 16-23 | `uint8` | 0...255 | °C |
-| Quality | 24-25 | `enum` | 0...2 | – |
-| Counter | 26-34 | `uint8` | 0...255 | – |
+Message `BMS_MSG1`, CAN ID `0x500`, DLC 8 bytes, cycle time 100 ms, sent by the
+BMS. Byte order is little endian. Temperatures are transmitted as raw degrees
+Celsius, factor 1 and offset 0.
 
+| Field Name | Bytes | Bits | Datatype | Range | Unit |
+|---|---|---|---|---|---|
+| CellTempMax | 0-1 | 0-15 | `uint16` | 0...255 | °C |
+| CellTempMin | 2-3 | 16-31 | `uint16` | 0...255 | °C |
+| CellTempAvg | 4-5 | 32-47 | `uint16` | 0...255 | °C |
+| Quality | 6 | 48-55 | `uint8` | see below | – |
+| AliveCounter | 7 | 56-63 | `uint8` | 0...255 | – |
+
+`AliveCounter` is incremented on every transmitted frame and wraps at 255. A
+counter that stops advancing marks the data as stale even while the last value
+still looks plausible.
+
+The authoritative definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
+[can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace of this message.
 
 ## Quality Enum
+
 ```
-UNDEFINED = 0
-OK = 1
-INVALID = 2
+INVALID             = 0x00
+VALID               = 0x80
+ERROR_NOT_AVAILABLE = 0xFF
 ```
+
+## VSS Mapping
+
+The KUKSA CAN Provider maps the CAN signals to the VSS paths below, as defined in
+[can/vss_dbc.json](../../can/vss_dbc.json):
+
+| CAN signal | VSS path | Datatype |
+|---|---|---|
+| CellTempMax | `Vehicle.Powertrain.TractionBattery.Temperature.Max` | `float` |
+| CellTempMin | `Vehicle.Powertrain.TractionBattery.Temperature.Min` | `float` |
+| CellTempAvg | `Vehicle.Powertrain.TractionBattery.Temperature.Average` | `float` |
+| Quality | `Vehicle.Powertrain.TractionBattery.BMS.SignalQuality` | `uint8` |
+| AliveCounter | `Vehicle.Powertrain.TractionBattery.BMS.AliveCounter` | `uint8` |
+
+The three temperature paths are standard VSS. The `BMS` branch is a
+project-private extension and not part of the VSS standard catalogue.
+
 ## Manifest Structure
 
 ## AI Assistance
@@ -183,3 +211,7 @@ INVALID = 2
 The section "Responsibilities: Guardian and Evidence Collector" was created with
 the assistance of **Claude Code** using the model **Claude Opus 5.5**
 (`claude-opus-5-5`).
+
+The sections "CAN Signals", "Quality Enum" and "VSS Mapping" were updated to the
+`BMS_MSG1` definition with the assistance of **Claude Code** using the model
+**Claude Opus 5** (`claude-opus-5`).

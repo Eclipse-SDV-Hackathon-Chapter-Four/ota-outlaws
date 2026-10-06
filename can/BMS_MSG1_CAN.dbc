@@ -1,0 +1,51 @@
+VERSION ""
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIG_TYPE_REF_
+    VAL_TABLE_
+    SIG_GROUP_
+    SIG_VALTYPE_
+    SIGTYPE_VALTYPE_
+    BO_TX_BU_
+    BA_REL_
+    BA_SGTYPE_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: BMS VCU
+
+BO_ 1280 BMS_MSG1: 8 BMS
+ SG_ CellTempMax : 0|16@1+ (1,0) [0|255] "degC" VCU
+ SG_ CellTempMin : 16|16@1+ (1,0) [0|255] "degC" VCU
+ SG_ CellTempAvg : 32|16@1+ (1,0) [0|255] "degC" VCU
+ SG_ Quality : 48|8@1+ (1,0) [0|255] "" VCU
+ SG_ AliveCounter : 56|8@1+ (1,0) [0|255] "" VCU
+
+CM_ BU_ BMS "Battery Management System";
+CM_ BU_ VCU "Vehicle Control Unit";
+CM_ BO_ 1280 "Battery management frame BMS_MSG1 (0x500), sent at 10Hz";
+CM_ SG_ 1280 CellTempMax "Maximum cell temperature in battery pack (hottest cell)";
+CM_ SG_ 1280 CellTempMin "Minimum cell temperature in battery pack (coldest cell)";
+CM_ SG_ 1280 CellTempAvg "Average cell temperature across pack";
+CM_ SG_ 1280 Quality "Signal validity indicator: 0=Invalid, 128=Valid, 255=Error/NotAvailable";
+CM_ SG_ 1280 AliveCounter "Rolling counter, incremented on every transmitted frame";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 10000;
+BA_DEF_DEF_ "GenMsgCycleTime" 100;
+BA_ "GenMsgCycleTime" BO_ 1280 100;
