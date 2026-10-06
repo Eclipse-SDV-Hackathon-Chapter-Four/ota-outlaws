@@ -22,8 +22,12 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 - Figure out a way to inject VSS description into KUKSA Data Broker
 - Use rust as a robust and efficient way to implement our solution
 - Outline faults and how to react to them (fault catalog)
-- Do the Fault implementation
-- Decouple the Battery Thermal Guardian from the Evidence Collector via OpenSOVD
+- Implement a scenario generator
+    - Provides fault CAN messages
+    - Creates manifest, containing, Injection time (when the fault will happen), Fault ID
+    - Evidence collector takes manifest into account and generates report
+- Decouple the Battery Thermal Guardian from the Evidence Collector via OpenSOVD Server
+- [Architecture specification](architecture.md)
 
 ## How We Work
 - Task tracking and planning is done in a GitHub project: [ota-outlaws-hack](https://github.com/orgs/Eclipse-SDV-Hackathon-Chapter-Four/projects/1)
