@@ -9,5 +9,17 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-/start
-/target/
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+[package]
+name = "guardian"
+version = "0.1.0"
+description = "Battery Thermal Guardian: deterministic thermal risk and input monitoring core"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+toml = "1.1.6"
