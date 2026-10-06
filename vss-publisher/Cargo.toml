@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+#
+# AI-assisted: Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5)
+#
+# Derived from Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit,
+# branch example-first-steps, demo/services/Cargo.toml.
+
+[package]
+name = "vss-publisher"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "vss_publisher"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vss-publisher"
+path = "src/main.rs"
+
+[dependencies]
+tokio        = { version = "1", features = ["full"] }
+
+# uProtocol over Zenoh
+up-rust            = "0.9"
+up-transport-zenoh = "0.9"
+zenoh              = { version = "1", features = ["unstable"] }
+
+# gRPC: KUKSA Databroker
+tonic        = { version = "0.11", features = ["transport"] }
+prost        = "0.12"
+prost-types  = "0.12"
+tokio-stream = "0.1"
+
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow             = "1"
+
+[build-dependencies]
+tonic-build = "0.11"
+
+[dev-dependencies]
+async-trait = "0.1"

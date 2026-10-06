@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package kuksa.val.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Minimal subset of kuksa.val.v1 types — field numbers match kuksa-proto exactly.
+
+message DataEntry {
+    string path             = 1;
+    Datapoint value         = 2;
+    Datapoint actuator_target = 3;
+    Metadata metadata       = 10;
+}
+
+message Datapoint {
+    google.protobuf.Timestamp timestamp = 1;
+    oneof value {
+        string   string  = 11;
+        bool     bool    = 12;
+        sint32   int32   = 13;
+        sint64   int64   = 14;
+        uint32   uint32  = 15;
+        uint64   uint64  = 16;
+        float    float   = 17;
+        double   double  = 18;
+    }
+}
+
+message Metadata {}
+
+enum View {
+    VIEW_UNSPECIFIED   = 0;
+    VIEW_CURRENT_VALUE = 1;
+    VIEW_TARGET_VALUE  = 2;
+    VIEW_METADATA      = 3;
+    VIEW_FIELDS        = 10;
+    VIEW_ALL           = 20;
+}
+
+enum Field {
+    FIELD_UNSPECIFIED       = 0;
+    FIELD_PATH              = 1;
+    FIELD_VALUE             = 2;
+    FIELD_ACTUATOR_TARGET   = 3;
+    FIELD_METADATA          = 10;
+}
