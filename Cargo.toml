@@ -14,6 +14,8 @@
 [workspace]
 resolver = "2"
 members = ["components/guardian"]
+# Built on its own, with its own lockfile.
+exclude = ["vss-publisher"]
 
 [workspace.package]
 edition = "2021"
