@@ -5,103 +5,42 @@ import argparse
 from pathlib import Path
 
 
-# Each frame is: (timestamp, max_temp, min_temp, avg_temp, quality, counter).
-Frame = tuple
+TOTAL_FRAMES = 100
+LEAD_IN_FRAMES = 40
+FAULT_FRAMES = 20
+RECOVERY_FRAMES = 40
+TIMEOUT_LEAD_IN_FRAMES = 50
+FRAME_PERIOD = 0.1
+TIMEOUT_GAP = 1.8
 
+# Values are (CellTempMax, CellTempMin, CellTempAvg, Quality) during injection.
 SCENARIOS = {
-    "normal": (
-        "Nominal temperatures with an incrementing alive counter.",
-        [
-            (i / 10, 40 + i, 24 + i, 32 + i, 0x80, i)
-            for i in range(16)
-        ],
-    ),
-    "timeout": (
-        "The 1.8-second gap between frames simulates missing data.",
-        [
-            (0.0, 40, 24, 32, 0x80, 0),
-            (0.1, 41, 25, 33, 0x80, 1),
-            (0.2, 42, 26, 34, 0x80, 2),
-            (2.0, 43, 27, 35, 0x80, 3),
-            (2.1, 44, 28, 36, 0x80, 4),
-        ],
-    ),
+    "normal": ("Nominal data with an incrementing alive counter.", None),
+    "timeout": ("A 1.8-second missing-frame gap between normal sections.", None),
     "counter_error": (
-        "AliveCounter skips from 1 to 6 instead of incrementing by one.",
-        [
-            (0.0, 40, 24, 32, 0x80, 0),
-            (0.1, 40, 24, 32, 0x80, 1),
-            (0.2, 40, 24, 32, 0x80, 6),
-            (0.3, 40, 24, 32, 0x80, 7),
-            (0.4, 40, 24, 32, 0x80, 8),
-        ],
+        "AliveCounter skips from 39 to 45, then resumes incrementing.",
+        None,
     ),
     "counter_stuck": (
-        "AliveCounter remains at 10 in every transmitted frame.",
-        [
-            (i / 10, 40, 24, 32, 0x80, 10)
-            for i in range(5)
-        ],
+        "AliveCounter remains fixed during the middle fault segment.",
+        None,
     ),
     "invalid_quality": (
         "Quality alternates between invalid (00) and error/not available (FF).",
-        [
-            (0.0, 40, 24, 32, 0x00, 0),
-            (0.1, 40, 24, 32, 0xFF, 1),
-            (0.2, 40, 24, 32, 0x00, 2),
-            (0.3, 40, 24, 32, 0xFF, 3),
-        ],
+        None,
     ),
-    "min_gt_avg": (
-        "CellTempMin (60) is greater than CellTempAvg (40).",
-        [
-            (i / 10, 70, 60, 40, 0x80, i)
-            for i in range(3)
-        ],
-    ),
-    "avg_gt_max": (
-        "CellTempAvg (90) is greater than CellTempMax (70).",
-        [
-            (i / 10, 70, 20, 90, 0x80, i)
-            for i in range(3)
-        ],
-    ),
-    "min_gt_max": (
-        "CellTempMin (70) is greater than CellTempMax (40).",
-        [
-            (i / 10, 40, 70, 50, 0x80, i)
-            for i in range(3)
-        ],
-    ),
-    "out_of_range": (
-        "CellTempMax is 250, beyond the assumed operating range.",
-        [
-            (i / 10, 250, 10, 80, 0x80, i)
-            for i in range(3)
-        ],
-    ),
+    "min_gt_avg": ("CellTempMin (60) is greater than CellTempAvg (40).", (70, 60, 40, 0x80)),
+    "avg_gt_max": ("CellTempAvg (90) is greater than CellTempMax (70).", (70, 20, 90, 0x80)),
+    "min_gt_max": ("CellTempMin (70) is greater than CellTempMax (40).", (40, 70, 50, 0x80)),
+    "out_of_range": ("CellTempMax is 250, beyond the assumed operating range.", (250, 10, 80, 0x80)),
     "implausible_jump": (
-        "Temperature jumps from 30 to 160 between frames 100 ms apart.",
-        [
-            (0.0, 30, 30, 30, 0x80, 0),
-            (0.1, 160, 160, 160, 0x80, 1),
-            (0.2, 160, 160, 160, 0x80, 2),
-            (0.3, 160, 160, 160, 0x80, 3),
-        ],
+        "Temperature jumps from nominal values to 160, then recovers.",
+        (160, 160, 160, 0x80),
     ),
-    "high_delta": (
-        "CellTempMax=100 and CellTempMin=10, a 90-degree difference.",
-        [
-            (i / 10, 100, 10, 55, 0x80, i)
-            for i in range(3)
-        ],
-    ),
+    "high_delta": ("CellTempMax=100 and CellTempMin=10, a 90-degree difference.", (100, 10, 55, 0x80)),
     "temp_stuck": (
-        "All three temperature signals remain fixed at 39 while counter rolls.",
-        [
-            (i / 10, 39, 39, 39, 0x80, i)
-            for i in range(6)
-        ],
+        "Temperatures remain fixed at 39 during injection while the counter rolls.",
+        (39, 39, 39, 0x80),
     ),
 }
 
@@ -137,6 +76,9 @@ def make_header(filename, purpose):
 // This ASC file is a sample CAN trace generated with the assistance of
 // Microsoft Copilot for simulation and testing purposes.
 // Scenario: {purpose}
+// Trace length: 100 CAN messages.
+// Fault logs have a normal lead-in, a middle fault segment, and normal recovery.
+// The timeout fault is a 1.8-second missing-frame gap in the middle.
 //
 // Signal Layout:
 //
@@ -193,6 +135,79 @@ def render_log(filename, purpose, frames):
     )
 
 
+def build_trace(name, fault_frames):
+    if name == "normal":
+        return [
+            (index * FRAME_PERIOD, 40, 24, 32, 0x80, index % 256)
+            for index in range(TOTAL_FRAMES)
+        ]
+
+    if name == "timeout":
+        trace = []
+        for index in range(TIMEOUT_LEAD_IN_FRAMES):
+            trace.append(normal_frame(index, index))
+
+        recovery_start = (
+            trace[-1][0] + TIMEOUT_GAP
+        )
+        for index in range(TOTAL_FRAMES - TIMEOUT_LEAD_IN_FRAMES):
+            counter = (TIMEOUT_LEAD_IN_FRAMES + index) % 256
+            timestamp = recovery_start + index * FRAME_PERIOD
+            trace.append((timestamp, 40, 24, 32, 0x80, counter))
+        return trace
+
+    trace = [
+        normal_frame(index, index, variable=(name == "temp_stuck"))
+        for index in range(LEAD_IN_FRAMES)
+    ]
+
+    for index in range(FAULT_FRAMES):
+        timestamp = (LEAD_IN_FRAMES + index) * FRAME_PERIOD
+        if name == "counter_error":
+            counter = (45 + index) % 256
+        elif name == "counter_stuck":
+            counter = LEAD_IN_FRAMES
+        else:
+            counter = (LEAD_IN_FRAMES + index) % 256
+
+        if name == "invalid_quality":
+            max_temp, min_temp, avg_temp = 40, 24, 32
+            quality = 0x00 if index % 2 == 0 else 0xFF
+        elif fault_frames is None:
+            max_temp, min_temp, avg_temp, quality = 40, 24, 32, 0x80
+        else:
+            max_temp, min_temp, avg_temp, quality = fault_frames
+        trace.append(
+            (timestamp, max_temp, min_temp, avg_temp, quality, counter)
+        )
+
+    if name == "counter_stuck":
+        recovery_counter = LEAD_IN_FRAMES + 1
+    elif name == "counter_error":
+        recovery_counter = 45 + FAULT_FRAMES
+    else:
+        recovery_counter = LEAD_IN_FRAMES + FAULT_FRAMES
+
+    for index in range(RECOVERY_FRAMES):
+        absolute_index = LEAD_IN_FRAMES + FAULT_FRAMES + index
+        trace.append(
+            normal_frame(absolute_index, recovery_counter + index,
+                         variable=(name == "temp_stuck"))
+        )
+    return trace
+
+
+def normal_frame(index, counter, variable=False):
+    if variable:
+        max_temp = 38 + index % 3
+        min_temp = 24 + index % 2
+        avg_temp = 31 + index % 2
+    else:
+        max_temp, min_temp, avg_temp = 40, 24, 32
+    timestamp = index * FRAME_PERIOD
+    return (timestamp, max_temp, min_temp, avg_temp, 0x80, counter % 256)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate BMS_MSG1 CAN fault-injection ASC logs."
@@ -210,7 +225,8 @@ def main():
         filename = "{}.asc".format(name)
         output = args.output_dir / filename
         with output.open("w", encoding="ascii", newline="\n") as log_file:
-            log_file.write(render_log(filename, purpose, frames))
+            trace = build_trace(name, frames)
+            log_file.write(render_log(filename, purpose, trace))
         print("Wrote {}".format(output))
 
 
