@@ -13,7 +13,7 @@ SPDX-License-Identifier: EPL-2.0
 
 # Battery Thermal Contract
 
-The uProtocol interface between the KUKSA Proxy, the Battery Thermal Guardian,
+The uProtocol interface between the VSS Publisher, the Battery Thermal Guardian,
 and the Evidence Collector. The payloads are defined in
 [`battery_thermal.proto`](battery_thermal.proto) and encoded as Protobuf
 (`UPAYLOAD_FORMAT_PROTOBUF`).
@@ -27,26 +27,40 @@ the same `.proto` file.
 
 | Topic | uProtocol URI | Publisher | Payload |
 |-------|---------------|-----------|---------|
-| Battery temperature | `//battery-vss/9001/1/9001` | KUKSA Proxy (`vss-publisher`) | `BatteryTemperature` |
+| Battery temperature | `//battery-vss/9001/1/9001` | VSS Publisher (`vss-publisher`) | `BatteryTemperature` |
 | Guardian events | `//guardian/9002/1/8001` | Battery Thermal Guardian (`guardian-service`) | `GuardianEvent` |
 
 ## BatteryTemperature
 
-One message per Data Broker update of the battery temperature signals. The
-Guardian relies on the assumptions A-1 to A-3 of the
+One message per Data Broker update of the battery signals. The Guardian relies on
+the assumptions A-1 to A-3 of the
 [Safety Concept](../docs/explanation/safety-concept.md#assumptions). This is how
-the KUKSA Proxy fulfills them today:
+the VSS Publisher fulfills them:
 
-| Field | Assumption | Source in the KUKSA Proxy |
-|-------|------------|---------------------------|
+| Field | Assumption | Source in the VSS Publisher |
+|-------|------------|-----------------------------|
 | `max_c`, `avg_c`, `min_c` | — | `Vehicle.Powertrain.TractionBattery.Temperature.{Max,Average,Min}` |
 | `source_timestamp_ms` | A-1 | Newest Data Broker timestamp of the update. Publish time if the Data Broker sends none. |
 | `sequence` | A-1 | Counts the published messages, starting at 1. |
-| `alive_counter` | A-3 | VSS signal set in `VSS_ALIVE_COUNTER_PATH`. **MOCK** while it is not set: the proxy counts its own messages, so a frozen CAN source cannot be detected (FSR-2.3). |
-| `quality` | A-3 | VSS signal set in `VSS_QUALITY_PATH`. **MOCK** while it is not set: always `QUALITY_OK`, so FSR-3.4 never triggers. |
+| `alive_counter` | A-3 | `Vehicle.Powertrain.TractionBattery.BMS.AliveCounter` |
+| `quality` | A-3 | `Vehicle.Powertrain.TractionBattery.BMS.SignalQuality`, translated as below |
 
-The two mocks end when the CAN frame definition (DBC) and the VSS mapping carry
-the alive counter and the quality flag.
+The VSS paths are those of [`can/vss_dbc.json`](../can/vss_dbc.json); the
+environment variables `VSS_ALIVE_COUNTER_PATH` and `VSS_QUALITY_PATH` override the
+last two. The publisher sends a message only once it knows all five signals.
+
+The contract does not carry the raw CAN quality value. The VSS Publisher
+translates it ([Quality Enum](../docs/reference/architecture.md#quality-enum)):
+
+| CAN value | Contract value |
+|-----------|----------------|
+| `0x80` (VALID) | `QUALITY_VALID` |
+| `0x00` (INVALID) | `QUALITY_INVALID` |
+| `0xFF` (ERROR_NOT_AVAILABLE) | `QUALITY_NOT_AVAILABLE` |
+| anything else | `QUALITY_UNSPECIFIED` |
+
+The Guardian evaluates only `QUALITY_VALID` samples. Every other value is
+reported as a quality fault (FSR-3.4).
 
 A-2 (one message per CAN frame) holds only if the KUKSA CAN Provider writes all
 signals of a frame in one Data Broker update. This is not verified yet.

@@ -64,13 +64,14 @@ pub fn decode_sample(payload: &[u8]) -> Result<Sample, DecodeError> {
     })
 }
 
-/// Unknown quality values are treated as `Undefined`: the source does not vouch
-/// for the value, so the core reports it (FSR-3.4) instead of using it.
+/// Unspecified and unknown quality values are treated as `NotAvailable`: the
+/// source does not vouch for the value, so the core reports it (FSR-3.4)
+/// instead of using it.
 fn quality(raw: i32) -> Quality {
     match pb::Quality::try_from(raw) {
-        Ok(pb::Quality::Ok) => Quality::Ok,
+        Ok(pb::Quality::Valid) => Quality::Valid,
         Ok(pb::Quality::Invalid) => Quality::Invalid,
-        Ok(pb::Quality::Undefined) | Err(_) => Quality::Undefined,
+        Ok(pb::Quality::NotAvailable | pb::Quality::Unspecified) | Err(_) => Quality::NotAvailable,
     }
 }
 
@@ -170,7 +171,7 @@ mod tests {
 
     #[test]
     fn decodes_all_fields() {
-        let sample = decode_sample(&temperature(255, pb::Quality::Ok)).unwrap();
+        let sample = decode_sample(&temperature(255, pb::Quality::Valid)).unwrap();
 
         assert_eq!(
             sample,
@@ -178,7 +179,7 @@ mod tests {
                 source_timestamp_ms: 1_234,
                 sequence: 7,
                 alive_counter: 255,
-                quality: Quality::Ok,
+                quality: Quality::Valid,
                 max_c: 50.0,
                 avg_c: 40.0,
                 min_c: 30.0,
@@ -188,7 +189,7 @@ mod tests {
 
     #[test]
     fn rejects_alive_counter_above_255() {
-        let result = decode_sample(&temperature(256, pb::Quality::Ok));
+        let result = decode_sample(&temperature(256, pb::Quality::Valid));
 
         assert!(matches!(
             result,
@@ -206,14 +207,21 @@ mod tests {
 
     #[test]
     fn maps_quality_values() {
-        assert_eq!(quality(pb::Quality::Ok as i32), Quality::Ok);
+        assert_eq!(quality(pb::Quality::Valid as i32), Quality::Valid);
         assert_eq!(quality(pb::Quality::Invalid as i32), Quality::Invalid);
-        assert_eq!(quality(pb::Quality::Undefined as i32), Quality::Undefined);
+        assert_eq!(
+            quality(pb::Quality::NotAvailable as i32),
+            Quality::NotAvailable
+        );
     }
 
     #[test]
-    fn unknown_quality_is_undefined() {
-        assert_eq!(quality(42), Quality::Undefined);
+    fn unspecified_or_unknown_quality_is_not_available() {
+        assert_eq!(
+            quality(pb::Quality::Unspecified as i32),
+            Quality::NotAvailable
+        );
+        assert_eq!(quality(42), Quality::NotAvailable);
     }
 
     #[test]

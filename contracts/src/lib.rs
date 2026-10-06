@@ -11,7 +11,7 @@
 
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-//! uProtocol payloads and topics shared by the KUKSA Proxy and the Battery
+//! uProtocol payloads and topics shared by the VSS Publisher and the Battery
 //! Thermal Guardian. The contract is described in `contracts/README.md`.
 
 /// Types generated from `contracts/battery_thermal.proto`.
@@ -34,7 +34,7 @@ pub struct Topic {
     pub resource_id: u16,
 }
 
-/// `BatteryTemperature` messages, published by the KUKSA Proxy.
+/// `BatteryTemperature` messages, published by the VSS Publisher.
 pub const BATTERY_TEMPERATURE: Topic = Topic {
     authority: "battery-vss",
     ue_id: 0x9001,

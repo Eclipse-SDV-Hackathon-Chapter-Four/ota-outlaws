@@ -14,7 +14,7 @@
 [package]
 name = "thermal-contract"
 version = "0.1.0"
-description = "uProtocol payloads and topics shared by the KUKSA Proxy and the Battery Thermal Guardian"
+description = "uProtocol payloads and topics shared by the VSS Publisher and the Battery Thermal Guardian"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

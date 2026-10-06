@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package ota_outlaws.battery_thermal.v1;
 
-// Published by the KUKSA Proxy: one message per CAN frame (assumption A-2).
+// Published by the VSS Publisher: one message per CAN frame (assumption A-2).
 message BatteryTemperature {
   // Maximum, average, and minimum cell temperature in °C.
   float max_c = 1;
@@ -35,11 +35,13 @@ message BatteryTemperature {
   Quality quality = 7;
 }
 
-// The numbers match the raw values of the CAN signal.
+// Whether the source vouches for the values. The VSS Publisher translates the
+// raw CAN values (Quality Enum in docs/reference/architecture.md).
 enum Quality {
-  QUALITY_UNDEFINED = 0;
-  QUALITY_OK = 1;
+  QUALITY_UNSPECIFIED = 0;
+  QUALITY_VALID = 1;
   QUALITY_INVALID = 2;
+  QUALITY_NOT_AVAILABLE = 3;
 }
 
 // Published by the Guardian for every state change, fault, and mitigation

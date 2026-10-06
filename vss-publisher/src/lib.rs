@@ -14,7 +14,7 @@
 // Derived from Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit,
 // branch example-first-steps, demo/services/src/{lib.rs,bin/vss_bridge.rs}.
 
-//! Topic URI and uProtocol transport helpers for the VSS publisher (KUKSA Proxy).
+//! Topic URI and uProtocol transport helpers for the VSS Publisher.
 //! The payload is defined in `contracts/battery_thermal.proto`.
 
 use std::sync::Arc;

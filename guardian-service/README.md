@@ -15,7 +15,7 @@ SPDX-License-Identifier: EPL-2.0
 
 The Battery Thermal Guardian executable. It connects the
 [Guardian core](../guardian) to uProtocol: it subscribes to `BatteryTemperature`
-messages from the KUKSA Proxy, calls the core every 50 ms, and publishes every
+messages from the VSS Publisher, calls the core every 50 ms, and publishes every
 core event as a `GuardianEvent`. The messages and topics are defined in
 [`contracts/`](../contracts).
 

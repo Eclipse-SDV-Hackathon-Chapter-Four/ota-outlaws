@@ -12,7 +12,7 @@
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 //! End-to-end test over uProtocol and Zenoh: a test publisher in the role of the
-//! KUKSA Proxy sends `BatteryTemperature` messages, and the Guardian service
+//! VSS Publisher sends `BatteryTemperature` messages, and the Guardian service
 //! answers with `GuardianEvent` messages. No Data Broker is involved.
 
 use std::net::TcpListener;
@@ -72,7 +72,7 @@ impl Proxy {
             source_timestamp_ms: 1_000 + self.sequence * 100,
             sequence: self.sequence,
             alive_counter: (self.sequence % 256) as u32,
-            quality: pb::Quality::Ok as i32,
+            quality: pb::Quality::Valid as i32,
         }
         .encode_to_vec();
         let message = UMessageBuilder::publish(uri(BATTERY_TEMPERATURE))

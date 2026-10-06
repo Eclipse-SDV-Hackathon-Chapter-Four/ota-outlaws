@@ -23,8 +23,7 @@
 //! Environment:
 //! - `DATABROKER_ADDR`: Data Broker address (default `http://kuksa-databroker:55555`)
 //! - `VSS_ALIVE_COUNTER_PATH`, `VSS_QUALITY_PATH`: VSS paths of the CAN frame's
-//!   alive counter and quality flag. MOCK: while they are not set, the publisher
-//!   synthesizes both values, see `Frame::to_message`.
+//!   alive counter and quality flag (defaults: the paths of `can/vss_dbc.json`)
 //! - `ZENOH_CONNECT`, `ZENOH_LISTEN`: Zenoh endpoints
 
 use std::sync::Arc;
@@ -50,6 +49,13 @@ use kuksa::val::v1::{datapoint::Value, val_client::ValClient, Datapoint, Field, 
 const VSS_TEMP_MAX: &str = "Vehicle.Powertrain.TractionBattery.Temperature.Max";
 const VSS_TEMP_AVG: &str = "Vehicle.Powertrain.TractionBattery.Temperature.Average";
 const VSS_TEMP_MIN: &str = "Vehicle.Powertrain.TractionBattery.Temperature.Min";
+const VSS_ALIVE_COUNTER: &str = "Vehicle.Powertrain.TractionBattery.BMS.AliveCounter";
+const VSS_QUALITY: &str = "Vehicle.Powertrain.TractionBattery.BMS.SignalQuality";
+
+/// Raw values of the CAN quality flag (Quality Enum in docs/reference/architecture.md).
+const CAN_QUALITY_INVALID: u32 = 0x00;
+const CAN_QUALITY_VALID: u32 = 0x80;
+const CAN_QUALITY_ERROR_NOT_AVAILABLE: u32 = 0xFF;
 
 /// Latest values of the subscribed signals.
 #[derive(Debug, Default)]
@@ -58,11 +64,12 @@ struct Frame {
     temp_avg: Option<f32>,
     temp_min: Option<f32>,
     alive_counter: Option<u32>,
-    quality: Option<i32>,
+    /// Raw CAN value.
+    quality: Option<u32>,
 }
 
 impl Frame {
-    /// Builds the message once all three temperatures are known.
+    /// Builds the message once all signals of the frame are known.
     fn to_message(&self, sequence: u64, source_timestamp_ms: u64) -> Option<BatteryTemperature> {
         Some(BatteryTemperature {
             max_c: self.temp_max?,
@@ -70,12 +77,19 @@ impl Frame {
             min_c: self.temp_min?,
             source_timestamp_ms,
             sequence,
-            // MOCK: without a VSS signal for the alive counter, the publisher
-            // counts its own messages. This cannot reveal a frozen CAN source.
-            alive_counter: self.alive_counter.unwrap_or((sequence % 256) as u32),
-            // MOCK: without a VSS signal for the quality flag, every sample is OK.
-            quality: self.quality.unwrap_or(Quality::Ok as i32),
+            alive_counter: self.alive_counter?,
+            quality: contract_quality(self.quality?) as i32,
         })
+    }
+}
+
+/// Translates the raw CAN quality flag into the contract's quality.
+fn contract_quality(raw: u32) -> Quality {
+    match raw {
+        CAN_QUALITY_VALID => Quality::Valid,
+        CAN_QUALITY_INVALID => Quality::Invalid,
+        CAN_QUALITY_ERROR_NOT_AVAILABLE => Quality::NotAvailable,
+        _ => Quality::Unspecified,
     }
 }
 
@@ -119,14 +133,10 @@ async fn main() -> anyhow::Result<()> {
 
     let databroker_addr = std::env::var("DATABROKER_ADDR")
         .unwrap_or_else(|_| "http://kuksa-databroker:55555".to_string());
-    let counter_path = std::env::var("VSS_ALIVE_COUNTER_PATH").ok();
-    let quality_path = std::env::var("VSS_QUALITY_PATH").ok();
-    if counter_path.is_none() {
-        warn!("[VssBridge] MOCK: VSS_ALIVE_COUNTER_PATH not set, the alive counter is synthesized");
-    }
-    if quality_path.is_none() {
-        warn!("[VssBridge] MOCK: VSS_QUALITY_PATH not set, every sample is published with quality OK");
-    }
+    let counter_path = std::env::var("VSS_ALIVE_COUNTER_PATH")
+        .unwrap_or_else(|_| VSS_ALIVE_COUNTER.to_string());
+    let quality_path = std::env::var("VSS_QUALITY_PATH")
+        .unwrap_or_else(|_| VSS_QUALITY.to_string());
 
     info!("[VssBridge] Connecting to databroker at {}", databroker_addr);
     let mut client = ValClient::connect(databroker_addr.clone()).await
@@ -137,12 +147,9 @@ async fn main() -> anyhow::Result<()> {
     info!("[VssBridge] uProtocol transport ready, publishing to {}",
         vss_battery_temp_uri().to_uri(false));
 
-    let entries = [VSS_TEMP_MAX, VSS_TEMP_AVG, VSS_TEMP_MIN]
+    let entries = [VSS_TEMP_MAX, VSS_TEMP_AVG, VSS_TEMP_MIN, counter_path.as_str(), quality_path.as_str()]
         .iter()
-        .copied()
-        .chain(counter_path.as_deref())
-        .chain(quality_path.as_deref())
-        .map(|path| SubscribeEntry {
+        .map(|&path| SubscribeEntry {
             path: path.to_string(),
             view: View::CurrentValue as i32,
             fields: vec![Field::Value as i32],
@@ -185,10 +192,10 @@ async fn main() -> anyhow::Result<()> {
                 frame.temp_avg = as_f32(&value);
             } else if path == VSS_TEMP_MIN {
                 frame.temp_min = as_f32(&value);
-            } else if Some(path) == counter_path.as_deref() {
+            } else if path == counter_path {
                 frame.alive_counter = as_u32(&value);
-            } else if Some(path) == quality_path.as_deref() {
-                frame.quality = as_u32(&value).and_then(|q| i32::try_from(q).ok());
+            } else if path == quality_path {
+                frame.quality = as_u32(&value);
             }
         }
 
@@ -223,43 +230,38 @@ mod tests {
             temp_max: Some(50.0),
             temp_avg: Some(40.0),
             temp_min: Some(30.0),
-            ..Frame::default()
+            alive_counter: Some(17),
+            quality: Some(CAN_QUALITY_VALID),
         }
     }
 
     #[test]
-    fn no_message_until_all_temperatures_are_known() {
-        let frame = Frame {
-            temp_max: Some(50.0),
-            temp_avg: Some(40.0),
-            ..Frame::default()
-        };
+    fn no_message_until_all_signals_are_known() {
+        let without_counter = Frame { alive_counter: None, ..complete_frame() };
+        let without_quality = Frame { quality: None, ..complete_frame() };
+        let without_min = Frame { temp_min: None, ..complete_frame() };
 
-        assert!(frame.to_message(1, 0).is_none());
+        assert!(without_counter.to_message(1, 0).is_none());
+        assert!(without_quality.to_message(1, 0).is_none());
+        assert!(without_min.to_message(1, 0).is_none());
     }
 
     #[test]
     fn uses_counter_and_quality_from_the_frame() {
-        let frame = Frame {
-            alive_counter: Some(17),
-            quality: Some(Quality::Invalid as i32),
-            ..complete_frame()
-        };
-
-        let message = frame.to_message(5, 1_000).unwrap();
+        let message = complete_frame().to_message(5, 1_000).unwrap();
 
         assert_eq!(message.alive_counter, 17);
-        assert_eq!(message.quality, Quality::Invalid as i32);
+        assert_eq!(message.quality, Quality::Valid as i32);
         assert_eq!(message.sequence, 5);
         assert_eq!(message.source_timestamp_ms, 1_000);
     }
 
     #[test]
-    fn mock_counter_wraps_like_the_can_counter() {
-        let message = complete_frame().to_message(256 + 3, 0).unwrap();
-
-        assert_eq!(message.alive_counter, 3);
-        assert_eq!(message.quality, Quality::Ok as i32);
+    fn translates_can_quality_values() {
+        assert_eq!(contract_quality(0x80), Quality::Valid);
+        assert_eq!(contract_quality(0x00), Quality::Invalid);
+        assert_eq!(contract_quality(0xFF), Quality::NotAvailable);
+        assert_eq!(contract_quality(0x01), Quality::Unspecified);
     }
 
     #[test]
