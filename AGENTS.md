@@ -25,10 +25,10 @@ Ankaios, OpenSOVD, and AutoSD.
 
 **Before you plan or write any code, read both of these files:**
 
-- [docs/hackathon/challenge.md](docs/hackathon/challenge.md): the full challenge,
+- [docs/reference/challenge.md](docs/reference/challenge.md): the full challenge,
   including architecture rules, Definition of Done, and "What Not to Do". This is
   the spec. It is copied verbatim from the organizers, so do not edit it.
-- [docs/hackathon/rules.md](docs/hackathon/rules.md): hackathon rules, deadlines,
+- [docs/reference/rules.md](docs/reference/rules.md): hackathon rules, deadlines,
   and scoring criteria.
 
 ## Non-negotiable challenge rules
@@ -88,7 +88,7 @@ SPDX-License-Identifier: EPL-2.0
 - Formats without comments (JSON, generated files, binary data, CAN `.asc`
   traces) are exempt. Do not break the format to add a header.
 - Do not add our header to third-party or vendored files, or to content copied
-  verbatim (such as `docs/hackathon/challenge.md`). Keep their original license
+  verbatim (such as `docs/reference/challenge.md`). Keep their original license
   notices.
 - When you edit an existing file that has no header, add one, unless the file is
   exempt as described above.
