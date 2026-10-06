@@ -26,7 +26,7 @@ SPDX-License-Identifier: EPL-2.0
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
       }
 
-      Rel(OTAOutlawsSW, OpenSOVDServer, "Writes SOVD Records", "uProtocol")
+      Rel(OTAOutlawsSW, OpenSOVDServer, "Reports faults through the DFM", "TBD")
 
       Rel(OTAOutlawsSW, KUKSADataBroker, "Reads VSS data", "CustomAPI")
       Rel(KUKSACanProvider, KUKSADataBroker, "Writes data into the ", "CustomAPI")
@@ -40,6 +40,7 @@ SPDX-License-Identifier: EPL-2.0
 |KUKSA Proxy|||
 |Battery Thermal Guardian|||
 |Evidence Collector|||
+|Mitigation Consumer (mock)|||
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
 
@@ -50,21 +51,26 @@ C4Context
     
             Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
 
-            Container(sg, "Scenario Generator", "Rust", "Generates a sample fault scenario")
+            Container(sg, "Scenario Generator", "Python", "Generates a sample fault scenario")
 
             Container(kp, "KUKSA Proxy", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
             Container(evc, "Evidence Collector", "Python", "Collects evidence of faults and creates a log")
+
+            Container(mc, "Mitigation Consumer", "Mock", "Shows driver warnings, acknowledges mitigation requests, monitors the Guardian heartbeat")
         }
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
 
         Rel(btg, kp, "Reads VSS data", "uProtocol")
         Rel(kp, KUKSADataBroker, "Reads data", "Custom API")
 
-        Rel(btg, OpenSOVDServer, "Write SOVD Log", "TBD")
+        Rel(btg, OpenSOVDServer, "Reports faults through the DFM", "TBD")
+        Rel(btg, mc, "Mitigation requests, heartbeat", "uProtocol")
         Rel(evc, OpenSOVDServer, "Read logs", "TBD")
+        Rel(evc, btg, "Observes input and events", "uProtocol")
+        Rel(evc, KUKSADataBroker, "Observes VSS data", "Custom API")
         Rel(sg, kp, "inflict fault", "TBD")
         Rel(tempsens, kp, "Provide temperature value", "TBD")
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
@@ -156,6 +162,7 @@ flowchart LR
 |HPC|Battery Thermal Guardian|
 |HPC|OpenSOVD Server|
 |HPC|Evidence Collector|
+|HPC|Mitigation Consumer (mock)|
 
 # Misc
 
@@ -167,7 +174,7 @@ flowchart LR
 | CellTempMin | 8-15 | `uint8` | 0...255 | °C |
 | CellTempAvg | 16-23 | `uint8` | 0...255 | °C |
 | Quality | 24-25 | `enum` | 0...2 | – |
-| Counter | 26-34 | `uint8` | 0...255 | – |
+| Counter | 26-33 | `uint8` | 0...255 | – |
 
 
 ## Quality Enum
