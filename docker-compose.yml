@@ -9,18 +9,19 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5)
+# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 # =============================================================================
-# Doctor Whodunit — KUKSA CAN Provider only
+# Doctor Whodunit — signal chain up to the Battery Thermal Guardian
 #
-# Reduced stack: just the CAN provider and the databroker it writes to.
 # No vcan0 or kernel module needed — the provider replays a recorded trace
 # onto a python-can virtual bus inside its own container.
 #
-#   docker compose up
+#   docker compose up --build
+#   docker compose logs -f guardian
 #
-# Flow: battery_temp.asc → kuksa-can-provider → kuksa-databroker
+# Flow: BMS_MSG1_CAN.asc → kuksa-can-provider → kuksa-databroker
+#       → vss-publisher → (uProtocol over the zenoh router) → guardian
 #
 # can/vss_dbc.json serves two purposes: it is the VSS tree the databroker is
 # populated with, and the dbc2vss mapping the provider uses. Keeping it as a
@@ -55,3 +56,38 @@ services:
     restart: unless-stopped
     depends_on:
       - kuksa-databroker
+
+  # Routes uProtocol messages between the VSS Publisher and the Guardian.
+  # Same Zenoh version as the Rust services.
+  zenoh:
+    image: docker.io/eclipse/zenoh:1.10.1
+    container_name: zenoh
+    restart: unless-stopped
+
+  vss-publisher:
+    build:
+      context: .
+      dockerfile: vss-publisher/Containerfile
+    image: ota-outlaws/vss-publisher:dev
+    container_name: vss-publisher
+    environment:
+      DATABROKER_ADDR: "http://kuksa-databroker:55555"
+      ZENOH_CONNECT: "tcp/zenoh:7447"
+      RUST_LOG: "info"
+    restart: unless-stopped
+    depends_on:
+      - kuksa-databroker
+      - zenoh
+
+  guardian:
+    build:
+      context: .
+      dockerfile: guardian-service/Containerfile
+    image: ota-outlaws/guardian:dev
+    container_name: guardian
+    environment:
+      ZENOH_CONNECT: "tcp/zenoh:7447"
+      RUST_LOG: "info"
+    restart: unless-stopped
+    depends_on:
+      - zenoh
