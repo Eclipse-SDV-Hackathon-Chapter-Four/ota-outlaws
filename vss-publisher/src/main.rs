@@ -176,9 +176,13 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // One response carries the updates of one Data Broker write. Its
-        // newest datapoint timestamp is the source timestamp of the message.
+        // The KUKSA CAN Provider writes the signals of a CAN frame one by one,
+        // in DBC order, so the alive counter arrives last. Its update marks a
+        // complete frame: publishing only then gives one message per frame
+        // (assumption A-2). The newest datapoint timestamp is the source
+        // timestamp of the message.
         let mut source_timestamp_ms = None;
+        let mut frame_complete = false;
         for update in response.updates {
             let Some(entry) = update.entry else { continue };
             let Some(datapoint) = entry.value else { continue };
@@ -194,11 +198,15 @@ async fn main() -> anyhow::Result<()> {
                 frame.temp_min = as_f32(&value);
             } else if path == counter_path {
                 frame.alive_counter = as_u32(&value);
+                frame_complete = true;
             } else if path == quality_path {
                 frame.quality = as_u32(&value);
             }
         }
 
+        if !frame_complete {
+            continue;
+        }
         // Fallback if the Data Broker sent no timestamp: the publish time.
         let source_timestamp_ms = source_timestamp_ms.unwrap_or_else(now_ms);
         let Some(message) = frame.to_message(sequence + 1, source_timestamp_ms) else {

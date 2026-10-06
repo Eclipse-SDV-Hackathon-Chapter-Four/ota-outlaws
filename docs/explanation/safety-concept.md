@@ -364,10 +364,12 @@ FSR-2.5, FSR-2.6, and FSR-3.6 apply to every fault in SG-2 and SG-3.
   are normal for a parked vehicle in winter, cannot be represented and reach the
   Guardian as 0 °C. The 1 °C resolution also limits how small a change the
   detectors can see.
-- **Merged or dropped frames on the way.** The counter checks rely on every CAN
-  frame reaching the Guardian (A-2). If the CAN provider resamples or the Data
-  Broker merges updates, the Guardian sees counter gaps that are not real CAN
-  faults. This is why FSR-3.7 is debounced and not part of the Must scope.
+- **Dropped frames on the way.** The counter checks rely on every CAN frame
+  reaching the Guardian (A-2). In the measured signal chain, about 7 % of the
+  frames are lost between the CAN provider and the VSS Publisher (see
+  [Run the Signal Chain](../how-to/run-signal-chain.md)). The Guardian then sees
+  counter gaps that are not real CAN faults. This is why FSR-3.7 is debounced
+  and not part of the Must scope.
 - **Spike or runaway.** A single sample that rises faster than `r_max` cannot be
   told apart from a real thermal runaway. FSR-3.3 therefore raises a warning,
   accepting a possible false alarm.

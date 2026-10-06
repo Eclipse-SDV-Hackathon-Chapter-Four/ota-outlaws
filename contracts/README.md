@@ -62,8 +62,14 @@ translates it ([Quality Enum](../docs/reference/architecture.md#quality-enum)):
 The Guardian evaluates only `QUALITY_VALID` samples. Every other value is
 reported as a quality fault (FSR-3.4).
 
-A-2 (one message per CAN frame) holds only if the KUKSA CAN Provider writes all
-signals of a frame in one Data Broker update. This is not verified yet.
+A-2 (one message per CAN frame): the KUKSA CAN Provider writes the signals of a
+frame one by one, in DBC order, so the alive counter arrives last. The VSS
+Publisher therefore publishes only when the alive counter is updated, which
+gives one complete message per frame. The mapping in `can/vss_dbc.json` lets
+the provider forward each signal at most every 50 ms, below the 100 ms frame
+cycle; with 100 ms, more than half of the frames were dropped. About 7 % of the
+frames are still lost on the way (measured in
+[Run the Signal Chain](../docs/how-to/run-signal-chain.md)).
 
 ## GuardianEvent
 
