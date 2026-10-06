@@ -37,8 +37,8 @@ SPDX-License-Identifier: EPL-2.0
 |---|---|---|
 |Temperature Sensor|||
 |Scenario Generator|||
-|KUKSA Proxy|||
-|Battery Thermal Guardian|[guardian](../../guardian)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
+|KUKSA Proxy|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
+|Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
 |Evidence Collector|||
 |Mitigation Consumer (mock)|||
 |KUKSA Data Broker|||

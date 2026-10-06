@@ -11,13 +11,17 @@
 
 # AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-[workspace]
-resolver = "2"
-members = ["guardian", "guardian-service", "contracts"]
-# Built on its own, with its own lockfile.
-exclude = ["vss-publisher"]
+[package]
+name = "thermal-contract"
+version = "0.1.0"
+description = "uProtocol payloads and topics shared by the KUKSA Proxy and the Battery Thermal Guardian"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
 
-[workspace.package]
-edition = "2021"
-license = "EPL-2.0"
-rust-version = "1.85"
+[dependencies]
+prost = "0.12"
+
+[build-dependencies]
+prost-build = "0.12"
+protoc-bin-vendored = "3.3.0"
