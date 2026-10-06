@@ -191,8 +191,14 @@ exactly what the Guardian sees.
 - **t1**: the arrival of the corresponding Guardian event at the collector.
 
 Each FSR has a **latency budget** of the observation window it needs (for
-example `T_stuck`) plus the reaction time `T_react`. A requirement that needs no
+example `T_stale`) plus the reaction time `T_react`. A requirement that needs no
 observation window has a budget of `T_react`.
+
+FSR-2.4 is the exception. A stuck value can only be told apart from a constant
+temperature once the other temperatures move, so its detection time depends on
+how fast the battery heats. Its budget is therefore a **hidden temperature
+error**: how far the other temperatures moved between fault onset and detection.
+The evidence collector measures it at its tap point.
 
 ### Scenario verdicts
 
@@ -241,7 +247,7 @@ that proves it.
 |----|-------------|--------|-----------|------|--------|
 | FSR-2.1 | When no valid sample arrives within `T_startup` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. | `T_startup` + `T_react` | Guardian started without a source | Should | planned |
 | FSR-2.2 | When no **fresh** sample arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a freshness fault. Fresh is defined in the [output model](#guardian-output-model). Repeated, duplicated, and out-of-order samples do not count as fresh and are ignored. | `T_stale` + `T_react` | Transport outage, transport delay longer than `T_stale`, publisher stopped, source dropout, duplicate, reorder | Must | planned |
-| FSR-2.4 | When the maximum cell temperature stays unchanged for longer than `T_stuck` while the average or minimum temperature changes by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck). | `T_stuck` + `T_react` | Stuck maximum value; slow nominal heating profile as a negative test | Must | planned |
+| FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | planned |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised as described in the [output model](#guardian-output-model). | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | planned |
 | FSR-2.6 | The monitoring status shall return from DEGRADED to OK only after `N_recover` consecutive valid samples. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | planned |
 | FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. When the heartbeat is missing for longer than `T_hb`, the mitigation consumer shall warn the occupants that monitoring is unavailable, independently of the Guardian. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | planned |
