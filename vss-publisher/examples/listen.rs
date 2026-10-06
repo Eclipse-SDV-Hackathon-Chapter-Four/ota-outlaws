@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 //
-// AI-assisted: Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5)
+// AI-assisted: Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 //! Test listener: prints every temperature event the publisher sends.
 //! Stands in for the Guardian while testing the publisher on its own.
@@ -20,7 +20,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use up_rust::{UListener, UMessage};
-use vss_publisher::{make_uri_provider, open_up_transport, vss_battery_temp_uri};
+use prost::Message;
+use vss_publisher::{make_uri_provider, open_up_transport, vss_battery_temp_uri, BatteryTemperature};
 
 struct PrintListener;
 
@@ -28,7 +29,10 @@ struct PrintListener;
 impl UListener for PrintListener {
     async fn on_receive(&self, message: UMessage) {
         match message.payload {
-            Some(payload) => println!("[listen] {}", String::from_utf8_lossy(&payload)),
+            Some(payload) => match BatteryTemperature::decode(payload) {
+                Ok(temperature) => println!("[listen] {temperature:?}"),
+                Err(error) => println!("[listen] undecodable payload: {error}"),
+            },
             None => println!("[listen] message without payload"),
         }
     }
