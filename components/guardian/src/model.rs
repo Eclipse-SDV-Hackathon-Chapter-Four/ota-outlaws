@@ -31,20 +31,20 @@ impl Millis {
     }
 }
 
-/// One battery temperature sample, as delivered by the VSS uProtocol Publisher.
+/// One battery temperature sample, as delivered by the KUKSA Proxy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     /// Time the values were captured at their origin, on the source's clock
     /// (assumption A-1). Only compared with other source timestamps, never with
     /// the Guardian's clock.
     pub source_timestamp_ms: u64,
-    /// Sequence number set by the publisher, increasing by one per message (A-1).
-    /// The Guardian does not evaluate it; the evidence collector does (EC-2).
+    /// Sequence number set by the KUKSA Proxy, increasing by one per message (A-1).
+    /// The Guardian does not evaluate it; the Evidence Collector does (EC-2).
     pub sequence: u64,
     /// Alive counter of the CAN frame, incremented by the source per frame and
-    /// wrapping from 255 to 0 (A-1a).
+    /// wrapping from 255 to 0 (A-3).
     pub alive_counter: u8,
-    /// Quality flag of the CAN frame (A-1a).
+    /// Quality flag of the CAN frame (A-3).
     pub quality: Quality,
     /// Maximum cell temperature in °C.
     pub max_c: f32,
@@ -145,9 +145,9 @@ impl FaultCode {
     pub fn requirement(self) -> &'static str {
         match self {
             FaultCode::FreshnessLost => "FSR-2.2",
-            FaultCode::CounterStuck => "FSR-2.9",
+            FaultCode::CounterStuck => "FSR-2.3",
             FaultCode::SignalStuck => "FSR-2.4",
-            FaultCode::QualityInvalid => "FSR-3.8",
+            FaultCode::QualityInvalid => "FSR-3.4",
         }
     }
 

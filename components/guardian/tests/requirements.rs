@@ -333,7 +333,7 @@ fn fsr_2_2_delay_shorter_than_timeout_is_tolerated() {
 
 #[test]
 fn fsr_2_2_repeated_source_timestamp_does_not_count_as_fresh() {
-    // A publisher that keeps repeating the last value while the source is dead.
+    // A KUKSA Proxy that keeps repeating the last value while the source is dead.
     let mut run = Run::new();
     run.sample(30.0, 28.0, 26.0);
     let frozen_source_timestamp = run.now + SOURCE_CLOCK_OFFSET_MS;
@@ -575,10 +575,10 @@ fn fsr_2_5_valid_sample_still_raises_thermal_state_while_degraded() {
         .contains(&Mitigation::DriverWarningOvertemp));
 }
 
-// --- FSR-2.9: stuck alive counter ---------------------------------------------
+// --- FSR-2.3: stuck alive counter ---------------------------------------------
 
 #[test]
-fn fsr_2_9_repeated_frame_leads_to_counter_stuck_within_budget() {
+fn fsr_2_3_repeated_frame_leads_to_counter_stuck_within_budget() {
     // A frozen source keeps sending the same frame. The timestamps stay fresh;
     // only the alive counter reveals it.
     let stale_timeout = config().freshness.stale_timeout_ms;
@@ -600,7 +600,22 @@ fn fsr_2_9_repeated_frame_leads_to_counter_stuck_within_budget() {
 }
 
 #[test]
-fn fsr_2_9_repeated_frames_are_not_evaluated() {
+fn fsr_2_3_single_repeated_frame_before_outage_is_freshness_lost() {
+    // A duplicate followed by a complete outage: the source is not repeating
+    // itself, the data simply stopped.
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    let last_counter = run.alive_counter;
+    run.frame(last_counter, Quality::Ok, 30.0);
+
+    run.advance(2_000);
+
+    assert!(run.fault_time(FaultCode::FreshnessLost).is_some());
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
+}
+
+#[test]
+fn fsr_2_3_repeated_frames_are_not_evaluated() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
     let frozen_counter = run.alive_counter;
@@ -611,7 +626,7 @@ fn fsr_2_9_repeated_frames_are_not_evaluated() {
 }
 
 #[test]
-fn fsr_2_9_counter_wraparound_is_fresh() {
+fn fsr_2_3_counter_wraparound_is_fresh() {
     let mut run = Run::new();
 
     // More than 256 frames, so the counter wraps from 255 to 0.
@@ -621,10 +636,10 @@ fn fsr_2_9_counter_wraparound_is_fresh() {
     assert_eq!(run.active_fault_count(), 0);
 }
 
-// --- FSR-3.8: quality flag ------------------------------------------------------
+// --- FSR-3.4: quality flag ------------------------------------------------------
 
 #[test]
-fn fsr_3_8_invalid_quality_leads_to_degraded_immediately() {
+fn fsr_3_4_invalid_quality_leads_to_degraded_immediately() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
 
@@ -644,7 +659,7 @@ fn fsr_3_8_invalid_quality_leads_to_degraded_immediately() {
 }
 
 #[test]
-fn fsr_3_8_undefined_quality_is_treated_as_invalid() {
+fn fsr_3_4_undefined_quality_is_treated_as_invalid() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
 
@@ -656,7 +671,7 @@ fn fsr_3_8_undefined_quality_is_treated_as_invalid() {
 }
 
 #[test]
-fn fsr_3_8_invalid_sample_does_not_change_thermal_state() {
+fn fsr_3_4_invalid_sample_does_not_change_thermal_state() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
 
@@ -667,7 +682,7 @@ fn fsr_3_8_invalid_sample_does_not_change_thermal_state() {
 }
 
 #[test]
-fn fsr_3_8_invalid_samples_still_show_the_source_is_alive() {
+fn fsr_3_4_invalid_samples_still_show_the_source_is_alive() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
 
@@ -686,8 +701,8 @@ fn fsr_3_8_invalid_samples_still_show_the_source_is_alive() {
 fn fsr_d_1_fault_codes_identify_detecting_requirement() {
     assert_eq!(FaultCode::FreshnessLost.requirement(), "FSR-2.2");
     assert_eq!(FaultCode::SignalStuck.requirement(), "FSR-2.4");
-    assert_eq!(FaultCode::CounterStuck.requirement(), "FSR-2.9");
-    assert_eq!(FaultCode::QualityInvalid.requirement(), "FSR-3.8");
+    assert_eq!(FaultCode::CounterStuck.requirement(), "FSR-2.3");
+    assert_eq!(FaultCode::QualityInvalid.requirement(), "FSR-3.4");
 }
 
 #[test]
