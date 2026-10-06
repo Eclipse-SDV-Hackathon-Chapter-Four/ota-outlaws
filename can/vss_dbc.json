@@ -1,15 +1,19 @@
 {
   "Vehicle": {
     "type": "branch",
+    "description": "High-level vehicle data.",
     "children": {
       "Powertrain": {
         "type": "branch",
+        "description": "Powertrain data for battery management, etc.",
         "children": {
           "TractionBattery": {
             "type": "branch",
+            "description": "Battery Management data.",
             "children": {
               "Temperature": {
                 "type": "branch",
+                "description": "Temperature Information for the battery pack.",
                 "children": {
                   "Average": {
                     "datatype": "float",
@@ -46,16 +50,26 @@
                   }
                 }
               },
-              "StateOfCharge": {
+              "BMS": {
                 "type": "branch",
+                "description": "Project-private extension, not part of the VSS standard catalogue. Carries the housekeeping signals of CAN frame BMS_MSG1 (0x500) that the Guardian needs to tell a trustworthy reading from a stale or invalid one.",
                 "children": {
-                  "Current": {
-                    "datatype": "float",
+                  "SignalQuality": {
+                    "datatype": "uint8",
                     "type": "sensor",
-                    "description": "Battery state of charge percentage",
-                    "unit": "percent",
+                    "description": "Signal validity indicator reported by the BMS: 0=Invalid, 128=Valid, 255=Error/NotAvailable",
                     "dbc2vss": {
-                      "signal": "StateOfCharge",
+                      "signal": "Quality",
+                      "interval_ms": 100,
+                      "on_change": false
+                    }
+                  },
+                  "AliveCounter": {
+                    "datatype": "uint8",
+                    "type": "sensor",
+                    "description": "Rolling counter incremented on every transmitted BMS_MSG1 frame. A counter that stops advancing marks the data as stale even while the last value still looks plausible.",
+                    "dbc2vss": {
+                      "signal": "AliveCounter",
                       "interval_ms": 100,
                       "on_change": false
                     }

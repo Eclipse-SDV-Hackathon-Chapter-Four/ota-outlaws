@@ -38,10 +38,10 @@ services:
     environment:
       KUKSA_ADDRESS: "kuksa-databroker"
       KUKSA_PORT: "55555"
-      DBC_FILE: "/can/battery_temp.dbc"
+      DBC_FILE: "/can/BMS_MSG1_CAN.dbc"
       MAPPING_FILE: "/can/vss_dbc.json"
-      CANDUMP_FILE: "/can/battery_temp.asc"
-    command: ["--dumpfile", "/can/battery_temp.asc", "--infinite"]
+      CANDUMP_FILE: "/can/BMS_MSG1_CAN.asc"
+    command: ["--dumpfile", "/can/BMS_MSG1_CAN.asc", "--infinite"]
     volumes:
       - ./can:/can:ro
     restart: unless-stopped
