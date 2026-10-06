@@ -40,7 +40,7 @@ The Guardian is split into a **core** that contains all safety logic and
 
 | Part | Status | Responsibility |
 |------|--------|----------------|
-| Core (`components/guardian`) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
+| Core (`guardian`) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
 | Input adapter | Not implemented | Subscribe over uProtocol, decode the Protobuf payload, call the core |
 | Tick | Not implemented | Call the core every 50 ms, so that missing samples are detected |
 | Output adapter | Not implemented | Publish state, fault, and mitigation events over uProtocol |

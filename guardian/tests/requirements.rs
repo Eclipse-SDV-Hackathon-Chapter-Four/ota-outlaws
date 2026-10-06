@@ -22,7 +22,7 @@ use guardian::{
     Quality, Sample, ThermalState,
 };
 
-const SHIPPED_CONFIG: &str = include_str!("../../../config/guardian/safety-params.toml");
+const SHIPPED_CONFIG: &str = include_str!("../../config/guardian/safety-params.toml");
 
 /// Signal cycle of the source.
 const CYCLE_MS: u64 = 100;
