@@ -19,7 +19,7 @@
 
 use guardian::{
     Event, EventKind, FaultCode, Guardian, GuardianConfig, Millis, Mitigation, MonitoringStatus,
-    Sample, ThermalState,
+    Quality, Sample, ThermalState,
 };
 
 const SHIPPED_CONFIG: &str = include_str!("../../../config/guardian/safety-params.toml");
@@ -44,6 +44,7 @@ struct Run {
     guardian: Guardian,
     now: u64,
     sequence: u64,
+    alive_counter: u8,
     events: Vec<Event>,
 }
 
@@ -53,6 +54,7 @@ impl Run {
             guardian: Guardian::new(&config()),
             now: 0,
             sequence: 0,
+            alive_counter: 0,
             events: Vec::new(),
         }
     }
@@ -64,7 +66,23 @@ impl Run {
         self.deliver(source_timestamp_ms, max_c, avg_c, min_c)
     }
 
-    /// Delivers a sample with the given source timestamp without advancing time.
+    /// Advances time by one cycle, then delivers a sample with a fresh timestamp
+    /// and the given alive counter and quality.
+    fn frame(&mut self, alive_counter: u8, quality: Quality, max_c: f32) -> &mut Self {
+        self.advance(CYCLE_MS);
+        let source_timestamp_ms = self.now + SOURCE_CLOCK_OFFSET_MS;
+        self.deliver_frame(
+            source_timestamp_ms,
+            alive_counter,
+            quality,
+            max_c,
+            28.0,
+            26.0,
+        )
+    }
+
+    /// Delivers a sample with the given source timestamp and the next alive
+    /// counter, without advancing time.
     fn deliver(
         &mut self,
         source_timestamp_ms: u64,
@@ -72,10 +90,33 @@ impl Run {
         avg_c: f32,
         min_c: f32,
     ) -> &mut Self {
+        let alive_counter = self.alive_counter.wrapping_add(1);
+        self.deliver_frame(
+            source_timestamp_ms,
+            alive_counter,
+            Quality::Ok,
+            max_c,
+            avg_c,
+            min_c,
+        )
+    }
+
+    fn deliver_frame(
+        &mut self,
+        source_timestamp_ms: u64,
+        alive_counter: u8,
+        quality: Quality,
+        max_c: f32,
+        avg_c: f32,
+        min_c: f32,
+    ) -> &mut Self {
         self.sequence += 1;
+        self.alive_counter = alive_counter;
         let sample = Sample {
             source_timestamp_ms,
             sequence: self.sequence,
+            alive_counter,
+            quality,
             max_c,
             avg_c,
             min_c,
@@ -131,6 +172,10 @@ impl Run {
                 _ => None,
             })
             .collect()
+    }
+
+    fn active_fault_count(&self) -> usize {
+        self.guardian.active_faults().count()
     }
 
     fn thermal(&self) -> ThermalState {
@@ -259,6 +304,8 @@ fn fsr_2_2_missing_samples_lead_to_degraded_within_budget() {
         run.mitigations(),
         vec![Mitigation::DriverWarningMonitoringUnavailable]
     );
+    // Nothing arrived at all, so this is not a stuck counter.
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
 }
 
 #[test]
@@ -375,17 +422,17 @@ fn fsr_2_2_fault_references_last_fresh_sample() {
 fn fsr_2_4_frozen_maximum_while_average_moves_leads_to_degraded_within_budget() {
     let stuck = config().stuck;
     let mut run = Run::new();
-    // Nominal heating: all values rise by 0.5 °C per second.
+    // Nominal heating: all values rise by one CAN step (1 °C) per second.
     let mut avg = 30.0;
     for _ in 0..5 {
-        avg += 0.5;
+        avg += 1.0;
         run.samples(10, avg + 5.0, avg, avg - 5.0);
     }
     // From here on, the maximum is stuck while the pack keeps heating.
     let stuck_max = avg + 5.0;
     let t0 = run.now + CYCLE_MS;
     for _ in 0..10 {
-        avg += 0.5;
+        avg += 1.0;
         run.samples(10, stuck_max, avg, avg - 5.0);
     }
 
@@ -406,13 +453,14 @@ fn fsr_2_4_battery_at_constant_temperature_is_not_stuck() {
 
 #[test]
 fn fsr_2_4_slow_nominal_heating_is_not_stuck() {
-    // Negative test from the safety concept: all values rise by one CAN
-    // resolution step (0.5 °C) every two seconds.
+    // Negative test from the safety concept: all values rise by one CAN step
+    // (1 °C) every five seconds, so the maximum stays unchanged for longer than
+    // T_stuck, but so do the others.
     let mut run = Run::new();
     let mut avg = 30.0;
-    for _ in 0..30 {
-        run.samples(20, avg + 5.0, avg, avg - 5.0);
-        avg += 0.5;
+    for _ in 0..20 {
+        run.samples(50, avg + 5.0, avg, avg - 5.0);
+        avg += 1.0;
     }
 
     assert_eq!(run.fault_time(FaultCode::SignalStuck), None);
@@ -474,12 +522,119 @@ fn fsr_2_5_valid_sample_still_raises_thermal_state_while_degraded() {
         .contains(&Mitigation::DriverWarningOvertemp));
 }
 
+// --- FSR-2.9: stuck alive counter ---------------------------------------------
+
+#[test]
+fn fsr_2_9_repeated_frame_leads_to_counter_stuck_within_budget() {
+    // A frozen source keeps sending the same frame. The timestamps stay fresh;
+    // only the alive counter reveals it.
+    let stale_timeout = config().freshness.stale_timeout_ms;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    let frozen_counter = run.alive_counter;
+    let t0 = run.now + CYCLE_MS;
+
+    for _ in 0..20 {
+        run.frame(frozen_counter, Quality::Ok, 30.0);
+    }
+
+    let detected = run
+        .fault_time(FaultCode::CounterStuck)
+        .expect("counter stuck");
+    assert!(detected - t0 <= stale_timeout + T_REACT_MS);
+    assert_eq!(run.fault_time(FaultCode::FreshnessLost), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+}
+
+#[test]
+fn fsr_2_9_repeated_frames_are_not_evaluated() {
+    let mut run = Run::new();
+    run.samples(5, 30.0, 28.0, 26.0);
+    let frozen_counter = run.alive_counter;
+
+    run.frame(frozen_counter, Quality::Ok, 70.0);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+#[test]
+fn fsr_2_9_counter_wraparound_is_fresh() {
+    let mut run = Run::new();
+
+    // More than 256 frames, so the counter wraps from 255 to 0.
+    run.samples(600, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.active_fault_count(), 0);
+}
+
+// --- FSR-3.8: quality flag ------------------------------------------------------
+
+#[test]
+fn fsr_3_8_invalid_quality_leads_to_degraded_immediately() {
+    let mut run = Run::new();
+    run.samples(5, 30.0, 28.0, 26.0);
+
+    let next = run.alive_counter.wrapping_add(1);
+    run.frame(next, Quality::Invalid, 30.0);
+    let t0 = run.now;
+
+    let detected = run
+        .fault_time(FaultCode::QualityInvalid)
+        .expect("quality fault");
+    assert!(detected - t0 <= T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(
+        run.mitigations(),
+        vec![Mitigation::DriverWarningMonitoringUnavailable]
+    );
+}
+
+#[test]
+fn fsr_3_8_undefined_quality_is_treated_as_invalid() {
+    let mut run = Run::new();
+    run.samples(5, 30.0, 28.0, 26.0);
+
+    let next = run.alive_counter.wrapping_add(1);
+    run.frame(next, Quality::Undefined, 30.0);
+
+    assert!(run.fault_time(FaultCode::QualityInvalid).is_some());
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+}
+
+#[test]
+fn fsr_3_8_invalid_sample_does_not_change_thermal_state() {
+    let mut run = Run::new();
+    run.samples(5, 30.0, 28.0, 26.0);
+
+    let next = run.alive_counter.wrapping_add(1);
+    run.frame(next, Quality::Invalid, 70.0);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+#[test]
+fn fsr_3_8_invalid_samples_still_show_the_source_is_alive() {
+    let mut run = Run::new();
+    run.samples(5, 30.0, 28.0, 26.0);
+
+    for _ in 0..20 {
+        let next = run.alive_counter.wrapping_add(1);
+        run.frame(next, Quality::Invalid, 30.0);
+    }
+
+    assert_eq!(run.fault_time(FaultCode::FreshnessLost), None);
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
+}
+
 // --- FSR-D.1: fault codes identify the detecting requirement ------------------
 
 #[test]
 fn fsr_d_1_fault_codes_identify_detecting_requirement() {
     assert_eq!(FaultCode::FreshnessLost.requirement(), "FSR-2.2");
     assert_eq!(FaultCode::SignalStuck.requirement(), "FSR-2.4");
+    assert_eq!(FaultCode::CounterStuck.requirement(), "FSR-2.9");
+    assert_eq!(FaultCode::QualityInvalid.requirement(), "FSR-3.8");
 }
 
 #[test]

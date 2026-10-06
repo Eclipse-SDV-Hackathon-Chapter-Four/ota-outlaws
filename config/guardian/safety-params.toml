@@ -25,7 +25,8 @@ warn_c = 45.0
 critical_c = 55.0
 
 [freshness]
-# T_stale: no fresh sample for longer than this leads to DEGRADED (FSR-2.2, SG-2).
+# T_stale: no fresh sample for longer than this leads to DEGRADED (FSR-2.2,
+# FSR-2.9, SG-2).
 # Three times the 100 ms signal cycle.
 stale_timeout_ms = 300
 
@@ -34,5 +35,6 @@ stale_timeout_ms = 300
 # (FSR-2.4, SG-2).
 timeout_ms = 3000
 # Δ_stuck: minimum change of the average or minimum that makes a frozen maximum
-# suspicious (FSR-2.4, SG-2).
-min_reference_change_c = 1.0
+# suspicious (FSR-2.4, SG-2). Two steps of the 1 °C CAN resolution, so that a
+# single-step flicker does not count.
+min_reference_change_c = 2.0

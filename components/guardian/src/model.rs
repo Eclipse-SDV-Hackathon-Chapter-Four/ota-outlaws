@@ -39,7 +39,13 @@ pub struct Sample {
     /// the Guardian's clock.
     pub source_timestamp_ms: u64,
     /// Sequence number set by the publisher, increasing by one per message (A-1).
+    /// The Guardian does not evaluate it; the evidence collector does (EC-2).
     pub sequence: u64,
+    /// Alive counter of the CAN frame, incremented by the source per frame and
+    /// wrapping from 255 to 0 (A-1a).
+    pub alive_counter: u8,
+    /// Quality flag of the CAN frame (A-1a).
+    pub quality: Quality,
     /// Maximum cell temperature in °C.
     pub max_c: f32,
     /// Average cell temperature in °C.
@@ -53,6 +59,7 @@ impl Sample {
         SampleRef {
             sequence: self.sequence,
             source_timestamp_ms: self.source_timestamp_ms,
+            alive_counter: self.alive_counter,
         }
     }
 
@@ -66,6 +73,19 @@ impl Sample {
 pub struct SampleRef {
     pub sequence: u64,
     pub source_timestamp_ms: u64,
+    pub alive_counter: u8,
+}
+
+/// Quality flag the source sets in the CAN frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Quality {
+    /// Raw value 0. Treated like `Invalid`, because the source does not vouch
+    /// for the value.
+    Undefined,
+    /// Raw value 1.
+    Ok,
+    /// Raw value 2.
+    Invalid,
 }
 
 /// How dangerous the battery temperature is.
@@ -112,8 +132,12 @@ pub enum MonitoringStatus {
 pub enum FaultCode {
     /// No fresh sample for longer than the freshness timeout.
     FreshnessLost,
+    /// Samples keep arriving, but the alive counter does not change.
+    CounterStuck,
     /// Maximum temperature frozen while other temperatures change.
     SignalStuck,
+    /// The source marked the sample as not usable.
+    QualityInvalid,
 }
 
 impl FaultCode {
@@ -121,7 +145,9 @@ impl FaultCode {
     pub fn requirement(self) -> &'static str {
         match self {
             FaultCode::FreshnessLost => "FSR-2.2",
+            FaultCode::CounterStuck => "FSR-2.9",
             FaultCode::SignalStuck => "FSR-2.4",
+            FaultCode::QualityInvalid => "FSR-3.8",
         }
     }
 
@@ -129,7 +155,9 @@ impl FaultCode {
     pub fn dtc(self) -> &'static str {
         match self {
             FaultCode::FreshnessLost => "BTG_TempFreshnessLost",
+            FaultCode::CounterStuck => "BTG_TempCounterStuck",
             FaultCode::SignalStuck => "BTG_TempSignalStuck",
+            FaultCode::QualityInvalid => "BTG_TempQualityInvalid",
         }
     }
 }

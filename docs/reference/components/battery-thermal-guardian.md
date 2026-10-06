@@ -66,8 +66,9 @@ let events = guardian.on_sample(sample, Millis(now)); // for every received samp
 let events = guardian.on_tick(Millis(now));            // every 50 ms
 ```
 
-- **`Sample`**: maximum, average, and minimum cell temperature, plus the source
-  timestamp and sequence number from the publisher (assumption A-1).
+- **`Sample`**: maximum, average, and minimum cell temperature, the source
+  timestamp and sequence number from the publisher (assumption A-1), and the
+  alive counter and quality flag of the CAN frame (assumption A-1a).
 - **`Millis`**: the Guardian's local monotonic time. The core only compares local
   times with local times, and source timestamps with source timestamps.
 - **`Event`**: what the adapters publish. Every event has an ID and the ID of
@@ -82,7 +83,8 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 
 | Detector | Requirement | Rule |
 |----------|-------------|------|
-| Freshness monitor | FSR-2.2 | A sample is fresh if its source timestamp is later than the previous fresh one and all values are finite. No fresh sample for longer than `T_stale` is a fault. Checked on every tick. |
+| Freshness monitor | FSR-2.2, FSR-2.9 | A sample is fresh if its source timestamp is later than the previous fresh one, its alive counter has changed, and all values are finite. No fresh sample for longer than `T_stale` is a fault. If frames kept arriving with an unchanged counter, the fault is "counter stuck" (FSR-2.9), otherwise "freshness lost" (FSR-2.2). Checked on every tick. |
+| Quality check | FSR-3.8 | A fresh sample whose quality flag is not `OK` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
 | Stuck detector | FSR-2.4 | The maximum keeps the same value for longer than `T_stuck` while the average or minimum moves by at least `Δ_stuck`. Checked on every fresh sample. |
 | Thresholds | FSR-1.1, FSR-1.2 | The maximum reaches `θ_warn` or `θ_crit`. Checked on every fresh sample. |
 
