@@ -18,7 +18,10 @@ set -euo pipefail
 # The cargo registry volume is created as root; hand it to the dev user.
 sudo chown -R "$(id -u):$(id -g)" /usr/local/cargo/registry
 
-rustup component add clippy rustfmt
+# The base image pins whatever Rust was current when it was built; crates in
+# use (e.g. uuid >= 1.27) need a newer compiler, so track latest stable.
+rustup toolchain install stable --profile minimal --component clippy,rustfmt
+rustup default stable
 
 # kuksa-client: CLI for inspecting VSS signals in the KUKSA Data Broker
 # (debugging only, the Guardian itself must go through uProtocol).
