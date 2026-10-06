@@ -22,6 +22,7 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 - Figure out a way to inject VSS description into `KUKSA Data Broker`
 - Use rust as a robust and efficient way to implement our solution
     - Except of `Evidence Collector` and `Scenario Generator`, which will be implemented in Python
+    - And `TempSensor` implementation, which will be implemented on the pcb and will be done in C.
 - Outline faults and how to react to them (fault catalog)
 - Implement a scenario generator
     - Provides fault CAN messages
