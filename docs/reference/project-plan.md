@@ -24,6 +24,18 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
     - Except of `Evidence Collector` and `Scenario Generator`, which will be implemented in Python
     - And `TempSensor` implementation, which will be implemented on the pcb and will be done in C.
 - Outline faults and how to react to them (fault catalog)
+    -CAN Message Timeout
+    -CAN Counter Error
+    -CAN Counter Stuck
+    -Invalid Quality
+    -CellTempMin > CellTempAvg
+    -CellTempAvg > CellTempMax
+    -CellTempMin > CellTempMax
+    -Temperature Value Out of Range
+    -Implausible Temperature Value
+    -Excessive Temperature Difference (CellTempMax − CellTempMin)
+    -Temperature Sensor Stuck / No Temperature Change over Time
+    -Missing or Outdated Temperature Data     
 - Implement a scenario generator
     - Provides fault CAN messages
     - Creates manifest, containing, Injection time (when the fault will happen), Fault ID
