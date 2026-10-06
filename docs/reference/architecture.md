@@ -26,7 +26,7 @@ SPDX-License-Identifier: EPL-2.0
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
       }
 
-      Rel(OTAOutlawsSW, OpenSOVDServer, "Writes SOVD Records", "uProtocol")
+      Rel(OTAOutlawsSW, OpenSOVDServer, "Reports faults through the DFM", "TBD")
 
       Rel(OTAOutlawsSW, KUKSADataBroker, "Reads VSS data", "CustomAPI")
       Rel(KUKSACanProvider, KUKSADataBroker, "Writes data into the ", "CustomAPI")
@@ -37,8 +37,8 @@ SPDX-License-Identifier: EPL-2.0
 |---|---|---|
 |Temperature Sensor|||
 |Scenario Generator|||
-|VSS Publisher|||
-|Battery Thermal Guardian|||
+|VSS Publisher|[vss-publisher](../../vss-publisher)||
+|Battery Thermal Guardian|[guardian](../../guardian)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
 |Evidence Collector|||
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
@@ -50,7 +50,7 @@ C4Context
     
             Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
 
-            Container(sg, "Scenario Generator", "Rust", "Generates a sample fault scenario")
+            Container(sg, "Scenario Generator", "Python", "Generates a sample fault scenario")
 
             Container(vsspub, "VSS Publisher", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
 
@@ -63,8 +63,10 @@ C4Context
         Rel(btg, vsspub, "Reads VSS data", "uProtocol")
         Rel(vsspub, KUKSADataBroker, "Reads data", "Custom API")
 
-        Rel(btg, OpenSOVDServer, "Write SOVD Log", "TBD")
+        Rel(btg, OpenSOVDServer, "Reports faults through the DFM", "TBD")
         Rel(evc, OpenSOVDServer, "Read logs", "TBD")
+        Rel(evc, btg, "Observes input and events", "uProtocol")
+        Rel(evc, KUKSADataBroker, "Observes VSS data", "Custom API")
         Rel(sg, vsspub, "inflict fault", "TBD")
         Rel(tempsens, vsspub, "Provide temperature value", "TBD")
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
@@ -96,7 +98,7 @@ Guardian. If it explains what happened, it belongs in the Evidence Collector.
 | Thresholds, trend, hot spot, hysteresis | Guardian |
 | Loss of fresh data, stuck values, implausible values | Guardian |
 | Writing faults to the DFM | Guardian |
-| Guardian heartbeat | Guardian publishes it; the mitigation consumer monitors it, because a dead Guardian must be noticed in a real vehicle too |
+| Guardian heartbeat | Guardian publishes it; the Evidence Collector records a missing heartbeat as a Guardian failure |
 | Attributing a data loss to source, VSS Publisher, or transport | Evidence Collector |
 | Diagnosing duplicated, reordered, or missing messages by sequence number | Evidence Collector; the Guardian only ignores samples that are not fresh |
 | Measuring delays and detection latencies | Evidence Collector |

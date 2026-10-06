@@ -79,7 +79,7 @@ impl Guardian {
     /// Samples that are not fresh are ignored: repeated or older source
     /// timestamps, an unchanged alive counter, and non-finite values. If only
     /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data.
-    /// Fresh samples whose quality is not `Ok` are reported (FSR-3.4), but not
+    /// Fresh samples whose quality is not `Valid` are reported (FSR-3.4), but not
     /// evaluated.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
@@ -92,7 +92,7 @@ impl Guardian {
         self.last_fresh_sample = Some(sample.reference());
         self.freshness.record_fresh_sample(now);
 
-        if sample.quality != Quality::Ok {
+        if sample.quality != Quality::Valid {
             self.report_fault(FaultCode::QualityInvalid, now, &mut events);
             return events;
         }

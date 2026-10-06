@@ -94,7 +94,7 @@ impl Run {
         self.deliver_frame(
             source_timestamp_ms,
             alive_counter,
-            Quality::Ok,
+            Quality::Valid,
             max_c,
             avg_c,
             min_c,
@@ -333,7 +333,7 @@ fn fsr_2_2_delay_shorter_than_timeout_is_tolerated() {
 
 #[test]
 fn fsr_2_2_repeated_source_timestamp_does_not_count_as_fresh() {
-    // A KUKSA Proxy that keeps repeating the last value while the source is dead.
+    // A VSS Publisher that keeps repeating the last value while the source is dead.
     let mut run = Run::new();
     run.sample(30.0, 28.0, 26.0);
     let frozen_source_timestamp = run.now + SOURCE_CLOCK_OFFSET_MS;
@@ -588,7 +588,7 @@ fn fsr_2_3_repeated_frame_leads_to_counter_stuck_within_budget() {
     let t0 = run.now + CYCLE_MS;
 
     for _ in 0..20 {
-        run.frame(frozen_counter, Quality::Ok, 30.0);
+        run.frame(frozen_counter, Quality::Valid, 30.0);
     }
 
     let detected = run
@@ -606,7 +606,7 @@ fn fsr_2_3_single_repeated_frame_before_outage_is_freshness_lost() {
     let mut run = Run::new();
     run.samples(10, 30.0, 28.0, 26.0);
     let last_counter = run.alive_counter;
-    run.frame(last_counter, Quality::Ok, 30.0);
+    run.frame(last_counter, Quality::Valid, 30.0);
 
     run.advance(2_000);
 
@@ -620,7 +620,7 @@ fn fsr_2_3_repeated_frames_are_not_evaluated() {
     run.samples(5, 30.0, 28.0, 26.0);
     let frozen_counter = run.alive_counter;
 
-    run.frame(frozen_counter, Quality::Ok, 70.0);
+    run.frame(frozen_counter, Quality::Valid, 70.0);
 
     assert_eq!(run.thermal(), ThermalState::Monitoring);
 }
@@ -659,12 +659,12 @@ fn fsr_3_4_invalid_quality_leads_to_degraded_immediately() {
 }
 
 #[test]
-fn fsr_3_4_undefined_quality_is_treated_as_invalid() {
+fn fsr_3_4_quality_not_available_is_treated_as_invalid() {
     let mut run = Run::new();
     run.samples(5, 30.0, 28.0, 26.0);
 
     let next = run.alive_counter.wrapping_add(1);
-    run.frame(next, Quality::Undefined, 30.0);
+    run.frame(next, Quality::NotAvailable, 30.0);
 
     assert!(run.fault_time(FaultCode::QualityInvalid).is_some());
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);

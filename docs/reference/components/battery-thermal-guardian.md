@@ -67,7 +67,7 @@ let events = guardian.on_tick(Millis(now));            // every 50 ms
 ```
 
 - **`Sample`**: maximum, average, and minimum cell temperature, the source
-  timestamp and sequence number from the KUKSA Proxy (assumption A-1), and the
+  timestamp and sequence number from the VSS Publisher (assumption A-1), and the
   alive counter and quality flag of the CAN frame (assumption A-3).
 - **`Millis`**: the Guardian's local monotonic time. The core only compares local
   times with local times, and source timestamps with source timestamps.
@@ -84,7 +84,7 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 | Detector | Requirement | Rule |
 |----------|-------------|------|
 | Freshness monitor | FSR-2.2, FSR-2.3 | No [fresh sample](../../explanation/safety-concept.md#guardian-output-model) for longer than `T_stale` is a fault. If at least two frames with an unchanged alive counter arrived meanwhile, the fault is "counter stuck" (FSR-2.3), otherwise "freshness lost" (FSR-2.2). Checked on every tick. |
-| Quality check | FSR-3.4 | A fresh sample whose quality flag is not `OK` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
+| Quality check | FSR-3.4 | A fresh sample whose quality flag is not `VALID` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
 | Stuck detector | FSR-2.4 | The maximum keeps the same value for longer than `T_stuck` while the average or minimum moves by at least `Δ_stuck`. Checked on every valid sample. |
 | Thresholds | FSR-1.1, FSR-1.2 | The maximum reaches `θ_warn` or `θ_crit`. Checked on every valid sample. |
 

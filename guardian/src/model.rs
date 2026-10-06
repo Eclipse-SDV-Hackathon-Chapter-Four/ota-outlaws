@@ -31,14 +31,14 @@ impl Millis {
     }
 }
 
-/// One battery temperature sample, as delivered by the KUKSA Proxy.
+/// One battery temperature sample, as delivered by the VSS Publisher.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     /// Time the values were captured at their origin, on the source's clock
     /// (assumption A-1). Only compared with other source timestamps, never with
     /// the Guardian's clock.
     pub source_timestamp_ms: u64,
-    /// Sequence number set by the KUKSA Proxy, increasing by one per message (A-1).
+    /// Sequence number set by the VSS Publisher, increasing by one per message (A-1).
     /// The Guardian does not evaluate it; the Evidence Collector does (EC-2).
     pub sequence: u64,
     /// Alive counter of the CAN frame, incremented by the source per frame and
@@ -76,16 +76,15 @@ pub struct SampleRef {
     pub alive_counter: u8,
 }
 
-/// Quality flag the source sets in the CAN frame.
+/// Quality flag the source sets in the CAN frame (`Quality Enum` in
+/// `docs/reference/architecture.md`). Only `Valid` samples are evaluated
+/// (FSR-3.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Quality {
-    /// Raw value 0. Treated like `Invalid`, because the source does not vouch
-    /// for the value.
-    Undefined,
-    /// Raw value 1.
-    Ok,
-    /// Raw value 2.
+    Valid,
     Invalid,
+    /// The source reports an error or no value, or the flag is unknown.
+    NotAvailable,
 }
 
 /// How dangerous the battery temperature is.
@@ -98,8 +97,8 @@ pub enum ThermalState {
     Monitoring,
     Warning,
     Critical,
-    /// Same severity as `Critical`; the mitigation request was acknowledged.
-    /// Not reachable yet: acknowledgements belong to FSR-1.6.
+    /// Same severity as `Critical`; the mitigation has been requested.
+    /// Not reachable yet: belongs to FSR-1.6.
     Mitigating,
 }
 
@@ -162,7 +161,7 @@ impl FaultCode {
     }
 }
 
-/// Mitigation the Guardian requests from the mitigation consumer.
+/// Mitigation the Guardian requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mitigation {
     /// The battery is critically hot.
