@@ -418,27 +418,80 @@ fn fsr_2_2_fault_references_last_fresh_sample() {
 
 // --- FSR-2.4: stuck maximum --------------------------------------------------
 
-#[test]
-fn fsr_2_4_frozen_maximum_while_average_moves_leads_to_degraded_within_budget() {
-    let stuck = config().stuck;
-    let mut run = Run::new();
-    // Nominal heating: all values rise by one CAN step (1 °C) per second.
-    let mut avg = 30.0;
-    for _ in 0..5 {
-        avg += 1.0;
-        run.samples(10, avg + 5.0, avg, avg - 5.0);
-    }
-    // From here on, the maximum is stuck while the pack keeps heating.
-    let stuck_max = avg + 5.0;
-    let t0 = run.now + CYCLE_MS;
-    for _ in 0..10 {
-        avg += 1.0;
-        run.samples(10, stuck_max, avg, avg - 5.0);
-    }
+/// Outcome of a stuck-maximum scenario.
+struct StuckOutcome {
+    /// How far the average moved between fault onset and detection. The real
+    /// maximum moved by the same amount, unseen.
+    hidden_error_c: f32,
+    latency_ms: u64,
+}
 
-    let detected = run.fault_time(FaultCode::SignalStuck).expect("stuck fault");
-    assert!(detected - t0 <= stuck.timeout_ms + T_REACT_MS);
-    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+/// Heats the pack by one CAN step (1 °C) every `samples_per_step` samples,
+/// then freezes the maximum while the pack keeps heating.
+fn freeze_maximum_while_heating(samples_per_step: usize) -> StuckOutcome {
+    let mut run = Run::new();
+    let mut avg = 30.0_f32;
+    for i in 0..2 * samples_per_step {
+        if i % samples_per_step == 0 {
+            avg += 1.0;
+        }
+        run.sample(avg + 5.0, avg, avg - 5.0);
+    }
+    let stuck_max = avg + 5.0;
+    let onset_avg = avg;
+    let t0 = run.now + CYCLE_MS;
+
+    // Twenty heating steps, but at least one minute.
+    for i in 1..=(20 * samples_per_step).max(600) {
+        if i % samples_per_step == 0 {
+            avg += 1.0;
+        }
+        run.sample(stuck_max, avg, avg - 5.0);
+        if let Some(detected) = run.fault_time(FaultCode::SignalStuck) {
+            assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+            return StuckOutcome {
+                hidden_error_c: avg - onset_avg,
+                latency_ms: detected - t0,
+            };
+        }
+    }
+    panic!("stuck maximum not detected");
+}
+
+#[test]
+fn fsr_2_4_stuck_maximum_with_fast_heating_is_detected_within_budget() {
+    // 1 °C per second: the average moves by Δ_stuck before T_stuck has passed,
+    // so T_stuck dominates.
+    let stuck = config().stuck;
+
+    let outcome = freeze_maximum_while_heating(10);
+
+    assert!(outcome.latency_ms <= stuck.timeout_ms + T_REACT_MS);
+    assert!(outcome.hidden_error_c <= stuck.min_reference_change_c + 1.0);
+}
+
+#[test]
+fn fsr_2_4_stuck_maximum_with_very_slow_heating_bounds_hidden_error() {
+    // 0.05 °C per second: detection takes long, but the hidden error stays
+    // within Δ_stuck plus one CAN step.
+    let stuck = config().stuck;
+
+    let outcome = freeze_maximum_while_heating(200);
+
+    assert!(outcome.hidden_error_c <= stuck.min_reference_change_c + 1.0);
+    assert!(outcome.latency_ms > stuck.timeout_ms);
+}
+
+#[test]
+fn fsr_2_4_stuck_maximum_is_not_reported_before_t_stuck() {
+    // 10 °C per second: the average moves by Δ_stuck almost at once, but a
+    // plateau of the maximum shorter than T_stuck is not a fault.
+    let stuck = config().stuck;
+
+    let outcome = freeze_maximum_while_heating(1);
+
+    assert!(outcome.latency_ms >= stuck.timeout_ms);
+    assert!(outcome.latency_ms <= stuck.timeout_ms + T_REACT_MS);
 }
 
 #[test]
