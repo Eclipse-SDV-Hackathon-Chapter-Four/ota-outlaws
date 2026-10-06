@@ -9,6 +9,5 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-/start
-# Cargo build output at any level, including vss-publisher/target.
-target/
+.git
+**/target

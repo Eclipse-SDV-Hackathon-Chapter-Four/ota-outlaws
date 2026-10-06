@@ -9,6 +9,15 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-/start
-# Cargo build output at any level, including vss-publisher/target.
-target/
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+[workspace]
+resolver = "2"
+members = ["guardian", "guardian-service", "contracts"]
+# Built on its own, with its own lockfile.
+exclude = ["vss-publisher"]
+
+[workspace.package]
+edition = "2021"
+license = "EPL-2.0"
+rust-version = "1.85"
