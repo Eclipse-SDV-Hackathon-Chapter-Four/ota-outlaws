@@ -19,7 +19,6 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 
 ## Our Solution
 - Utilize `docker compose` to pull in `OpenSOVD Server`, `KUKSA CAN Provider` and `KUKSA Data Broker`
-- Figure out a way to inject VSS description into `KUKSA Data Broker`
 - Use rust as a robust and efficient way to implement our solution
    - Except of `Evidence Collector` and `Scenario Generator`, which will be implemented in Python
    - And `TempSensor` implementation, which will be implemented on the pcb and will be done in C.
