@@ -18,9 +18,10 @@
 We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit) challenge.
 
 ## Our Solution
-- Utilize `docker compose` to pull in OpenSOVD server, KUKSA CAN Provider and KUKSA Data Broker
-- Figure out a way to inject VSS description into KUKSA Data Broker
+- Utilize `docker compose` to pull in `OpenSOVD Server`, `KUKSA CAN Provider` and `KUKSA Data Broker`
+- Figure out a way to inject VSS description into `KUKSA Data Broker`
 - Use rust as a robust and efficient way to implement our solution
+    - Except of `Evidence Collector` and `Scenario Generator`, which will be implemented in Python
 - Outline faults and how to react to them (fault catalog)
 - Implement a scenario generator
     - Provides fault CAN messages
