@@ -1,0 +1,49 @@
+VERSION ""
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIG_TYPE_REF_
+    VAL_TABLE_
+    SIG_GROUP_
+    SIG_VALTYPE_
+    SIGTYPE_VALTYPE_
+    BO_TX_BU_
+    BA_REL_
+    BA_SGTYPE_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: BMS VCU
+
+BO_ 256 BatteryTemperature: 8 BMS
+ SG_ CellTempAvg : 0|16@1+ (0.5,-40) [-40|125] "degC" VCU
+ SG_ CellTempMax : 16|16@1+ (0.5,-40) [-40|125] "degC" VCU
+ SG_ CellTempMin : 32|16@1+ (0.5,-40) [-40|125] "degC" VCU
+ SG_ StateOfCharge : 48|16@1+ (0.5,0) [0|100] "%" VCU
+
+CM_ BU_ BMS "Battery Management System";
+CM_ BU_ VCU "Vehicle Control Unit";
+CM_ BO_ 256 "Battery temperature data frame sent at 10Hz";
+CM_ SG_ 256 CellTempAvg "Average cell temperature across pack";
+CM_ SG_ 256 CellTempMax "Maximum cell temperature (hottest cell)";
+CM_ SG_ 256 CellTempMin "Minimum cell temperature (coldest cell)";
+CM_ SG_ 256 StateOfCharge "Battery state of charge percentage";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 10000;
+BA_DEF_DEF_ "GenMsgCycleTime" 100;
+BA_ "GenMsgCycleTime" BO_ 256 100;
