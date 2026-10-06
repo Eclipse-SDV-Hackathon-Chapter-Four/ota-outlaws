@@ -16,9 +16,9 @@ SPDX-License-Identifier: EPL-2.0
 The deterministic safety core of the Battery Thermal Guardian, written in Rust.
 It has no I/O: adapters feed it samples and publish its events.
 
-- Requirements: [Safety Concept](../../docs/explanation/safety-concept.md)
-- Design: [Battery Thermal Guardian](../../docs/reference/components/battery-thermal-guardian.md)
-- Parameters: [`config/guardian/safety-params.toml`](../../config/guardian/safety-params.toml)
+- Requirements: [Safety Concept](../docs/explanation/safety-concept.md)
+- Design: [Battery Thermal Guardian](../docs/reference/components/battery-thermal-guardian.md)
+- Parameters: [`config/guardian/safety-params.toml`](../config/guardian/safety-params.toml)
 
 ## Build and test
 
@@ -38,8 +38,8 @@ requirement they verify, for example `fsr_2_2_missing_samples_lead_to_degraded_w
 The core is implemented and unit-tested; the adapters and the executable are not
 implemented yet. Details:
 
-- Parts: [Battery Thermal Guardian](../../docs/reference/components/battery-thermal-guardian.md#core-and-adapters)
-- Requirements: status column of the [Safety Concept](../../docs/explanation/safety-concept.md#functional-safety-requirements)
+- Parts: [Battery Thermal Guardian](../docs/reference/components/battery-thermal-guardian.md#core-and-adapters)
+- Requirements: status column of the [Safety Concept](../docs/explanation/safety-concept.md#functional-safety-requirements)
 
 ## AI Assistance
 

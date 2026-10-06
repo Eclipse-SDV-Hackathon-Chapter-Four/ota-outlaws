@@ -20,7 +20,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - "components/guardian/**"
+      - "guardian/**"
       - "config/guardian/**"
       - ".github/workflows/guardian.yml"
 

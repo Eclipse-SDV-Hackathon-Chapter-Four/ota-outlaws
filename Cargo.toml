@@ -13,7 +13,7 @@
 
 [workspace]
 resolver = "2"
-members = ["components/guardian"]
+members = ["guardian"]
 # Built on its own, with its own lockfile.
 exclude = ["vss-publisher"]
 
