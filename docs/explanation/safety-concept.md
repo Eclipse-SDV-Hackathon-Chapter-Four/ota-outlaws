@@ -18,6 +18,21 @@ SPDX-License-Identifier: EPL-2.0
 > hazard analysis and risk assessment: we do not assign integrity levels, because
 > we have no real exposure or controllability data.
 
+## Summary
+
+- **Three safety goals:** warn in time (SG-1), never lose monitoring silently
+  (SG-2), never let implausible data lower caution (SG-3).
+- **Guiding principle:** when in doubt, fail toward warning.
+- **Two outputs:** the Guardian reports a *thermal state* (how hot) and a
+  *monitoring status* (how trustworthy the input is) separately, so a signal loss
+  never hides a hot battery.
+- **Demo scope:** the 8 **Must** requirements cover the challenge's recommended
+  demo: baseline thresholds, a transport fault, a stuck signal, and diagnostics
+  in DFM and OpenSOVD. The 14 **Should** and **Could** requirements show where
+  the design goes next. Their status says honestly whether they are done.
+
+## Structure
+
 The concept has three levels. Each level refines the one above it:
 
 1. **Hazards** describe what can go wrong at vehicle level.
@@ -141,39 +156,45 @@ a status (**planned**, **implemented**, **tested**). A requirement only counts a
 fulfilled when its status is **tested** and it links to the test or campaign
 that proves it.
 
+| Priority | Meaning | Requirements |
+|----------|---------|--------------|
+| Must | Needed for the demo. Implemented and tested first. | FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, FSR-3.6, FSR-D.1, FSR-D.2 |
+| Should | Next, when the Musts are tested. FSR-2.3 comes first: it lets the Guardian tell a source fault from a transport fault. | FSR-1.5, FSR-2.1, FSR-2.3, FSR-2.6, FSR-3.2, FSR-3.3, FSR-3.5 |
+| Could | Only if time is left. | FSR-1.3, FSR-1.4, FSR-1.6, FSR-1.7, FSR-2.7, FSR-3.1, FSR-3.4 |
+
 ### SG-1: Timely thermal warning
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
 | FSR-1.1 | When the maximum cell temperature of a valid sample reaches `θ_warn`, the thermal state shall be WARNING or more severe. | `T_react` | Nominal heating profile | Must | planned |
 | FSR-1.2 | When the maximum cell temperature of a valid sample reaches `θ_crit`, the thermal state shall be CRITICAL and the Guardian shall publish `DRIVER_WARNING_OVERTEMP`. | `T_react` | Nominal heating profile to the critical limit | Must | planned |
-| FSR-1.3 | When valid samples show a temperature rise of at least `r_trend` sustained for `T_trend`, the thermal state shall be WARNING or more severe, even below `θ_warn`. | `T_trend` + `T_react` | Fast heating profile below `θ_warn` | Should | planned |
-| FSR-1.4 | When the maximum cell temperature exceeds the average by more than `Δ_hotspot`, the thermal state shall be WARNING or more severe. A large spread is treated as a real local hot spot, never as a sensor fault. | `T_react` | Single-cell hot spot, upward drift of the maximum | Should | planned |
+| FSR-1.3 | When valid samples show a temperature rise of at least `r_trend` sustained for `T_trend`, the thermal state shall be WARNING or more severe, even below `θ_warn`. | `T_trend` + `T_react` | Fast heating profile below `θ_warn` | Could | planned |
+| FSR-1.4 | When the maximum cell temperature exceeds the average by more than `Δ_hotspot`, the thermal state shall be WARNING or more severe. A large spread is treated as a real local hot spot, never as a sensor fault. | `T_react` | Single-cell hot spot, upward drift of the maximum | Could | planned |
 | FSR-1.5 | The thermal state shall be lowered only when the triggering criterion has been undercut by the hysteresis `θ_hyst` for `N_recover` consecutive valid samples. | — | Temperature oscillating around `θ_warn` | Should | planned |
-| FSR-1.6 | When the mitigation consumer acknowledges a mitigation request, the thermal state shall change from CRITICAL to MITIGATING. Without an acknowledgement within `T_ack`, the Guardian shall stay CRITICAL, repeat the request, and report a fault. | `T_ack` | Nominal critical profile; mitigation consumer stopped | Should | planned |
+| FSR-1.6 | When the mitigation consumer acknowledges a mitigation request, the thermal state shall change from CRITICAL to MITIGATING. Without an acknowledgement within `T_ack`, the Guardian shall stay CRITICAL, repeat the request, and report a fault. | `T_ack` | Nominal critical profile; mitigation consumer stopped | Could | planned |
 | FSR-1.7 | When the temperature keeps rising for `T_mitigation` while MITIGATING, the Guardian shall return to CRITICAL and repeat the mitigation request ("mitigation failed"). | `T_mitigation` + `T_react` | Heating profile that continues after the mitigation request | Could | planned |
 
 ### SG-2: No silent loss of monitoring
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
-| FSR-2.1 | When no valid sample arrives within `T_startup` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. | `T_startup` + `T_react` | Guardian started without a source | Must | planned |
+| FSR-2.1 | When no valid sample arrives within `T_startup` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. | `T_startup` + `T_react` | Guardian started without a source | Should | planned |
 | FSR-2.2 | When no message arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a **transport** fault. | `T_stale` + `T_react` | Transport delay, transport outage, publisher stopped | Must | planned |
-| FSR-2.3 | When publisher heartbeats keep arriving but the source timestamp does not advance for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault. | `T_stale` + `T_react` | Source dropout, replay interruption | Must | planned |
+| FSR-2.3 | When publisher heartbeats keep arriving but the source timestamp does not advance for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault. | `T_stale` + `T_react` | Source dropout, replay interruption | Should | planned |
 | FSR-2.4 | When the maximum cell temperature stays unchanged for longer than `T_stuck` while the average or minimum temperature changes, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck). | `T_stuck` + `T_react` | Stuck maximum value | Must | planned |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised by FSR-3.2 and FSR-3.3. | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | planned |
 | FSR-2.6 | The monitoring status shall return from DEGRADED to OK only after `N_recover` consecutive valid samples. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | planned |
-| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. When the heartbeat is missing for longer than `T_hb`, the mitigation consumer shall warn the occupants that monitoring is unavailable, independently of the Guardian. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Should | planned |
+| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. When the heartbeat is missing for longer than `T_hb`, the mitigation consumer shall warn the occupants that monitoring is unavailable, independently of the Guardian. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | planned |
 
 ### SG-3: Implausible data never lowers caution
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
-| FSR-3.1 | A sample that violates `Min ≤ Avg ≤ Max` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (implausible). | `T_react` | Maximum below average (downward drift), swapped values | Must | planned |
-| FSR-3.2 | A sample outside `[θ_min, θ_max]` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (out of range). If the value is above `θ_max`, the thermal state shall also be WARNING or more severe, because the cause may be a real fire. | `T_react` | Out-of-range high, out-of-range low | Must | planned |
-| FSR-3.3 | A sample that implies a rise faster than `r_max` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (implausible), and the thermal state shall be WARNING or more severe, because the cause may be a real thermal runaway. | `T_react` | Spike | Must | planned |
-| FSR-3.4 | A duplicated or out-of-order sample shall be discarded. The Guardian shall report a **transport** fault (sequence). A gap in the sequence shall also be reported as a transport fault. | `T_react` | Duplicate, reorder, drop | Should | planned |
-| FSR-3.5 | An isolated invalid sample shall set the monitoring status to SUSPECT and be discarded. `N_suspect` invalid samples within `T_suspect` shall set the monitoring status to DEGRADED. | `T_suspect` + `T_react` | Single spike versus repeated spikes | Must | planned |
+| FSR-3.1 | A sample that violates `Min ≤ Avg ≤ Max` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (implausible). | `T_react` | Maximum below average (downward drift), swapped values | Could | planned |
+| FSR-3.2 | A sample outside `[θ_min, θ_max]` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (out of range). If the value is above `θ_max`, the thermal state shall also be WARNING or more severe, because the cause may be a real fire. | `T_react` | Out-of-range high, out-of-range low | Should | planned |
+| FSR-3.3 | A sample that implies a rise faster than `r_max` shall not be used as a valid measurement. The Guardian shall report a **signal** fault (implausible), and the thermal state shall be WARNING or more severe, because the cause may be a real thermal runaway. | `T_react` | Spike | Should | planned |
+| FSR-3.4 | A duplicated or out-of-order sample shall be discarded. The Guardian shall report a **transport** fault (sequence). A gap in the sequence shall also be reported as a transport fault. | `T_react` | Duplicate, reorder, drop | Could | planned |
+| FSR-3.5 | An isolated invalid sample shall set the monitoring status to SUSPECT and be discarded. `N_suspect` invalid samples within `T_suspect` shall set the monitoring status to DEGRADED. | `T_suspect` + `T_react` | Single spike versus repeated spikes | Should | planned |
 | FSR-3.6 | Invalid input shall never lower the thermal state. Invalid input alone shall never raise the thermal state to CRITICAL; only valid samples can do that. | — | Every SG-3 fault, injected during WARNING | Must | planned |
 
 ### DG-1: Diagnostic traceability
