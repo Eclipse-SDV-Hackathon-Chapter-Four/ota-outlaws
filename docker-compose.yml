@@ -9,17 +9,23 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5)
+# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5)
 
 # =============================================================================
 # Doctor Whodunit — KUKSA CAN Provider only
 #
 # Reduced stack: just the CAN provider and the databroker it writes to.
-# No vcan0 or kernel module needed — the provider replays a recorded trace.
+# No vcan0 or kernel module needed — the provider replays a recorded trace
+# onto a python-can virtual bus inside its own container.
 #
 #   docker compose up
 #
-# Flow: battery_temp.candump → kuksa-can-provider → kuksa-databroker
+# Flow: battery_temp.asc → kuksa-can-provider → kuksa-databroker
+#
+# can/vss_dbc.json serves two purposes: it is the VSS tree the databroker is
+# populated with, and the dbc2vss mapping the provider uses. Keeping it as a
+# single source of truth means the mapped signals cannot drift apart from the
+# signals the databroker knows.
 # =============================================================================
 
 services:
@@ -27,20 +33,22 @@ services:
   kuksa-databroker:
     image: ghcr.io/eclipse-kuksa/kuksa-databroker:main
     container_name: kuksa-databroker
-    command: ["--insecure"]
+    command: ["--insecure", "--address", "0.0.0.0", "--vss", "/vss/vss_dbc.json"]
     ports:
       - "55555:55555"
+    volumes:
+      - ./can:/vss:ro
     restart: unless-stopped
 
   kuksa-can-provider:
     image: ghcr.io/eclipse-kuksa/kuksa-can-provider/can-provider:main
     container_name: kuksa-can-provider
     environment:
-      KUKSA_ADDRESS: "kuksa-databroker"
-      KUKSA_PORT: "55555"
+      KUKSA_ADDRESS: "grpc://kuksa-databroker:55555"
       DBC_FILE: "/can/battery_temp.dbc"
       MAPPING_FILE: "/can/vss_dbc.json"
       CANDUMP_FILE: "/can/battery_temp.asc"
+      LOG_LEVEL: "info"
     command: ["--dumpfile", "/can/battery_temp.asc", "--infinite"]
     volumes:
       - ./can:/can:ro
