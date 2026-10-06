@@ -34,6 +34,7 @@
 C4Context
     title Container overview
         Container_Boundary(c1, "OTA Outlaws SW") {
+    
             Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
 
             Container(sg, "Scenario Generator", "Rust", "Generates a sample fault scenario")
@@ -52,6 +53,7 @@ C4Context
         Rel(btg, OpenSOVDServer, "Write SOVD Log", "TBD")
         Rel(evc, OpenSOVDServer, "Read logs", "TBD")
         Rel(sg, kp, "inflict fault", "TBD")
+        Rel(tempsens, kp, "Provide temperature value", "TBD")
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
 ```
 
