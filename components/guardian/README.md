@@ -17,7 +17,7 @@ The deterministic safety core of the Battery Thermal Guardian, written in Rust.
 It has no I/O: adapters feed it samples and publish its events.
 
 - Requirements: [Safety Concept](../../docs/explanation/safety-concept.md)
-- Design: [Guardian Architecture](../../docs/explanation/guardian-architecture.md)
+- Design: [Battery Thermal Guardian](../../docs/reference/components/battery-thermal-guardian.md)
 - Parameters: [`config/guardian/safety-params.toml`](../../config/guardian/safety-params.toml)
 
 ## Build and test
