@@ -56,7 +56,7 @@ C4Context
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
-            Container(evc, "Evidence Collector", "Rust", "Collects evidence of faults and creates a log")
+            Container(evc, "Evidence Collector", "Python", "Collects evidence of faults and creates a log")
         }
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
 
