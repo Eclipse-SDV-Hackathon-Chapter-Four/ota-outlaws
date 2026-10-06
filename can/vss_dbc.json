@@ -53,6 +53,7 @@
               "BMS": {
                 "type": "branch",
                 "description": "Project-private extension, not part of the VSS standard catalogue. Carries the housekeeping signals of CAN frame BMS_MSG1 (0x500) that the Guardian needs to tell a trustworthy reading from a stale or invalid one.",
+
                 "children": {
                   "SignalQuality": {
                     "datatype": "uint8",
