@@ -4,7 +4,7 @@
  C4Context
       title System context diagram
       Enterprise_Boundary(b0, "OTA-Outlaws") {
-        SystemDb_Ext(KUKSACanProvider, "KUKSA CAN Provider", "Converts CAN data to VSS")
+        System_Ext(KUKSACanProvider, "KUKSA CAN Provider", "Converts CAN data to VSS")
 
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores Data from the CAN")
 
@@ -22,15 +22,23 @@
 
 |Component Name|Code|Documentation|
 |---|---|---|
-
+|Temperature Sensor|||
+|Scenario Generator|||
+|KUKSA Proxy|||
+|Battery Thermal Guardian|||
+|Evidence Collector|||
+|KUKSA Data Broker|||
+|OpenSOVD Server|||
 
 ```mermaid
 C4Context
     title Container overview
         Container_Boundary(c1, "OTA Outlaws SW") {
+            Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
+
             Container(sg, "Scenario Generator", "Rust", "Generates a sample fault scenario")
 
-            Container(kp, "KUKSA-Proxy", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
+            Container(kp, "KUKSA Proxy", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
@@ -41,12 +49,13 @@ C4Context
         Rel(btg, kp, "Reads VSS data", "uProtocol")
         Rel(kp, KUKSADataBroker, "Reads data", "Custom API")
 
-        Rel(btg, OpenSOVDServer, "Write SOVD Log", "REST?")
-        Rel(evc, OpenSOVDServer, "Read logs", "REST?")
+        Rel(btg, OpenSOVDServer, "Write SOVD Log", "TBD")
+        Rel(evc, OpenSOVDServer, "Read logs", "TBD")
+        Rel(sg, kp, "inflict fault", "TBD")
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
 ```
 
-# Dynamic
+# Data Flow
 
 ```mermaid
 flowchart LR
@@ -75,6 +84,18 @@ flowchart LR
     SOVD --> COL
     COL --> REP
 ```
+
+# Deployment
+
+|Deployment Target|Component Name|
+|---|---|
+|MXCHIP|Temperature Sensor|
+|HPC|Scenario Generator|
+|HPC|KUKSA Data Broker|
+|HPC|KUKSA Proxy|
+|HPC|Battery Thermal Guardian|
+|HPC|OpenSOVD Server|
+|HPC|Evidence Collector|
 
 # Misc
 
