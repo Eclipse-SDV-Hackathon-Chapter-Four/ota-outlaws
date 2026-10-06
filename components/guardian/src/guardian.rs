@@ -18,8 +18,8 @@ use std::collections::BTreeSet;
 use crate::config::{GuardianConfig, ThermalConfig};
 use crate::detectors::{FreshnessMonitor, StuckDetector};
 use crate::model::{
-    Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Sample, SampleRef,
-    ThermalState,
+    Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,
+    SampleRef, ThermalState,
 };
 
 /// Battery Thermal Guardian core.
@@ -30,8 +30,8 @@ use crate::model::{
 /// events the adapters must publish. The same inputs always produce the same
 /// events.
 ///
-/// Implemented requirements: FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, and the
-/// Guardian side of FSR-D.1. Recovery (FSR-1.5, FSR-2.6) is not implemented:
+/// Implemented requirements: FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, FSR-2.9,
+/// FSR-3.8, and the Guardian side of FSR-D.1. Recovery (FSR-1.5, FSR-2.6) is not implemented:
 /// the thermal state is never lowered and DEGRADED is never left. Each scenario
 /// starts with a new Guardian (assumption A-4).
 #[derive(Debug, Clone)]
@@ -40,6 +40,9 @@ pub struct Guardian {
     thermal: ThermalState,
     monitoring: MonitoringStatus,
     last_fresh_sample: Option<SampleRef>,
+    /// A frame with a newer timestamp but an unchanged alive counter arrived
+    /// since the last fresh sample (FSR-2.9).
+    repeated_frame_since_fresh: bool,
     freshness: FreshnessMonitor,
     stuck: StuckDetector,
     active_faults: BTreeSet<FaultCode>,
@@ -53,6 +56,7 @@ impl Guardian {
             thermal: ThermalState::Clear,
             monitoring: MonitoringStatus::Ok,
             last_fresh_sample: None,
+            repeated_frame_since_fresh: false,
             freshness: FreshnessMonitor::new(&config.freshness),
             stuck: StuckDetector::new(&config.stuck),
             active_faults: BTreeSet::new(),
@@ -77,16 +81,26 @@ impl Guardian {
     /// Processes a received sample.
     ///
     /// Samples that are not fresh are ignored: repeated or older source
-    /// timestamps, and non-finite values. If only such samples arrive, FSR-2.2
-    /// detects the loss of fresh data.
+    /// timestamps, an unchanged alive counter, and non-finite values. If only
+    /// such samples arrive, FSR-2.2 or FSR-2.9 detects the loss of fresh data.
+    /// Fresh samples whose quality is not `Ok` are reported (FSR-3.8), but not
+    /// evaluated.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         if !self.is_fresh(&sample) {
+            if self.is_repeated_frame(&sample) {
+                self.repeated_frame_since_fresh = true;
+            }
             return events;
         }
         self.last_fresh_sample = Some(sample.reference());
+        self.repeated_frame_since_fresh = false;
         self.freshness.record_fresh_sample(now);
 
+        if sample.quality != Quality::Ok {
+            self.report_fault(FaultCode::QualityInvalid, now, &mut events);
+            return events;
+        }
         if self.stuck.observe(&sample, now) {
             self.report_fault(FaultCode::SignalStuck, now, &mut events);
         }
@@ -99,16 +113,31 @@ impl Guardian {
     pub fn on_tick(&mut self, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         if self.freshness.is_stale(now) {
-            self.report_fault(FaultCode::FreshnessLost, now, &mut events);
+            // FSR-2.9: frames still arrive, so the source repeats itself.
+            let fault = if self.repeated_frame_since_fresh {
+                FaultCode::CounterStuck
+            } else {
+                FaultCode::FreshnessLost
+            };
+            self.report_fault(fault, now, &mut events);
         }
         events
     }
 
     fn is_fresh(&self, sample: &Sample) -> bool {
-        let newer = self
-            .last_fresh_sample
-            .is_none_or(|last| sample.source_timestamp_ms > last.source_timestamp_ms);
-        newer && sample.has_finite_values()
+        let advanced = self.last_fresh_sample.is_none_or(|last| {
+            sample.source_timestamp_ms > last.source_timestamp_ms
+                && sample.alive_counter != last.alive_counter
+        });
+        advanced && sample.has_finite_values()
+    }
+
+    /// A newer frame that carries the alive counter of the last fresh sample.
+    fn is_repeated_frame(&self, sample: &Sample) -> bool {
+        self.last_fresh_sample.is_some_and(|last| {
+            sample.source_timestamp_ms > last.source_timestamp_ms
+                && sample.alive_counter == last.alive_counter
+        })
     }
 
     /// FSR-1.1 and FSR-1.2. The thermal state is only ever raised here, so it is

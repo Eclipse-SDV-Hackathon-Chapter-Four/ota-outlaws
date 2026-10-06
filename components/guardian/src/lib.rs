@@ -26,6 +26,6 @@ mod model;
 pub use config::{ConfigError, FreshnessConfig, GuardianConfig, StuckConfig, ThermalConfig};
 pub use guardian::Guardian;
 pub use model::{
-    Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Sample, SampleRef,
-    ThermalState,
+    Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,
+    SampleRef, ThermalState,
 };

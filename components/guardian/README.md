@@ -37,7 +37,7 @@ requirement they verify, for example `fsr_2_2_missing_samples_lead_to_degraded_w
 
 | Part | Status |
 |------|--------|
-| Core: FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, fault codes for FSR-D.1 | Implemented, unit-tested |
+| Core: FSR-1.1, FSR-1.2, FSR-2.2, FSR-2.4, FSR-2.5, FSR-2.9, FSR-3.8, fault codes for FSR-D.1 | Implemented, unit-tested |
 | uProtocol input and output adapters | Not implemented |
 | DFM adapter | Not implemented |
 | Executable | Not implemented |
