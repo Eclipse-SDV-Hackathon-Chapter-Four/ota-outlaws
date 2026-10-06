@@ -1,0 +1,38 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+# Safety parameters of the Battery Thermal Guardian.
+#
+# This file is the single source of truth for the values. Their meaning and
+# rationale are in the "Parameters" section of
+# docs/explanation/safety-concept.md. The values are proposals until they are
+# tuned with end-to-end measurements.
+
+[thermal]
+# θ_warn: WARNING threshold for the maximum cell temperature (FSR-1.1, SG-1).
+warn_c = 45.0
+# θ_crit: CRITICAL threshold for the maximum cell temperature (FSR-1.2, SG-1).
+critical_c = 55.0
+
+[freshness]
+# T_stale: no fresh sample for longer than this leads to DEGRADED (FSR-2.2, SG-2).
+# Three times the 100 ms signal cycle.
+stale_timeout_ms = 300
+
+[stuck]
+# T_stuck: maximum time the maximum may stay frozen while other signals change
+# (FSR-2.4, SG-2).
+timeout_ms = 3000
+# Δ_stuck: minimum change of the average or minimum that makes a frozen maximum
+# suspicious (FSR-2.4, SG-2).
+min_reference_change_c = 1.0
