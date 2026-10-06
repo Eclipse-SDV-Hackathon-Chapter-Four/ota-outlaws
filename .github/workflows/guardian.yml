@@ -21,6 +21,9 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "guardian/**"
+      - "guardian-service/**"
+      - "contracts/**"
+      - "vss-publisher/**"
       - "config/guardian/**"
       - ".github/workflows/guardian.yml"
 
@@ -39,3 +42,6 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Test KUKSA Proxy
+        # Built on its own, with its own lockfile.
+        run: cargo test --locked --manifest-path vss-publisher/Cargo.toml

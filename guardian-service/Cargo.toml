@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+[package]
+name = "guardian-service"
+version = "0.1.0"
+description = "Battery Thermal Guardian executable: connects the Guardian core to uProtocol"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "guardian"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+guardian = { version = "0.1.0", path = "../guardian" }
+prost = "0.12"
+thermal-contract = { version = "0.1.0", path = "../contracts" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+up-rust = "0.9"
+up-transport-zenoh = "0.9"
+zenoh = { version = "1", features = ["unstable"] }

@@ -40,11 +40,18 @@ The Guardian is split into a **core** that contains all safety logic and
 
 | Part | Status | Responsibility |
 |------|--------|----------------|
-| Core (`guardian`) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
-| Input adapter | Not implemented | Subscribe over uProtocol, decode the Protobuf payload, call the core |
-| Tick | Not implemented | Call the core every 50 ms, so that missing samples are detected |
-| Output adapter | Not implemented | Publish state, fault, and mitigation events over uProtocol |
+| Core ([`guardian`](../../../guardian)) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
+| Input adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Subscribe to `BatteryTemperature` over uProtocol, decode the Protobuf payload, call the core |
+| Tick ([`guardian-service`](../../../guardian-service)) | **Implemented** | Call the core every 50 ms, so that missing samples are detected |
+| Output adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Publish every core event as a `GuardianEvent` over uProtocol |
 | DFM adapter | Not implemented | Write fault events to the DFM without blocking the safety reaction (FSR-D.1) |
+
+The messages and topics are defined in the
+[Battery Thermal Contract](../../../contracts/README.md). A payload the Guardian
+cannot decode is rejected before it reaches the core; if only such payloads
+arrive, the core reports the loss of fresh data. An unknown quality value is
+passed to the core as `UNDEFINED`, so the core reports it instead of using the
+value.
 
 ### Why this split
 
