@@ -101,14 +101,15 @@ flowchart LR
 
 # Misc
 
-## Can Messages
-|Field Name|Datatype|Range|
-|---|---|---|
-|CellTempMax|0-7|`uint8`|0...255|
-|CellTempMin|8-15|`uint8`|0...255|
-|CellTempAvg|16-23|`uint8`|0...255|
-|Quality|24-25|`enum`|0...2|
-|Counter|26-34|`uint8`|0...255|
+## Can Signals
+
+| Field Name | Bits | Datatype | Range | Unit |
+|---|---|---|---|---|
+| CellTempMax | 0-7 | `uint8` | 0...255 | °C |
+| CellTempMin | 8-15 | `uint8` | 0...255 | °C |
+| CellTempAvg | 16-23 | `uint8` | 0...255 | °C |
+| Quality | 24-25 | `enum` | 0...2 | – |
+| Counter | 26-34 | `uint8` | 0...255 | – |
 
 
 ## Quality Enum
