@@ -37,7 +37,7 @@ SPDX-License-Identifier: EPL-2.0
 |---|---|---|
 |Temperature Sensor|||
 |Scenario Generator|||
-|KUKSA Proxy|||
+|VSS Publisher|||
 |Battery Thermal Guardian|||
 |Evidence Collector|||
 |KUKSA Data Broker|||
@@ -52,7 +52,7 @@ C4Context
 
             Container(sg, "Scenario Generator", "Rust", "Generates a sample fault scenario")
 
-            Container(kp, "KUKSA Proxy", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
+            Container(vsspub, "VSS Publisher", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
@@ -60,13 +60,13 @@ C4Context
         }
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
 
-        Rel(btg, kp, "Reads VSS data", "uProtocol")
-        Rel(kp, KUKSADataBroker, "Reads data", "Custom API")
+        Rel(btg, vsspub, "Reads VSS data", "uProtocol")
+        Rel(vsspub, KUKSADataBroker, "Reads data", "Custom API")
 
         Rel(btg, OpenSOVDServer, "Write SOVD Log", "TBD")
         Rel(evc, OpenSOVDServer, "Read logs", "TBD")
-        Rel(sg, kp, "inflict fault", "TBD")
-        Rel(tempsens, kp, "Provide temperature value", "TBD")
+        Rel(sg, vsspub, "inflict fault", "TBD")
+        Rel(tempsens, vsspub, "Provide temperature value", "TBD")
         SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
 ```
 
@@ -82,7 +82,7 @@ whether the reaction was correct.
 | Purpose | Warn the occupants | Explain what happened and judge the reaction |
 | Exists in a real vehicle | Yes | No, it is test infrastructure |
 | Timing | Real time, within milliseconds | After the fact |
-| What it sees | Only its own uProtocol input | Several tap points (Data Broker, KUKSA Proxy output, Guardian input), Guardian events, OpenSOVD, and the scenario manifest |
+| What it sees | Only its own uProtocol input | Several tap points (Data Broker, VSS Publisher output, Guardian input), Guardian events, OpenSOVD, and the scenario manifest |
 | Clock | Its own; cannot compare times across hosts | One clock for all its tap points |
 | Knows about scenarios | No; it behaves the same with or without a test | Yes: run ID, injected faults, expected reactions |
 | If it fails | Hazard: the occupants are not warned | Missing evidence: the verdict is INCONCLUSIVE |
@@ -97,7 +97,7 @@ Guardian. If it explains what happened, it belongs in the Evidence Collector.
 | Loss of fresh data, stuck values, implausible values | Guardian |
 | Writing faults to the DFM | Guardian |
 | Guardian heartbeat | Guardian publishes it; the mitigation consumer monitors it, because a dead Guardian must be noticed in a real vehicle too |
-| Attributing a data loss to source, KUKSA Proxy, or transport | Evidence Collector |
+| Attributing a data loss to source, VSS Publisher, or transport | Evidence Collector |
 | Diagnosing duplicated, reordered, or missing messages by sequence number | Evidence Collector; the Guardian only ignores samples that are not fresh |
 | Measuring delays and detection latencies | Evidence Collector |
 | Checking that faults are visible through OpenSOVD | Evidence Collector |
@@ -152,7 +152,7 @@ flowchart LR
 |MXCHIP|Temperature Sensor|
 |HPC|Scenario Generator|
 |HPC|KUKSA Data Broker|
-|HPC|KUKSA Proxy|
+|HPC|VSS Publisher|
 |HPC|Battery Thermal Guardian|
 |HPC|OpenSOVD Server|
 |HPC|Evidence Collector|
