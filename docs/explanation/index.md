@@ -15,5 +15,3 @@ SPDX-License-Identifier: EPL-2.0
 
 - [Safety Concept](safety-concept.md): hazards, safety goals, and functional
   safety requirements of the Battery Thermal Guardian
-- [Guardian Architecture](guardian-architecture.md): how the Guardian is split
-  into a deterministic core and adapters

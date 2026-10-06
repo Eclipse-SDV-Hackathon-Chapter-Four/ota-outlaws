@@ -15,8 +15,8 @@
 //!
 //! A deterministic, I/O-free implementation of the Guardian's safety behavior.
 //! The requirements it implements are defined in
-//! `docs/explanation/safety-concept.md`; the architecture is described in
-//! `docs/explanation/guardian-architecture.md`.
+//! `docs/explanation/safety-concept.md`; the design is described in
+//! `docs/reference/components/battery-thermal-guardian.md`.
 
 mod config;
 mod detectors;
