@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5)
+
+# =============================================================================
+# Doctor Whodunit — KUKSA CAN Provider only
+#
+# Reduced stack: just the CAN provider and the databroker it writes to.
+# No vcan0 or kernel module needed — the provider replays a recorded trace.
+#
+#   docker compose up
+#
+# Flow: battery_temp.candump → kuksa-can-provider → kuksa-databroker
+# =============================================================================
+
+services:
+
+  kuksa-databroker:
+    image: ghcr.io/eclipse-kuksa/kuksa-databroker:main
+    container_name: kuksa-databroker
+    command: ["--insecure"]
+    ports:
+      - "55555:55555"
+    restart: unless-stopped
+
+  kuksa-can-provider:
+    image: ghcr.io/eclipse-kuksa/kuksa-can-provider/can-provider:main
+    container_name: kuksa-can-provider
+    environment:
+      KUKSA_ADDRESS: "kuksa-databroker"
+      KUKSA_PORT: "55555"
+      DBC_FILE: "/can/battery_temp.dbc"
+      MAPPING_FILE: "/can/vss_dbc.json"
+      CANDUMP_FILE: "/can/battery_temp.asc"
+    command: ["--dumpfile", "/can/battery_temp.asc", "--infinite"]
+    volumes:
+      - ./can:/can:ro
+    restart: unless-stopped
+    depends_on:
+      - kuksa-databroker
