@@ -80,6 +80,27 @@ This goal is not a safety goal, but the challenge's Definition of Done requires 
 |----|-----------------|
 | DG-1 | Every detected fault shall be traceable in the vehicle diagnostics, linked to the fault that caused it. |
 
+## Test roles
+
+Two roles take part in every fault campaign. One acts on the system, the other
+only observes it.
+
+| Role | What it does | Who fills it |
+|------|--------------|--------------|
+| **Campaign runner** | Executes a campaign. It prepares the system (for example, starts a fresh Guardian, see A-4), starts the temperature source, injects the faults the campaign defines, and logs what it injected and when, under a run ID. | At first a **person** who follows the written campaign procedure. Later an **automation script** that executes the same procedure, and finally a **remote trigger** (openDUT) for remote reruns. |
+| **Evidence collector** | Observes the Guardian's input (the tap point), all Guardian outputs, and OpenSOVD. It measures latencies, checks the expected reactions, and writes the verdict report. It never influences the system. | Always an automated component. |
+
+The two roles stay separate, so that the one who injects a fault never judges
+its own claims. The collector takes the fault onset from its own observation,
+not from the runner's log (see [Timing reference](#timing-reference)). This also
+means that a person can act as the campaign runner: imprecise manual timing does
+not affect the measured latencies.
+
+A manual run still has to follow a written campaign, and the collector has to
+record it. The challenge rejects one-off manual runs, because they cannot be
+replayed. Writing every campaign down from the start lets an automation script
+take over the procedure unchanged.
+
 ## Assumptions
 
 The Guardian's safety behavior relies on these properties of other components.
