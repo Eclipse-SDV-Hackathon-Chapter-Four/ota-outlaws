@@ -9,12 +9,12 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5)
+# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 # =============================================================================
-# Doctor Whodunit — KUKSA CAN Provider only
+# Doctor Whodunit — KUKSA replay and DFM/OpenSOVD diagnostics
 #
-# Reduced stack: just the CAN provider and the databroker it writes to.
+# Diagnostics use shared iceoryx2 IPC; see README for the reporting contract.
 # No vcan0 or kernel module needed — the provider replays a recorded trace
 # onto a python-can virtual bus inside its own container.
 #
@@ -35,7 +35,7 @@ services:
     container_name: kuksa-databroker
     command: ["--insecure", "--address", "0.0.0.0", "--vss", "/vss/vss_dbc.json"]
     ports:
-      - "55555:55555"
+      - "${KUKSA_HOST_PORT:-55556}:55555"
     volumes:
       - ./can:/vss:ro
     restart: unless-stopped
@@ -55,3 +55,43 @@ services:
     restart: unless-stopped
     depends_on:
       - kuksa-databroker
+
+  opensovd-dfm:
+    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
+    pull_policy: never
+    entrypoint: ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/dfm_bin"]
+    command: ["--catalog-dir", "/catalog", "--storage-dir", "/data"]
+    tmpfs: [/tmp]
+    ipc: shareable
+    shm_size: 128mb
+    volumes:
+      - ./diagnostics/catalog:/catalog:ro
+      - dfm-storage:/data
+      - ./diagnostics/entrypoint.sh:/diagnostics-entrypoint.sh:ro
+    restart: unless-stopped
+
+  opensovd-gateway:
+    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
+    pull_policy: never
+    entrypoint: ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/opensovd-gateway"]
+    command: ["--url", "http://0.0.0.0:7690/sovd", "--dfm-fault-app", "battery_guardian"]
+    tmpfs: [/tmp]
+    ipc: "service:opensovd-dfm"
+    volumes:
+      - ./diagnostics/entrypoint.sh:/diagnostics-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:${SOVD_PORT:-7690}:7690"
+    depends_on:
+      opensovd-dfm:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7690/sovd/v1/apps/battery_guardian/faults"]
+      interval: 5m
+      start_interval: 2s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  dfm-storage:
