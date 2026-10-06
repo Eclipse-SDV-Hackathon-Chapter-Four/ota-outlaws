@@ -1,0 +1,64 @@
+// Copyright (c) 2026 Contributors to the Eclipse Foundation
+//
+// See the NOTICE file(s) distributed with this work for additional
+// information regarding copyright ownership.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0
+//
+// SPDX-License-Identifier: EPL-2.0
+
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+// For format details, see https://aka.ms/devcontainer.json
+{
+    "name": "ota-outlaws",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        // Own Docker daemon inside the container, so relative bind mounts in
+        // docker-compose.yml (e.g. ./can) resolve against the workspace.
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.12"
+        }
+    },
+    "forwardPorts": [
+        55555
+    ],
+    "portsAttributes": {
+        "55555": {
+            "label": "KUKSA Data Broker"
+        }
+    },
+    "mounts": [
+        // Keep the cargo registry cache across container rebuilds.
+        "source=ota-outlaws-cargo-registry,target=/usr/local/cargo/registry,type=volume"
+    ],
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "files.watcherExclude": {
+                    "**/target/**": true
+                },
+                "rust-analyzer.check.command": "clippy"
+            },
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "vadimcn.vscode-lldb",
+                "tamasfe.even-better-toml",
+                "ms-python.python",
+                "zxh404.vscode-proto3",
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-containers",
+                "timonwong.shellcheck",
+                "bierner.markdown-mermaid",
+                "davidanson.vscode-markdownlint"
+            ]
+        }
+    },
+    "remoteUser": "vscode"
+}
