@@ -1,0 +1,71 @@
+{
+  "Vehicle": {
+    "type": "branch",
+    "children": {
+      "Powertrain": {
+        "type": "branch",
+        "children": {
+          "TractionBattery": {
+            "type": "branch",
+            "children": {
+              "Temperature": {
+                "type": "branch",
+                "children": {
+                  "Average": {
+                    "datatype": "float",
+                    "type": "sensor",
+                    "description": "Average cell temperature across pack",
+                    "unit": "celsius",
+                    "dbc2vss": {
+                      "signal": "CellTempAvg",
+                      "interval_ms": 100,
+                      "on_change": false
+                    }
+                  },
+                  "Max": {
+                    "datatype": "float",
+                    "type": "sensor",
+                    "description": "Maximum cell temperature (hottest cell)",
+                    "unit": "celsius",
+                    "dbc2vss": {
+                      "signal": "CellTempMax",
+                      "interval_ms": 100,
+                      "on_change": false
+                    }
+                  },
+                  "Min": {
+                    "datatype": "float",
+                    "type": "sensor",
+                    "description": "Minimum cell temperature (coldest cell)",
+                    "unit": "celsius",
+                    "dbc2vss": {
+                      "signal": "CellTempMin",
+                      "interval_ms": 100,
+                      "on_change": false
+                    }
+                  }
+                }
+              },
+              "StateOfCharge": {
+                "type": "branch",
+                "children": {
+                  "Current": {
+                    "datatype": "float",
+                    "type": "sensor",
+                    "description": "Battery state of charge percentage",
+                    "unit": "percent",
+                    "dbc2vss": {
+                      "signal": "StateOfCharge",
+                      "interval_ms": 100,
+                      "on_change": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
