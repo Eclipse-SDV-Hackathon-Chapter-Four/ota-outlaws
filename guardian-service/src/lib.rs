@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Adapters around the Guardian core: uProtocol input, tick, and uProtocol
 //! output. The design is described in
@@ -18,3 +18,5 @@
 pub mod convert;
 pub mod runtime;
 pub mod transport;
+
+pub mod diagnostics;

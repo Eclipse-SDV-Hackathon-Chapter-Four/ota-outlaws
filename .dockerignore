@@ -8,6 +8,10 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 .git
 **/target
+
+diagnostics/reports
+diagnostic-source

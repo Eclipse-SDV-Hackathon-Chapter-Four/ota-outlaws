@@ -35,13 +35,29 @@ requirement they verify, for example `fsr_2_2_missing_samples_lead_to_degraded_w
 
 ## Status
 
-The core is implemented and unit-tested; the adapters and the executable are not
-implemented yet. Details:
+The core, uProtocol adapter, executable, and DFM/OpenSOVD diagnostics are implemented and tested.
+Recovery requires at least ten consecutive fresh, valid, healthy samples over at
+least one second. Each input fault emits `FaultRecovered`, and monitoring returns
+to OK only after all active faults recover. A stuck maximum must move again.
+Thermal recovery uses 2 °C hysteresis: Critical → Warning below 53 °C, then
+Warning → Monitoring below 43 °C, each with its own recovery period and only
+while monitoring is OK. Invalid, repeated, missing or stuck input interrupts
+recovery. Escalation remains immediate. Details:
 
 - Parts: [Battery Thermal Guardian](../docs/reference/components/battery-thermal-guardian.md#core-and-adapters)
 - Requirements: status column of the [Safety Concept](../docs/explanation/safety-concept.md#functional-safety-requirements)
+
+After startup, monitors remain NotTested until sustained healthy input produces
+`FaultTestPassed`. This also clears a previous session's current DFM failure
+without deleting its history or inventing a detection cause in the new session.
+The first stuck-signal monitor test observes more than the configured three-second
+stuck interval. Subsequent detected faults recover through `FaultRecovered`.
+Only `testFailed` clearing is required; historical confirmation and warning bits
+follow DFM's lifecycle/reset policy.
 
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
 **Claude Opus 5.5** (`claude-opus-5-5`).
+
+Recovery behavior was added with assistance from **Codex** using **GPT-6.1 Sol** (`gpt-6.1-sol`).

@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Runs the Guardian core: feeds it received samples and ticks, and publishes
 //! its events.
@@ -26,7 +26,8 @@ use tokio::time::MissedTickBehavior;
 use tracing::{info, warn};
 use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UTransport};
 
-use crate::convert::{decode_sample, encode_event};
+use crate::convert::{decode_sample, encode_event_for_session};
+use crate::diagnostics::Diagnostics;
 use crate::transport::uri;
 
 /// How often the core checks time-based conditions, such as missing samples.
@@ -46,6 +47,19 @@ pub async fn run(
     config: &GuardianConfig,
     shutdown: impl Future<Output = ()>,
 ) -> anyhow::Result<()> {
+    run_with_diagnostics(transport, config, None, shutdown).await
+}
+
+pub async fn run_with_diagnostics(
+    transport: Arc<dyn UTransport>,
+    config: &GuardianConfig,
+    diagnostics: Option<Diagnostics>,
+    shutdown: impl Future<Output = ()>,
+) -> anyhow::Result<()> {
+    let session_id = diagnostics
+        .as_ref()
+        .map(|d| d.session_id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let (samples_tx, mut samples_rx) = mpsc::channel(SAMPLE_QUEUE);
     let source = uri(BATTERY_TEMPERATURE);
     let listener: Arc<dyn UListener> = Arc::new(SampleListener {
@@ -62,6 +76,7 @@ pub async fn run(
     let mut guardian = Guardian::new(config);
     let publisher = EventPublisher {
         transport: transport.clone(),
+        session_id,
     };
     let started = Instant::now();
     let now = || Millis(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
@@ -77,6 +92,9 @@ pub async fn run(
             Some(sample) = samples_rx.recv() => guardian.on_sample(sample, now()),
         };
         for event in &events {
+            if let Some(diagnostics) = &diagnostics {
+                diagnostics.report(event);
+            }
             publisher.publish(event).await;
         }
     }
@@ -111,6 +129,7 @@ impl UListener for SampleListener {
 
 struct EventPublisher {
     transport: Arc<dyn UTransport>,
+    session_id: String,
 }
 
 impl EventPublisher {
@@ -119,13 +138,16 @@ impl EventPublisher {
     async fn publish(&self, event: &Event) {
         info!(id = event.id.0, cause = ?event.cause.map(|c| c.0), at_ms = event.at.0, kind = ?event.kind, "guardian event");
         let message = UMessageBuilder::publish(uri(GUARDIAN_EVENTS)).build_with_payload(
-            encode_event(event),
+            encode_event_for_session(event, &self.session_id),
             UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF,
         );
         match message {
             Ok(message) => {
-                if let Err(status) = self.transport.send(message).await {
-                    warn!(?status, id = event.id.0, "cannot publish guardian event");
+                match tokio::time::timeout(Duration::from_millis(100), self.transport.send(message))
+                    .await
+                {
+                    Ok(Ok(())) => {}
+                    result => warn!(?result, id = event.id.0, "cannot publish guardian event"),
                 }
             }
             Err(error) => warn!(%error, id = event.id.0, "cannot build guardian event message"),

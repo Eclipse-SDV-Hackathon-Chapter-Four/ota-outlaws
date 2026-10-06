@@ -87,12 +87,19 @@ services:
       dockerfile: guardian-service/Containerfile
     image: ota-outlaws/guardian:dev
     container_name: guardian
+    tmpfs: [/tmp]
+    ipc: "service:opensovd-dfm"
+    volumes:
+      - ./diagnostics/catalog:/etc/guardian/catalog:ro
     environment:
       ZENOH_CONNECT: "tcp/zenoh:7447"
+      SOVD_URL: "http://opensovd-gateway:7690/sovd/v1"
+      SOVD_ENTITY: battery_guardian
       RUST_LOG: "info"
     restart: unless-stopped
     depends_on:
       - zenoh
+      - opensovd-dfm
 
   opensovd-dfm:
     image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}

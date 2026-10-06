@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Requirement tests for the Guardian core.
 //!
@@ -541,7 +541,7 @@ fn fsr_2_5_degraded_during_warning_keeps_warning() {
     run.advance(1_000);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
     // Data comes back with a low temperature.
-    run.samples(20, 30.0, 28.0, 26.0);
+    run.samples(8, 30.0, 28.0, 26.0);
 
     assert_eq!(run.thermal(), ThermalState::Warning);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
@@ -553,7 +553,7 @@ fn fsr_2_5_degraded_during_critical_keeps_critical() {
     run.samples(5, 60.0, 45.0, 40.0);
 
     run.advance(1_000);
-    run.samples(20, 30.0, 28.0, 26.0);
+    run.samples(8, 30.0, 28.0, 26.0);
 
     assert_eq!(run.thermal(), ThermalState::Critical);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
@@ -788,4 +788,162 @@ fn config_rejects_unknown_parameters() {
     let text = format!("{SHIPPED_CONFIG}\n[unknown]\nvalue = 1\n");
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn recovery_thermal_requires_hysteresis_and_sustained_valid_data() {
+    let mut run = Run::new();
+    run.sample(60.0, 40.0, 30.0);
+    run.samples(30, 53.0, 40.0, 30.0); // Boundary is not below hysteresis.
+    assert_eq!(run.thermal(), ThermalState::Critical);
+    run.samples(10, 52.0, 40.0, 30.0);
+    assert_eq!(run.thermal(), ThermalState::Critical);
+    run.sample(52.0, 40.0, 30.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    run.samples(30, 43.0, 30.0, 25.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    run.samples(11, 42.0, 30.0, 25.0);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    run.sample(55.0, 40.0, 30.0); // Escalation remains immediate.
+    assert_eq!(run.thermal(), ThermalState::Critical);
+}
+
+#[test]
+fn recovery_fault_cause_chain_and_recurrence() {
+    let mut run = Run::new();
+    run.sample(40.0, 30.0, 25.0).advance(400);
+    run.samples(10, 40.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    run.sample(40.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.guardian.active_faults().count(), 0);
+    let recovered = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::FaultRecovered {
+                    fault: FaultCode::FreshnessLost,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    assert!(run.events.iter().any(|e| Some(e.id) == recovered.cause
+        && matches!(
+            e.kind,
+            EventKind::FaultDetected {
+                fault: FaultCode::FreshnessLost,
+                ..
+            }
+        )));
+    assert!(run.events.iter().any(|e| e.cause == Some(recovered.id)
+        && matches!(
+            e.kind,
+            EventKind::MonitoringStatusChanged {
+                to: MonitoringStatus::Ok,
+                ..
+            }
+        )));
+    run.advance(400);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(
+        run.events
+            .iter()
+            .filter(|e| matches!(
+                e.kind,
+                EventKind::FaultDetected {
+                    fault: FaultCode::FreshnessLost,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn recovery_invalid_duplicate_and_gaps_break_healthy_window() {
+    let mut run = Run::new();
+    run.sample(50.0, 35.0, 30.0).advance(400);
+    run.samples(8, 40.0, 30.0, 25.0);
+    run.frame(run.alive_counter.wrapping_add(1), Quality::Invalid, 40.0);
+    run.samples(8, 40.0, 30.0, 25.0);
+    run.frame(run.alive_counter, Quality::Valid, 40.0);
+    run.samples(8, 40.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    // No tick is needed to break recovery across a long gap.
+    run.now += 400;
+    run.deliver(run.now + SOURCE_CLOCK_OFFSET_MS, 40.0, 30.0, 25.0);
+    run.samples(8, 40.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    run.samples(3, 40.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.guardian.active_faults().count(), 0);
+}
+
+#[test]
+fn recovery_stuck_max_requires_movement_and_all_faults_clear_before_ok() {
+    let mut run = Run::new();
+    run.sample(40.0, 30.0, 25.0);
+    run.samples(35, 40.0, 33.0, 25.0);
+    assert!(run
+        .guardian
+        .active_faults()
+        .any(|f| f == FaultCode::SignalStuck));
+    run.advance(400); // Also freshness lost.
+    run.samples(20, 40.0, 30.0, 25.0); // References return; maximum still frozen.
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(
+        run.guardian.active_faults().collect::<Vec<_>>(),
+        vec![FaultCode::SignalStuck]
+    );
+    run.samples(11, 41.0, 30.0, 25.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.guardian.active_faults().count(), 0);
+}
+
+#[test]
+fn recovery_rejects_unsafe_configuration() {
+    let mut c = config();
+    c.recovery.hysteresis_c = f32::NAN;
+    assert!(c.validate().is_err());
+    c.recovery.hysteresis_c = 2.0;
+    c.recovery.valid_samples = 1;
+    assert!(c.validate().is_err());
+    c.recovery.valid_samples = 10;
+    c.recovery.min_duration_ms = 0;
+    assert!(c.validate().is_err());
+}
+
+#[test]
+fn recovery_initial_monitor_tests_require_observation_before_pass() {
+    let mut run = Run::new();
+    run.samples(10, 35.0, 30.0, 25.0);
+    assert!(!run
+        .events
+        .iter()
+        .any(|e| matches!(e.kind, EventKind::FaultTestPassed { .. })));
+    run.sample(35.0, 30.0, 25.0);
+    assert_eq!(
+        run.events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
+            .count(),
+        3
+    );
+    run.samples(21, 35.0, 30.0, 25.0);
+    assert_eq!(
+        run.events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
+            .count(),
+        4
+    );
+    assert!(!run
+        .events
+        .iter()
+        .any(|e| matches!(e.kind, EventKind::FaultRecovered { .. })));
 }

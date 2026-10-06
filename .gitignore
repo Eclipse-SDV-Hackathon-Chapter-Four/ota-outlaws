@@ -8,7 +8,11 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 /start
 # Cargo build output at any level, including vss-publisher/target.
 target/
+
+# Reproducible campaign results are preserved locally and uploaded by CI.
+diagnostics/reports/

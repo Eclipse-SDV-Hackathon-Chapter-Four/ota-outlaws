@@ -9,12 +9,13 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 # Battery Thermal Guardian. Build from the repository root:
 #   docker build -f guardian-service/Containerfile .
 
-FROM docker.io/library/rust:1-bookworm AS build
+FROM docker.io/library/rust:1-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends clang libclang-dev cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -24,6 +25,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM docker.io/library/debian:bookworm-slim
 COPY --from=build /usr/local/bin/guardian /usr/local/bin/guardian
+COPY diagnostics/entrypoint.sh /diagnostics-entrypoint.sh
+COPY diagnostics/catalog /etc/guardian/catalog
 COPY config/guardian/safety-params.toml /etc/guardian/safety-params.toml
+ENV FAULT_CATALOG=/etc/guardian/catalog/battery_guardian.json
 ENV GUARDIAN_CONFIG=/etc/guardian/safety-params.toml
-ENTRYPOINT ["/usr/local/bin/guardian"]
+ENTRYPOINT ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/guardian"]
