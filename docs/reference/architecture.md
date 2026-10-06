@@ -112,9 +112,9 @@ flowchart LR
 
 
 ## Quality Enum
-
+```
 UNDEFINED = 0
 OK = 1
 INVALID = 2
-
+```
 ## Manifest Structure
