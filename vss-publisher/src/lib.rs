@@ -9,47 +9,34 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 //
-// AI-assisted: Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5)
+// AI-assisted: Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 //
 // Derived from Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit,
 // branch example-first-steps, demo/services/src/{lib.rs,bin/vss_bridge.rs}.
 
-//! Event type, topic URI and uProtocol transport helpers for the VSS publisher.
+//! Topic URI and uProtocol transport helpers for the VSS Publisher.
+//! The payload is defined in `contracts/battery_thermal.proto`.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use prost::Message;
 use up_rust::{
     LocalUriProvider, StaticUriProvider, UMessageBuilder, UPayloadFormat,
     UTransport, UUri,
 };
 use up_transport_zenoh::UPTransportZenoh;
 
-// =============================================================================
-// Resource IDs
-// =============================================================================
-
-pub const RID_BATTERY_TEMP_EVENT: u16 = 0x9001;
-
-// =============================================================================
-// Event type
-// =============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatteryTempEvent {
-    pub temp_max: f32,
-    pub temp_avg: f32,
-    pub temp_min: f32,
-    pub timestamp_ms: u64,
-}
+pub use thermal_contract::v1::{BatteryTemperature, Quality};
 
 // =============================================================================
 // URI builders
 // =============================================================================
 
 pub fn vss_battery_temp_uri() -> UUri {
-    UUri::try_from_parts("battery-vss", 0x9001, 0x01, RID_BATTERY_TEMP_EVENT).unwrap()
+    let topic = thermal_contract::BATTERY_TEMPERATURE;
+    UUri::try_from_parts(topic.authority, topic.ue_id, topic.ue_version_major, topic.resource_id)
+        .expect("topics in the contract are valid URIs")
 }
 
 // =============================================================================
@@ -88,18 +75,13 @@ pub async fn open_up_transport(
     Ok(transport)
 }
 
-pub async fn publish_json_event<T: Serialize>(
+pub async fn publish_temperature(
     transport: Arc<dyn UTransport>,
     topic: UUri,
-    data: &T,
+    temperature: &BatteryTemperature,
 ) -> Result<(), up_rust::UStatus> {
-    use up_rust::communication::UPayload;
-    let bytes = serde_json::to_vec(data)
-        .map_err(|e| up_rust::UStatus::fail_with_code(up_rust::UCode::INVALID_ARGUMENT, e.to_string()))?;
-    let payload = UPayload::new(bytes, UPayloadFormat::UPAYLOAD_FORMAT_JSON);
-    let fmt = payload.payload_format();
     let message = UMessageBuilder::publish(topic)
-        .build_with_payload(payload.payload(), fmt)
+        .build_with_payload(temperature.encode_to_vec(), UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF)
         .map_err(|e| up_rust::UStatus::fail_with_code(up_rust::UCode::INVALID_ARGUMENT, e.to_string()))?;
     transport.send(message).await
 }

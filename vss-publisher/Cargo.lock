@@ -3188,6 +3188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "thermal-contract"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "protoc-bin-vendored",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3854,8 +3863,8 @@ dependencies = [
  "async-trait",
  "prost",
  "prost-types",
- "serde",
- "serde_json",
+ "protoc-bin-vendored",
+ "thermal-contract",
  "tokio",
  "tokio-stream",
  "tonic",
