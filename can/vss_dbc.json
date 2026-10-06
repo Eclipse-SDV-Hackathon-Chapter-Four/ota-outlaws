@@ -1,15 +1,19 @@
 {
   "Vehicle": {
     "type": "branch",
+    "description": "High-level vehicle data.",
     "children": {
       "Powertrain": {
         "type": "branch",
+        "description": "Powertrain data for battery management, etc.",
         "children": {
           "TractionBattery": {
             "type": "branch",
+            "description": "Battery Management data.",
             "children": {
               "Temperature": {
                 "type": "branch",
+                "description": "Temperature Information for the battery pack.",
                 "children": {
                   "Average": {
                     "datatype": "float",
@@ -48,6 +52,7 @@
               },
               "StateOfCharge": {
                 "type": "branch",
+                "description": "Information on the state of charge of the vehicle's high voltage battery.",
                 "children": {
                   "Current": {
                     "datatype": "float",
