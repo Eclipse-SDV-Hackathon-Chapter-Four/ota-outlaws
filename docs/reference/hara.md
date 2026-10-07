@@ -190,7 +190,7 @@ safety objective; do not convert missing behavior into a passing test.
 
 **Stimulus:** Publish valid, in-range, steadily updated temperatures below warning thresholds with valid quality (0x80) and monotonic increasing counter.
 
-**Expected Result:** Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted.
+**Expected Result:** Initial thermal state is `CLEAR`. Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted.
 
 **Evidence and Verdict Focus**: Capture input/output stream, fail on unexpected fault or warning
 
