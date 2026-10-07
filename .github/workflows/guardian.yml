@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol); GitHub Copilot / GPT-6 Luna (GPT-6 Luna)
 
 name: Guardian
 
@@ -26,8 +26,10 @@ on:
       - "contracts/**"
       - "campaign/**"
       - "vss-publisher/**"
+      - "watchdog/**"
       - "config/guardian/**"
       - "diagnostics/**"
+      - "docs/**"
       - "docker-compose.yml"
       - ".github/workflows/guardian.yml"
       - ".github/workflows/diagnostics-image.yml"
@@ -37,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check documentation links and architecture claims
+        run: python3 docs/check_architecture.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

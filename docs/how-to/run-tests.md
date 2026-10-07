@@ -18,6 +18,7 @@ the first needs only Rust, the others need Docker.
 
 | Level | Command | Proves | Needs |
 |-------|---------|--------|-------|
+| 0. Documentation checks | `python3 docs/check_architecture.py` | local Markdown links and selected architecture claims resolve against the implementation | Python 3 |
 | 1. Unit and integration tests | `cargo test` | every component on its own, including the Guardian's requirements | Rust |
 | 2. Format and lint | `cargo fmt --all --check`<br>`cargo clippy --all-targets -- -D warnings` | code quality, as in CI | Rust |
 | 3. Fault campaigns | `cargo run -p campaign -- run --all` | the Guardian's reaction to real faults through the whole chain, with a verdict per scenario | Docker, diagnostics image |
@@ -121,3 +122,6 @@ inject the same fault.
 
 This document was created with the assistance of **Claude Code** using the model
 **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The documentation validation command was added with the assistance of
+**GitHub Copilot** using the model **GPT-6 Luna** (`GPT-6 Luna`).
