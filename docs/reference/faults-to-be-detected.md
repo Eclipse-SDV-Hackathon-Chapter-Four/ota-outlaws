@@ -78,12 +78,13 @@ the same style for faults that are not yet implemented.
 | Overtemperature Critical *(implemented)* | HE-1, HE-2, HE-3 | Hardware | Max cell temperature crossed the CRITICAL threshold (≥55°C) | Fatal | `DriverWarningOvertemp` | TS-02 |
 | Undertemperature | — | Hardware | Temperature drops below a safe charging/operating threshold (no dedicated threshold implemented yet) | Warn | `BlockCharging` | |
 | FreshnessLost *(implemented)* | F-4, F-9 | Communication | No fresh data arriving anymore | Error | `DriverWarningMonitoringUnavailable` | |
-| QualityInvalid *(implemented)* | F-11 | Communication | CAN source marks a fresh temperature sample as unusable | Error | `DriverWarningMonitoringUnavailable` | TS-13, TS-28 |
-| OutOfRange *(implemented)* | F-6, TS-11 | Configuration | Value outside the plausible range | Error | `DriverWarningMonitoringUnavailable` | |
-| RateImplausible *(implemented)* | F-8, TS-11 | Configuration | Rise faster than physically plausible | Error | `DriverWarningMonitoringUnavailable` | |
-| Isolated vs. Repeated Spike | F-8 | Configuration | Single occurrence sets SUSPECT, repeated sets DEGRADED | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` | |
+| QualityInvalid *(implemented)* | F-11 | Communication | CAN source marks a fresh temperature sample as unusable | Error | `DriverWarningMonitoringUnavailable` | TS-13, TS-19 |
+| OutOfRange *(implemented)* | F-6 | Configuration | One isolated value outside the plausible range; tested without another fault or repeated anomaly | Error | `DriverWarningMonitoringUnavailable` | TS-20, TS-21 |
+| RateImplausible *(implemented)* | F-8 | Configuration | One isolated temperature rise faster than physically plausible | Error | `DriverWarningMonitoringUnavailable` | TS-22 |
+| Isolated Spike | F-8 | Configuration | One isolated spike is discarded and sets SUSPECT | Warn | `DiscardSample` | TS-23 |
+| Repeated Spikes | F-13 | Configuration | `N_suspect` rate-implausible spikes within `T_suspect` escalate monitoring to DEGRADED | Error | `DriverWarningMonitoringUnavailable` | TS-24 |
 | Heartbeat Loss | F-10 | Timing | Guardian itself stops reporting | Fatal | `RestartGuardian` | |
-| Upper-Scale Saturation | — | Hardware | Sensor pegged at its limit rather than a plausible value | Error | `DriverWarningMonitoringUnavailable` | |
+| Upper-Scale Saturation | F-12 | Hardware | Sensor pegged at its limit rather than a plausible value | Error | `DriverWarningMonitoringUnavailable` | |
 
 ## AI Assistance
 
@@ -97,3 +98,6 @@ assistance of **Claude Code** using the model **Claude Sonnet 5**
 The implementation markers and the overtemperature DTCs were updated with the
 assistance of **Claude Code** using the model **Claude Opus 5.5**
 (`claude-opus-5-5`).
+
+The isolated/repeated spike entries and HARA mappings were updated with the
+assistance of **GitHub Copilot** using the model **GPT-6 Luna**.

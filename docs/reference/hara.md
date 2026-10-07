@@ -67,13 +67,14 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 | F-3 | Same message is delivered more than once | Transport | Guardian counts a retransmission as a new sample and distorts its trend |
 | F-4 | Expected update is dropped before reaching the Guardian (publisher/transport) | Transport | Guardian receives no new sample and may continue using cached data until its freshness timeout |
 | F-5 | Messages arrive out-of-order | Transport | Guardian derives an incorrect trend or state transition |
-| F-6 | Temperature is outside configured interval | Signal | Guardian accepts an implausible value and creates false positive or false negative warning |
+| F-6 | One isolated temperature sample is outside the configured interval; no repeated out-of-range samples or concurrent fault are injected | Signal | Guardian accepts an implausible value and creates a false positive or false negative warning, or fails to preserve a justified warning |
 | F-7 | Temperature drifts over time | Signal | Guardian's estimated thermal state or trend is incorrect |
-| F-8 | Temperature has an implausible spike | Signal | Guardian misses to issue an unjustified warning/mitigation request |
+| F-8 | One isolated temperature spike exceeds the configured rate plausibility limit; no repeated spike or concurrent fault is injected | Signal | Guardian misses to issue a justified warning or issues an unjustified warning/mitigation request |
 | F-9 | Source disconnects or replay stops | Source/Transport | Guardian fails to identify loss of connection |
 | F-10 | Guardian process terminates or its evaluation loop hangs/stops making progress | Application | Guardian stops evaluating temperature and publishing safety events/heartbeat; termination and hang are separate injection variants |
 | F-11 | CAN source marks a fresh temperature frame `INVALID` (`0x00`) or `ERROR_NOT_AVAILABLE` (`0xFF`) | Source/Signal | Guardian fails to reject the sample, mark monitoring unavailable, or report the quality fault; invalid temperature data may be treated as trustworthy or its loss may go unnoticed |
 | F-12 | Temperature signal saturates at the upper representable value (255 °C) | Signal/Source | Guardian cannot distinguish sensor saturation from a genuinely extreme temperature; failure to apply high out-of-range handling could produce an unsafe assessment, while a conservative warning may be spurious if actual temperature is lower |
+| F-13 | Repeated temperature spikes exceed the configured rate plausibility limit within the suspect window | Signal | Guardian fails to escalate persistently implausible input, silently loses trustworthy thermal monitoring, or treats repeated invalid samples as grounds for an unsafe overtemperature mitigation |
 
 > NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility should be tracked separately as evidence-chain faults. They test whether a scenario is observable and its verdict is supportable; they are not temperature-input malfunctions by themselves.
 
@@ -95,12 +96,12 @@ The events below group faults by the unsafe outcome they can produce, rather tha
 
 | ID | Malfunctioning behavior and related faults | Operational situation | Hazardous event and potential harm | S | E | C | ASIL |
 |---|---|---|---|---|---|---|---|
-| HE-1 | Guardian misses or delays detection because it accepts stale samples (F-1), samples arriving after the warning deadline (F-2), accepts duplicated samples (F-3), continues using data after an upstream omitted update (F-4), derives a misleading trend from reordered samples (F-5), accepts a low out-of-range value (F-6), accepts a downward temperature drift or spike (F-7, F-8), fails to detect source loss (F-9), stops evaluating and publishing safety events after process termination or hang (F-10), treats invalid source quality as trustworthy or fails to report monitoring loss (F-11)). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | Battery fire or smoke develops before occupants receive a usable warning and can stop in a safe place or evacuate; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
-| HE-2 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10) | OS-2: Occupied vehicle manoeuvring at low speed near other vehicles or pedestrians | Battery fire or smoke develops before occupants can safely stop or move away; occupants or nearby people may be exposed to smoke or heat while the vehicle is manoeuvring. | S3 | - | - | ASIL-D |
-| HE-3 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10). | OS-3: Vehicle parked or charging with occupants in or immediately beside it | Battery fire or smoke develops before occupants receive a usable warning and can leave the vehicle or nearby area; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
-| HE-4 | Guardian issues an unintended mitigation request because it counts a duplicate as a new sample (F-3), accepts a high out-of-range value (F-6), or treats a high spike as valid/critical (F-8). | OS-1: Occupied vehicle moving in road traffic | The unintended request changes vehicle response or interrupts propulsion, preventing the driver from maintaining a safe trajectory and creating a collision risk for occupants or other road users. | S3 | - | - | ASIL-D |
+| HE-1 | Guardian misses or delays detection because it accepts stale samples (F-1), samples arriving after the warning deadline (F-2), accepts duplicated samples (F-3), continues using data after an upstream omitted update (F-4), derives a misleading trend from reordered samples (F-5), accepts an isolated low out-of-range sample (F-6), accepts a downward temperature drift or isolated spike (F-7, F-8), fails to detect source loss (F-9), stops evaluating and publishing safety events after process termination or hang (F-10), treats invalid source quality as trustworthy or fails to report monitoring loss (F-11), or fails to report monitoring loss after repeated spikes are discarded (F-13)). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | Battery fire or smoke develops before occupants receive a usable warning and can stop in a safe place or evacuate; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
+| HE-2 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10), and failure to report monitoring loss after repeated spikes (F-13) | OS-2: Occupied vehicle manoeuvring at low speed near other vehicles or pedestrians | Battery fire or smoke develops before occupants can safely stop or move away; occupants or nearby people may be exposed to smoke or heat while the vehicle is manoeuvring. | S3 | - | - | ASIL-D |
+| HE-3 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10), and failure to report monitoring loss after repeated spikes (F-13). | OS-3: Vehicle parked or charging with occupants in or immediately beside it | Battery fire or smoke develops before occupants receive a usable warning and can leave the vehicle or nearby area; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
+| HE-4 | Guardian issues an unintended mitigation request because it counts a duplicate as a new sample (F-3), accepts an isolated high out-of-range value (F-6), or treats an isolated or repeated high spike as valid/critical (F-8, F-13). | OS-1: Occupied vehicle moving in road traffic | The unintended request changes vehicle response or interrupts propulsion, preventing the driver from maintaining a safe trajectory and creating a collision risk for occupants or other road users. | S3 | - | - | ASIL-D |
 | HE-5 | Same unintended-mitigation effects and conditions as HE-4 | OS-2: Occupied vehicle manoeuvring near other vehicles or pedestrians | The unintended request changes vehicle response during a manoeuvre, creating a collision risk for occupants or nearby road users. | S3 | - | - | ASIL-D |
-| HE-6 | Temperature drifts upwards (F-7), temperature is outside upper limit of defined interval (F-6), temperature spike appears (F-8), or an upper-bound-saturated sample triggers a warning although actual temperature is below the dangerous range (F-12). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | A warning that is not supported by actual thermal danger distracts the driver and may increase collision risk; an upper-bound reading must still be treated cautiously because it may represent real danger. | S3 | - | - | ASIL-D |
+| HE-6 | Temperature drifts upwards (F-7), one isolated temperature sample is outside the upper limit (F-6), an isolated or repeated spike appears (F-8, F-13), or an upper-bound-saturated sample triggers a warning although actual temperature is below the dangerous range (F-12). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | A warning that is not supported by actual thermal danger distracts the driver and may increase collision risk; an upper-bound reading must still be treated cautiously because it may represent real danger. | S3 | - | - | ASIL-D |
 
 F-11 maps to HE-1 through HE-3 because it can make thermal monitoring
 unavailable during the same hazardous vehicle situations; it does not create a
@@ -115,6 +116,13 @@ operating situation.
 F-12 maps to HE-6 only for the conditional false-warning path; the correct
 high-out-of-range response remains a warning because real danger cannot be
 excluded.
+
+F-13 maps to HE-1 through HE-3 when repeated spikes are discarded without
+escalating monitoring loss, and to HE-4 through HE-6 if invalid spikes instead
+cause an unsafe mitigation or unsupported warning. Its expected response is
+the repeated-invalid escalation in FSR-3.5, while FSR-3.6 prohibits invalid-only
+overtemperature mitigation. The isolated F-6 and F-8 campaigns do not combine
+their fault with another fault or repeat the injected anomaly.
 
 ## Risk classification and safety goals
 
@@ -143,7 +151,7 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and issue the corresponding occupant warning and mitigation response within its approved (`T_react = 100ms`). | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. | **Partial Missing:** safety concept does not take `T_react` into account. |
 | DFR-2 | SG-2; HE-1 to HE-3; F-11, F-12 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE`, or whose value is outside the configured range, as unusable, enter `DEGRADED`, and report the corresponding fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. A high out-of-range value shall still raise at least `WARNING`. | FSR-3.2 and FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. | **Specified/implemented in the Safety Concept** for range and quality handling. A distinct saturation diagnosis is not specified; do not claim it. |
 | DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input, including a CAN quality flag other than `VALID`, shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. | **Covered at Guardian behavior level**, subject to testing the stated valid-sample and recovery conditions. |
-| DFR-4 | SG-3; HE-4, HE-5, HE-6; F-12 | An invalid, stale, duplicated, out-of-order, or saturated high sample shall not by itself cause `CRITICAL` or a mitigation request. A saturated/high out-of-range value shall still cause at least `WARNING` because real danger cannot be excluded. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** existing FSRs define cautious warning and limit invalid escalation, but no FSR explicitly states the mitigation-gating invariant. F-12 saturation cannot be distinguished from genuinely high temperature using the current fields. |
+| DFR-4 | SG-3; HE-4, HE-5, HE-6; F-6, F-8, F-12, F-13 | An isolated or repeated invalid, stale, duplicated, out-of-order, or saturated-high sample shall not by itself cause `CRITICAL` or an overtemperature mitigation. A saturated/high out-of-range value shall still cause at least `WARNING` because real danger cannot be excluded. Repeated spikes shall escalate monitoring to `DEGRADED` and report monitoring unavailable, without lowering the thermal state. | FSR-1.2, FSR-2.5, FSR-3.2, FSR-3.3, FSR-3.5, and FSR-3.6. | **Partial / Missing:** FSR-3.5 defines repeated-invalid escalation but is planned; FSR-3.3 specifies immediate `DEGRADED` for a rate-implausible sample, leaving its interaction with isolated-spike `SUSPECT` behavior unresolved. F-12 saturation cannot be distinguished from genuinely high temperature using the current fields. |
 | DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Missing:** Independent implementation of a watchdog, that reports a crashed guardian has to be implemented |
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
 | DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| | **Missing** |
@@ -524,17 +532,27 @@ expected `WARNING` as a false positive solely because the injected sample was
 anomalous.
 
 
-| Fault catalog entry / HARA candidate | HARA test case |
-|---|---|
-| Overtemperature Warning | TS-22 |
-| Overtemperature Critical | TS-23 |
-| Undertemperature | TS-24 |
-| FreshnessLost | TS-25 |
-| QualityInvalid | TS-28 |
-| OutOfRange | TS-30 (low), TS-31 (high) |
-| RateImplausible | TS-32 |
-| Isolated vs. Repeated Spike | TS-37 (isolated), TS-38 (repeated) |
-| Heartbeat Loss | TS-41 (termination), TS-42 (hang) |
+| HARA fault | Expected mitigation from test specifications | Covering test cases |
+|---|---|---|
+| F-1: Temperature value remains frozen while messages continue | No detection is demonstrated. TS-10 lists `DriverWarningMonitoringUnavailable` but explicitly treats the all-values-frozen case as a limitation probe. | TS-10 (limitation probe only) |
+| F-2: Message arrives after its allowed age/deadline | `DriverWarningMonitoringUnavailable` when the stale stream causes `DEGRADED`. | TS-05 covers a prolonged update gap, but not explicit rejection of a late-arriving message; proposed TS-27. |
+| F-3: Same message is delivered more than once | No mitigation for one duplicate; `DriverWarningMonitoringUnavailable` if repeated counters escalate monitoring to `DEGRADED`. | TS-07 |
+| F-4: Expected update is dropped before reaching the Guardian | `DriverWarningMonitoringUnavailable`; TS-06 also lists `DiscardSample`. | TS-05, TS-06, TS-18 |
+| F-5: Messages arrive out-of-order | `DriverWarningMonitoringUnavailable` if monitoring degrades; the stale sample must not update thermal assessment. | TS-08 |
+| F-6: One isolated temperature sample is outside the configured interval | No overtemperature mitigation from invalid input alone; preserve an active thermal warning and report `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`. | TS-11, TS-12, TS-14, TS-20, TS-21 |
+| F-7: Temperature drifts over time | No dedicated drift mitigation is specified by an existing test. Proposed TS-28 expects a `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | No dedicated fault test; TS-02 tests threshold heating, not drift detection. Proposed TS-28. |
+| F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-14, TS-22, TS-23 |
+| F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-18 |
+| F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-25 (termination), TS-26 (hang) |
+| F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-13, TS-19 |
+| F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | No explicit 255 °C test. TS-14 only tests a generic high out-of-range sample; proposed TS-29. |
+| F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-24 (blocked pending FSR-3.3/FSR-3.5 reconciliation). |
+
+The table includes every candidate fault F-1 through F-13. F-1 has a limitation
+probe but no demonstrated detection. F-2, F-7, and F-12 lack a dedicated test
+oracle and have proposed cases below. F-13 has a test specification, but it
+cannot pass until the conflicting isolated/repeated-spike requirements are
+resolved.
 
 ### TS-15 Overtemperature Warning
 
@@ -614,8 +632,7 @@ only the stream interruption and use taps to attribute its origin.
 
 ### TS-19 QualityInvalid
 
-**HARA trace:** SG-2; no dedicated candidate fault ID exists in the HARA yet;
-catalog fault: QualityInvalid.
+**HARA trace:** HE-1 to HE-3; SG-2; F-11; catalog fault: QualityInvalid.
 
 **Preconditions:** Establish valid monitoring with fresh samples.
 
@@ -629,8 +646,8 @@ reports a quality-invalid fault within `T_react`. Thermal state is not lowered.
 overtemperature mitigation from invalid quality alone.
 
 **Evidence and Verdict Focus:** Record quality, source timestamp, alive counter,
-state/status transition, DTC, DFM/OpenSOVD record, and latency. Add a dedicated
-candidate malfunction ID to the HARA before claiming complete HARA traceability.
+state/status transition, DTC, DFM/OpenSOVD record, and latency. F-11 provides
+the candidate malfunction trace for this scenario.
 
 ### TS-20 OutOfRange: low value
 
@@ -639,8 +656,9 @@ candidate malfunction ID to the HARA before claiming complete HARA traceability.
 **Preconditions:** Establish `WARNING` with otherwise valid input and confirm
 the approved `[θ_min, θ_max]` range.
 
-**Stimulus:** Inject one fresh, quality-valid `CellTempMin` below `θ_min`, with
-the other sample fields in range.
+**Stimulus:** In this isolated-fault scenario, inject exactly one fresh,
+quality-valid `CellTempMin` below `θ_min`, with the other sample fields in
+range, then resume valid in-range samples. Do not combine it with another fault.
 
 **Expected Result:** The sample is rejected and an out-of-range fault is
 reported. The active thermal state is not lowered. Monitoring follows the
@@ -659,8 +677,9 @@ before/after, monitoring status, fault, diagnostic record, and latency.
 **Preconditions:** Establish `MONITORING` below `CRITICAL` with valid input and
 confirm `θ_max`.
 
-**Stimulus:** Inject one fresh sample with `CellTempMax` above `θ_max`; keep
-quality, timestamp, and counters valid.
+**Stimulus:** In this isolated-fault scenario, inject exactly one fresh sample
+with `CellTempMax` above `θ_max`; keep quality, timestamp, and counters valid,
+then resume valid in-range samples. Do not combine it with another fault.
 
 **Expected Result:** The sample is rejected and reported out of range. Thermal
 state is at least `WARNING`, since real danger cannot be excluded, but invalid
@@ -681,8 +700,9 @@ RateImplausible.
 **Preconditions:** Establish valid monitoring below `CRITICAL`; record
 `r_max`, `Δ_res`, and timestamp configuration.
 
-**Stimulus:** Inject one fresh sample whose maximum-temperature rise exceeds
-`r_max × Δt + Δ_res`; do not inject any other invalid field.
+**Stimulus:** In this isolated-fault scenario, inject exactly one fresh sample
+whose maximum-temperature rise exceeds `r_max × Δt + Δ_res`; do not inject any
+other invalid field or repeat the spike within `T_suspect`.
 
 **Expected Result:** The sample is rejected and a rate-implausible fault is
 reported. The state rises to at least `WARNING` because real runaway cannot be
@@ -698,47 +718,57 @@ FSR-3.3 versus FSR-3.5 isolated-invalid status rule before final pass/fail.
 
 ### TS-23 Isolated Spike
 
-**HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog fault:
-Isolated vs. Repeated Spike.
+**HARA trace:** HE-1, HE-4, HE-5, and HE-6; SG-1/SG-3/SG-4; isolated F-8;
+catalog fault: Isolated Spike.
 
 **Preconditions:** Establish valid monitoring below `CRITICAL`; record
 `r_max`, `N_suspect`, and `T_suspect`.
 
 **Stimulus:** Inject exactly one fresh sample with a rise above `r_max`, then
-resume valid nominal samples.
+resume valid nominal samples. Do not inject any other fault or another spike
+within `T_suspect`.
 
-**Expected Result:** The sample is discarded and the isolated-invalid response
-is reported. At least `WARNING` is retained because the rise may be real; no
-invalid-only `CRITICAL` or mitigation is allowed.
+**Expected Result:** The sample is discarded and monitoring becomes `SUSPECT`
+under FSR-3.5. At least `WARNING` is retained because the rise may be real; no
+invalid-only `CRITICAL` or overtemperature mitigation is allowed. This is a
+planned behavior until FSR-3.5 is implemented and the FSR-3.3 interaction is
+resolved.
 
 **Expected Mitigations:** `DiscardSample` is catalog-proposed; record the
-actual event. No monitoring-unavailable warning unless its configured debounce
-criterion is reached.
+actual event. No monitoring-unavailable warning for this one isolated spike.
 
 **Evidence and Verdict Focus:** Record the single spike, surrounding valid
-samples, status/state, warning/DTC, and mitigation. Resolve FSR-3.3/FSR-3.5
-status behavior before declaring a pass.
+samples, status/state, warning/DTC, and mitigation. A pass requires reconciling
+the immediate `DEGRADED` response in FSR-3.3 with the `SUSPECT` debounce in
+FSR-3.5; until then report the requirement result as blocked/inconclusive.
 
 ### TS-24 Repeated Spike
 
-**HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog:
-Isolated vs. Repeated Spike.
+**HARA trace:** HE-1 to HE-6; SG-1/SG-2/SG-3/SG-4; F-13; catalog:
+Repeated Spikes.
 
 **Preconditions:** Establish valid monitoring below `CRITICAL`; record
 `N_suspect` and `T_suspect`.
 
-**Stimulus:** Inject only repeated instances of the same rate-implausible spike
-within `T_suspect`, reaching `N_suspect`.
+**Stimulus:** Inject only repeated rate-implausible spikes within `T_suspect`,
+reaching `N_suspect`; do not combine them with another fault. Follow with valid
+samples to exercise recovery.
 
-**Expected Result:** Monitoring becomes `DEGRADED` and a signal/rate fault is
-reported. Thermal state is not lowered; invalid spikes alone do not cause
-`CRITICAL` or mitigation.
+**Expected Result:** Before `N_suspect` spikes within `T_suspect`, monitoring is
+`SUSPECT` and each invalid sample is discarded. At the threshold, monitoring
+becomes `DEGRADED` and a signal/rate fault is reported. Thermal state is not
+lowered; invalid spikes alone do not cause `CRITICAL` or overtemperature
+mitigation. Monitoring recovers only after the configured valid-sample
+recovery conditions.
 
 **Expected Mitigations:** `DriverWarningMonitoringUnavailable`; no
 overtemperature mitigation from invalid spikes alone.
 
 **Evidence and Verdict Focus:** Record every spike, timestamps, debounce
-window/count, status/state, DTC, DFM record, and output events.
+window/count, status/state, thermal state, DTC, DFM record, and output events.
+Because FSR-3.5 is planned and FSR-3.3 currently requires immediate
+`DEGRADED`, report the implementation verdict as blocked until that requirement
+conflict is resolved.
 
 ### TS-25 Heartbeat Loss: Process Termination
 
@@ -781,10 +811,75 @@ is implemented; occupant warning is not currently provided.
 progress and heartbeat. Mark blocked/failed against the catalog claim until
 hang detection/recovery is specified and implemented.
 
+### Proposed TS-27 Late-arriving stale message (F-2)
+
+**HARA trace:** HE-1 to HE-3; SG-2; F-2; FSR-2.8.
+
+**Preconditions:** Enable source/Guardian clock synchronization and configure
+`T_age` and `T_stale`. Establish valid monitoring with a fresh sample stream.
+
+**Stimulus:** In an isolated run, hold back one sample until its source
+timestamp is older than `T_age`, then deliver it while withholding other fresh
+samples until the freshness timeout is reached. Resume with valid fresh samples.
+
+**Expected Result:** The late sample is not accepted as fresh or used to update
+the thermal assessment. The Guardian enters `DEGRADED` after the configured
+freshness timeout and recovers only under the valid-sample recovery conditions.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` while monitoring
+is `DEGRADED`; no overtemperature mitigation from the stale sample alone.
+
+**Evidence and Verdict Focus:** Record source timestamp, delivery time, measured
+sample age, `T_age`, `T_stale`, Guardian acceptance, status/state transitions,
+fault/DFM record, mitigation, and recovery. This proposal depends on synchronized
+clocks and FSR-2.8 being implemented.
+
+### Proposed TS-28 Gradual temperature drift (F-7)
+
+**HARA trace:** HE-1 to HE-3 and HE-6; SG-1/SG-4; F-7; FSR-1.3.
+
+**Preconditions:** Establish valid monitoring below `θ_warn`; configure and
+record `r_trend`, `T_trend`, and `T_react`.
+
+**Stimulus:** Replay a valid, gradual, monotonic temperature rise that stays
+below `θ_warn` but satisfies the configured trend criterion for `T_trend`.
+
+**Expected Result:** The thermal state becomes `WARNING` within
+`T_trend + T_react`; it does not become `CRITICAL` solely because of the trend.
+
+**Expected Mitigations:** No overtemperature mitigation before a valid critical
+criterion is reached.
+
+**Evidence and Verdict Focus:** Record all valid samples, temperature slope,
+trend window, threshold configuration, state transition, and latency. FSR-1.3
+is planned, so this remains a proposed requirement-gap test until implemented.
+
+### Proposed TS-29 Upper-scale saturation (F-12)
+
+**HARA trace:** HE-1 and HE-6; SG-2/SG-4; F-12; DFR-2/DFR-4; FSR-3.2/FSR-3.6.
+
+**Preconditions:** Establish valid monitoring below `CRITICAL`; record the
+configured `[θ_min, θ_max]` range and verify the normal CAN-to-VSS/uProtocol path.
+
+**Stimulus:** In an isolated run, send one fresh, quality-valid sample with
+`CellTempMax` at the upper representable value (255 °C), then resume valid
+in-range samples.
+
+**Expected Result:** The sample is not accepted as a valid in-range measurement;
+monitoring becomes `DEGRADED` and thermal state is at least `WARNING`. Invalid
+input alone does not cause `CRITICAL` or lower an existing thermal state.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` while monitoring
+is `DEGRADED`; no overtemperature mitigation from the invalid sample alone.
+
+**Evidence and Verdict Focus:** Capture the raw CAN value, mapped Guardian
+input, quality, timestamps/counter, state/status, warning, fault/DFM record,
+mitigation, and latency. Keep this distinct from a generic high out-of-range
+sample; the test does not prove that saturation can be distinguished from a
+genuinely extreme temperature.
+
 ## AI Assistance
 
 This document was revised with the assistance of **GitHub Copilot (GPT-6 Luna)**.
-
-The watchdog coverage of DFR-5, TS-12, TS-13 and TS-15 was updated with the
-assistance of **Claude Code** using the model **Claude Opus 5.5**
-(`claude-opus-5-5`).
+The fault mitigation and test coverage overview was added with the assistance of
+**GitHub Copilot** using the model **GPT-6 Luna**.
