@@ -17,6 +17,6 @@ SPDX-License-Identifier: EPL-2.0
 - [Hackathon Rules](rules.md)
 - [Project Plan](project-plan.md)
 - [Architecture](architecture.md)
-- [Fault Classes](faultClasses.md)
+- [Faults to Be Detected](faults-to-be-detected.md)
 - Components
   - [Battery Thermal Guardian](components/battery-thermal-guardian.md)
