@@ -161,19 +161,28 @@ The scenarios below verify DFR-1 through DFR-6 and their mapped Safety Concept
 requirements. Run each fault variant independently from a fresh Guardian instance
 unless a scenario explicitly tests recovery. Record the active configuration and
 observe the same input stream the Guardian receives. Timing parameters refer to
-the approved Safety Concept configuration. A replay provides software evidence;
-it does not by itself demonstrate driver or occupant behavior in a vehicle.
+the approved Safety Concept configuration.
 
 Scenarios that depend on a DFR marked **Missing** or **Partial** are requirement
 gap checks, not evidence that the requirement is satisfied. Until the requirement
 is approved and implemented, record the result as blocked or failed against the
 safety objective; do not convert missing behavior into a passing test.
 
-| ID | HARA trace | Preconditions and stimulus | Expected result | Evidence and verdict focus |
+### Reviewed
+
+| ID | HARA trace | Preconditions | Stimulus | Expected result | Evidence and verdict focus |
+|---|---|---|---|---|--|
+| TS-01 | Baseline. DFR-1 to DFR-4 | Start the system | Publish valid, in-range, steadily updated temperatures below warning thresholds with valid quality (0x80) and monotonic increasing counter. | Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted. | Capture input/output stream, fail on unexpected fault or warning. |
+| TS-02 | HE-1 to HE-3; SG-1; DFR-1 | Start the system | Replay a valid rising-temperature profile through `θ_warn` and then `θ_crit`. | Reach WARNING at `θ_warn`; reach CRITICAL and emit `DRIVER_WARNING_OVERTEMP` at `θ_crit`, each within its configured reaction budget. | Measure if input to state event latency is below `T_react`. |
+| TS-03 | HE-1 to HE-3; SG-2; DFR-2 | Do not start CAN source, start Battery Thermal Guardian | No data is published | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
+| TS-04 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Publish valid, in-range, steadily updated data. After `3 sec`, shutdown the CAN source | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
+| TS-05 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Publish valid, in-range, steadily updated data, but delay data by more than `T_stale` | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
+| TS-06 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Inject an upstream publisher/transport dropout at the Guardian input | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
+
+### To be reviewed
+
+| ID | HARA trace | Preconditions and Stimulus | Expected result | Evidence and verdict focus |
 |---|---|---|---|---|
-| TS-01 | Baseline; DFR-1 to DFR-4 | Start a fresh Guardian and publish valid, in-range, steadily updated temperatures below warning thresholds. | Monitoring becomes OK and thermal state becomes MONITORING; no warning, mitigation, or fault is emitted. | Capture input/output stream and heartbeat. Fail on unexpected fault or warning. |
-| TS-02 | HE-1 to HE-3; SG-1; DFR-1; FSR-1.1, FSR-1.2 | Replay a valid rising-temperature profile through `θ_warn` and then `θ_crit`. | Reach WARNING at `θ_warn`; reach CRITICAL and emit `DRIVER_WARNING_OVERTEMP` at `θ_crit`, each within its configured reaction budget. | Measure input-to-state/event latency. This verifies threshold response only, not warning lead time before danger; see TS-14. |
-| TS-03 | HE-1 to HE-3; SG-2; DFR-2; FSR-2.1, FSR-2.2 | In separate runs, start with no source, stop updates, delay updates beyond `T_stale`, or inject an upstream publisher/transport dropout at the Guardian input. | Enter DEGRADED and report the corresponding startup/freshness fault within budget. Do not lower an existing thermal state. | Record tap-point fault onset, Guardian status/event, DFM record, and source-versus-transport attribution. |
 | TS-04 | HE-1 to HE-3; SG-2; DFR-2, DFR-6; FSR-2.2, FSR-3.7, EC-2 | In separate runs, inject a duplicate sample and an out-of-order sample; optionally continue each fault until freshness timeout. | Non-fresh samples are ignored and do not advance thermal assessment. Persistent loss of fresh samples causes DEGRADED. The collector identifies sequence anomalies. | Capture timestamps, alive counter, publisher sequence, Guardian input/state, diagnostic trace, and collector attribution. |
 | TS-05 | HE-1 to HE-3; SG-2; DFR-2, DFR-6; FSR-2.4 | Hold the maximum-temperature value constant while average or minimum changes by at least `Δ_stuck`; repeat with fast and slow heating profiles. | After both stuck criteria hold, enter DEGRADED and report a signal-stuck fault within the specified hidden-error bound. | Record all three signals, detection error, and diagnostic trace. Include slow nominal heating as a negative test. |
 | TS-06 | HE-1 to HE-3; SG-2; DFR-2; F-1 limitation probe | Keep all temperature values constant while timestamps and source alive counter continue to advance. | Characterize whether the current design can distinguish a genuinely constant battery from a fully frozen signal. Do not claim detection unless an implemented mechanism detects it. | Record as a limitation/coverage result, not a passing FSR-2.4 test; the current stuck-maximum check requires another temperature channel to move. |
