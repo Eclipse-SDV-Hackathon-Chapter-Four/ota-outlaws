@@ -21,7 +21,7 @@ use serde::Serialize;
 
 use crate::catalog::{Expectation, Scenario, ScenarioStatus};
 use crate::onset::{Found, Onset, OnsetParams};
-use crate::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
+use crate::recording::{EventKind, GuardianEvent, Observation, SampleRef, Tap, Temperature};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -88,6 +88,111 @@ pub struct Evaluation {
     pub requirements: BTreeMap<String, Verdict>,
     pub samples: usize,
     pub guardian_events: usize,
+    /// Hazard → safety goal → fault → detection → mitigation → DTC → verdict,
+    /// linked by the Guardian's session and event IDs.
+    pub chain: Chain,
+    /// Every Guardian event, in the Guardian's order.
+    pub timeline: Vec<TimelineEntry>,
+}
+
+/// Whether a link of the evidence chain is backed by evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkState {
+    /// Observed and linked to the link before it.
+    Present,
+    /// The scenario expects it, but it was not observed or not linked.
+    Missing,
+    /// The scenario expects none, and none was observed.
+    NotExpected,
+    /// Observed although the scenario expects none: a false alarm.
+    Unexpected,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Link {
+    pub link: String,
+    pub state: LinkState,
+    pub evidence: String,
+}
+
+/// A detection by the Guardian: a fault, or a thermal state raised to
+/// WARNING or more.
+#[derive(Debug, Clone, Serialize)]
+pub struct Detection {
+    pub event_id: u64,
+    pub event: String,
+    pub dtc: Option<String>,
+    pub requirement: Option<String>,
+    /// When the Guardian detected it, on the tool's clock.
+    pub t_ms: u64,
+    /// When its event reached the tap.
+    pub delivered_ms: u64,
+    pub guardian_time_ms: u64,
+    /// From the onset to the detection.
+    pub latency_ms: Option<u64>,
+    /// The last fresh sample before a fault, or the trigger of a thermal change.
+    pub sample: Option<SampleRef>,
+    /// The `FaultRecovered` event caused by this detection, and when.
+    pub recovered_event_id: Option<u64>,
+    pub recovered_ms: Option<u64>,
+}
+
+/// A mitigation the Guardian requested, with the events that led to it.
+#[derive(Debug, Clone, Serialize)]
+pub struct MitigationEvidence {
+    pub event_id: u64,
+    pub mitigation: String,
+    pub t_ms: u64,
+    pub delivered_ms: u64,
+    /// From the onset to the request.
+    pub latency_ms: Option<u64>,
+    /// The detection it goes back to through `cause_event_id`, if any.
+    pub detection_event_id: Option<u64>,
+    /// From the detection (or the first known cause) to the request.
+    pub cause_chain: Vec<String>,
+}
+
+/// What OpenSOVD showed for one detection: the records whose environment
+/// data carry this run's session and the detection's event ID.
+#[derive(Debug, Clone, Serialize)]
+pub struct DtcEvidence {
+    pub dtc: String,
+    pub detection_event_id: u64,
+    pub symptom: Option<String>,
+    /// The first poll that showed the DTC failed for this event.
+    pub failed_ms: Option<u64>,
+    /// From the event reaching the tap to `failed_ms`.
+    pub latency_ms: Option<u64>,
+    pub fault_type: Option<String>,
+    pub severity: Option<String>,
+    /// Status bits and counters of the last record of this event.
+    pub status: serde_json::Value,
+    pub occurrence_counter: Option<u64>,
+    pub environment_data: serde_json::Value,
+    /// A later record of the same event shows the test passed again.
+    pub passed_later: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Chain {
+    /// No link is missing. Says nothing about timing: that is the verdict.
+    pub complete: bool,
+    pub links: Vec<Link>,
+    pub detections: Vec<Detection>,
+    pub mitigations: Vec<MitigationEvidence>,
+    pub diagnostics: Vec<DtcEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TimelineEntry {
+    pub session_id: String,
+    pub event_id: u64,
+    pub cause_event_id: u64,
+    pub delivered_ms: u64,
+    pub guardian_time_ms: u64,
+    pub event: String,
+    pub sample: Option<SampleRef>,
 }
 
 /// Fault type and severity of each DTC, from the DFM catalog.
@@ -276,6 +381,411 @@ impl<'a> Run<'a> {
             .map(|(t, _, _, body)| (*t, *body))
             .collect()
     }
+
+    /// OpenSOVD records of any DTC that belong to this run's `event`.
+    fn sovd_for_event(&self, event: &GuardianEvent) -> Vec<(u64, &'a str, &'a serde_json::Value)> {
+        let event_id = event.event_id.to_string();
+        self.sovd
+            .iter()
+            .filter(|(_, _, status, body)| {
+                *status == Some(200)
+                    && body["environment_data"]["session_id"] == event.session_id.as_str()
+                    && body["environment_data"]["event_id"] == event_id.as_str()
+            })
+            .map(|(t, code, _, body)| (*t, *code, *body))
+            .collect()
+    }
+}
+
+/// A raise of the thermal state to WARNING or more: the Guardian's detection
+/// of a thermal hazard.
+fn raises(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::ThermalStateChanged { previous, current }
+        if severity(current) > severity(previous) && severity(current) >= 2)
+}
+
+fn seconds(ms: u64) -> String {
+    format!("{:.2} s", ms as f64 / 1000.0)
+}
+
+/// Builds the evidence chain of a run. Every link after the fault is found
+/// through the Guardian's IDs, never through timing alone: mitigations go
+/// back to their detection through `cause_event_id`, and OpenSOVD records
+/// belong to a detection through the session and event ID in their
+/// environment data.
+fn evidence_chain(
+    scenario: &Scenario,
+    run: &Run<'_>,
+    onset: Option<&Found>,
+    verdict: Verdict,
+    reason: &str,
+) -> Chain {
+    let t0 = onset.map(|f| f.t_ms);
+    let session = run.session_id.as_deref();
+    let of_session = |e: &GuardianEvent| Some(e.session_id.as_str()) == session;
+    // After the onset, and within the judged window: faults after it come
+    // from the end of the stimulus.
+    let in_scope =
+        |t: u64| t0.is_some_and(|t0| t >= t0) && (run.window_end.is_none() || run.in_window(t));
+    let by_id: BTreeMap<u64, &GuardianEvent> = run
+        .events
+        .iter()
+        .filter(|(_, e)| of_session(e))
+        .map(|(_, e)| (e.event_id, *e))
+        .collect();
+
+    let mut detections: Vec<Detection> = run
+        .events
+        .iter()
+        .filter(|(t, e)| {
+            of_session(e)
+                && in_scope(*t)
+                && (matches!(e.kind, EventKind::FaultDetected { .. }) || raises(&e.kind))
+        })
+        .map(|(arrival, e)| {
+            let t = run.detection_time(*arrival, e);
+            let (dtc, requirement) = match &e.kind {
+                EventKind::FaultDetected { dtc, requirement } => {
+                    (Some(dtc.clone()), Some(requirement.clone()))
+                }
+                _ => (None, None),
+            };
+            let recovered = run.events.iter().find(|(_, r)| {
+                of_session(r)
+                    && r.cause_event_id == e.event_id
+                    && matches!(r.kind, EventKind::FaultRecovered { .. })
+            });
+            Detection {
+                event_id: e.event_id,
+                event: e.kind.describe(),
+                dtc,
+                requirement,
+                t_ms: t,
+                delivered_ms: *arrival,
+                guardian_time_ms: e.guardian_time_ms,
+                latency_ms: t0.map(|t0| t.saturating_sub(t0)),
+                sample: e.sample,
+                recovered_event_id: recovered.map(|(_, r)| r.event_id),
+                recovered_ms: recovered.map(|(t, r)| run.detection_time(*t, r)),
+            }
+        })
+        .collect();
+    detections.sort_by_key(|d| d.event_id);
+    let detection_ids: BTreeSet<u64> = detections.iter().map(|d| d.event_id).collect();
+
+    let mut mitigations: Vec<MitigationEvidence> = run
+        .events
+        .iter()
+        .filter(|(_, e)| of_session(e))
+        .filter_map(|(arrival, e)| {
+            let EventKind::MitigationRequested { mitigation } = &e.kind else {
+                return None;
+            };
+            let mut causes = vec![*e];
+            let mut cause = e.cause_event_id;
+            while cause != 0 && causes.len() < 64 {
+                let Some(event) = by_id.get(&cause) else {
+                    break;
+                };
+                causes.push(event);
+                cause = event.cause_event_id;
+            }
+            causes.reverse();
+            let detection = causes
+                .iter()
+                .position(|c| detection_ids.contains(&c.event_id));
+            if detection.is_none() && !in_scope(*arrival) {
+                return None;
+            }
+            let t = run.detection_time(*arrival, e);
+            Some(MitigationEvidence {
+                event_id: e.event_id,
+                mitigation: mitigation.clone(),
+                t_ms: t,
+                delivered_ms: *arrival,
+                latency_ms: t0.map(|t0| t.saturating_sub(t0)),
+                detection_event_id: detection.map(|i| causes[i].event_id),
+                cause_chain: causes[detection.unwrap_or(0)..]
+                    .iter()
+                    .map(|c| format!("#{} {}", c.event_id, c.kind.describe()))
+                    .collect(),
+            })
+        })
+        .collect();
+    mitigations.sort_by_key(|m| m.event_id);
+
+    let mut diagnostics = Vec::new();
+    for detection in &detections {
+        let Some(event) = by_id.get(&detection.event_id) else {
+            continue;
+        };
+        let records = run.sovd_for_event(event);
+        let mut codes: Vec<&str> = records.iter().map(|(_, code, _)| *code).collect();
+        codes.sort_unstable();
+        codes.dedup();
+        if codes.is_empty() {
+            // A detected fault that never showed in OpenSOVD is evidence too.
+            if let Some(dtc) = &detection.dtc {
+                diagnostics.push(DtcEvidence {
+                    dtc: dtc.clone(),
+                    detection_event_id: detection.event_id,
+                    symptom: None,
+                    failed_ms: None,
+                    latency_ms: None,
+                    fault_type: None,
+                    severity: None,
+                    status: serde_json::Value::Null,
+                    occurrence_counter: None,
+                    environment_data: serde_json::Value::Null,
+                    passed_later: false,
+                });
+            }
+            continue;
+        }
+        for code in codes {
+            let of_code: Vec<&(u64, &str, &serde_json::Value)> =
+                records.iter().filter(|(_, c, _)| *c == code).collect();
+            let failed = of_code
+                .iter()
+                .find(|(_, _, body)| body["status"]["testFailed"] == true);
+            let last = of_code.last().map(|(_, _, body)| *body);
+            let shown = failed.map(|(_, _, body)| *body).or(last);
+            let text = |value: &serde_json::Value| value.as_str().map(str::to_owned);
+            diagnostics.push(DtcEvidence {
+                dtc: code.to_owned(),
+                detection_event_id: detection.event_id,
+                symptom: shown.and_then(|b| text(&b["symptom"])),
+                failed_ms: failed.map(|(t, _, _)| *t),
+                latency_ms: failed.map(|(t, _, _)| t.saturating_sub(detection.delivered_ms)),
+                fault_type: shown.and_then(|b| text(&b["environment_data"]["fault_type"])),
+                severity: shown.and_then(|b| text(&b["environment_data"]["severity"])),
+                status: last
+                    .map(|b| b["status"].clone())
+                    .unwrap_or(serde_json::Value::Null),
+                occurrence_counter: last.and_then(|b| b["occurrence_counter"].as_u64()),
+                environment_data: shown
+                    .map(|b| b["environment_data"].clone())
+                    .unwrap_or(serde_json::Value::Null),
+                passed_later: failed.is_some_and(|(t, _, _)| {
+                    of_code
+                        .iter()
+                        .any(|(later, _, body)| later > t && body["status"]["testFailed"] == false)
+                }),
+            });
+        }
+    }
+
+    let expects = |f: &dyn Fn(&Expectation) -> bool| scenario.expectations.iter().any(f);
+    // A thermal expectation below WARNING (the nominal MONITORING) is normal
+    // operation, not a detection.
+    let detection_expected = expects(&|e| {
+        matches!(
+            e,
+            Expectation::Fault { .. }
+                | Expectation::Degraded { .. }
+                | Expectation::Sovd { .. }
+                | Expectation::Recovery { .. }
+                | Expectation::StartupFault { .. }
+                | Expectation::DriverWarningOvertemp { .. }
+                | Expectation::OvertempDtc { .. }
+        ) || matches!(e, Expectation::Thermal { state, .. } if severity(state) >= 2)
+    });
+    let mitigation_expected = expects(&|e| {
+        matches!(
+            e,
+            Expectation::Degraded { .. } | Expectation::DriverWarningOvertemp { .. }
+        )
+    });
+    let diagnostics_expected = expects(&|e| {
+        matches!(
+            e,
+            Expectation::Sovd { .. }
+                | Expectation::Recovery { .. }
+                | Expectation::OvertempDtc { .. }
+        )
+    });
+    let nominal = scenario.fault_class == "None";
+
+    let mut links = Vec::new();
+    let assigned = |name: &str, value: &Option<String>| match value {
+        Some(id) => link(name, LinkState::Present, id.clone()),
+        None if nominal => link(name, LinkState::NotExpected, "nominal scenario".to_owned()),
+        None => link(
+            name,
+            LinkState::Missing,
+            "not assigned in the scenario catalog".to_owned(),
+        ),
+    };
+    links.push(assigned("Hazard", &scenario.hazard));
+    links.push(assigned("Safety goal", &scenario.safety_goal));
+    links.push(match onset {
+        Some(found) => link(
+            "Fault",
+            LinkState::Present,
+            format!(
+                "{} ({}); t0 = {}: {}",
+                scenario.description,
+                scenario.fault_class,
+                seconds(found.t_ms),
+                found.description
+            ),
+        ),
+        None => link(
+            "Fault",
+            LinkState::Missing,
+            format!(
+                "{} ({}); never showed at the Guardian's input",
+                scenario.description, scenario.fault_class
+            ),
+        ),
+    });
+
+    let detected: Vec<String> = detections
+        .iter()
+        .map(|d| match d.latency_ms {
+            Some(latency) => format!("#{} {} after {}", d.event_id, d.event, seconds(latency)),
+            None => format!("#{} {}", d.event_id, d.event),
+        })
+        .collect();
+    links.push(match (detection_expected, detected.is_empty()) {
+        (true, false) => link("Detection", LinkState::Present, detected.join("; ")),
+        (false, false) => link("Detection", LinkState::Unexpected, detected.join("; ")),
+        (true, true) => link(
+            "Detection",
+            LinkState::Missing,
+            "no detection by the Guardian after the onset".to_owned(),
+        ),
+        (false, true) => link(
+            "Detection",
+            LinkState::NotExpected,
+            "none expected, none observed".to_owned(),
+        ),
+    });
+
+    let linked: Vec<String> = mitigations
+        .iter()
+        .filter(|m| m.detection_event_id.is_some())
+        .map(|m| {
+            let via = if m.cause_chain.len() > 1 {
+                format!(
+                    ", via {}",
+                    m.cause_chain[..m.cause_chain.len() - 1].join(" → ")
+                )
+            } else {
+                String::new()
+            };
+            let after = m
+                .latency_ms
+                .map(|l| format!(" after {}", seconds(l)))
+                .unwrap_or_default();
+            format!("#{} {}{after}{via}", m.event_id, m.mitigation)
+        })
+        .collect();
+    let unlinked = mitigations.iter().any(|m| m.detection_event_id.is_none());
+    links.push(match (mitigation_expected, linked.is_empty()) {
+        (_, false) => link("Mitigation", LinkState::Present, linked.join("; ")),
+        (true, true) if unlinked => link(
+            "Mitigation",
+            LinkState::Missing,
+            "mitigation requested, but not caused by a detection".to_owned(),
+        ),
+        (true, true) => link(
+            "Mitigation",
+            LinkState::Missing,
+            "no mitigation requested after the detection".to_owned(),
+        ),
+        (false, true) => link(
+            "Mitigation",
+            LinkState::NotExpected,
+            "none expected, none requested".to_owned(),
+        ),
+    });
+
+    let visible: Vec<String> = diagnostics
+        .iter()
+        .filter_map(|d| {
+            let latency = d.latency_ms?;
+            Some(format!(
+                "{} failed in OpenSOVD {} after event #{} ({}, {})",
+                d.dtc,
+                seconds(latency),
+                d.detection_event_id,
+                d.severity.as_deref().unwrap_or("severity unknown"),
+                d.fault_type.as_deref().unwrap_or("fault type unknown"),
+            ))
+        })
+        .collect();
+    links.push(match (diagnostics_expected, visible.is_empty()) {
+        (_, false) => link("DTC in OpenSOVD", LinkState::Present, visible.join("; ")),
+        (true, true) if !run.sovd_reachable() => link(
+            "DTC in OpenSOVD",
+            LinkState::Missing,
+            "OpenSOVD never answered".to_owned(),
+        ),
+        (true, true) => link(
+            "DTC in OpenSOVD",
+            LinkState::Missing,
+            "no DTC failed in OpenSOVD with this run's session and event ID".to_owned(),
+        ),
+        (false, true) => link(
+            "DTC in OpenSOVD",
+            LinkState::NotExpected,
+            "none expected, none shown".to_owned(),
+        ),
+    });
+
+    let verdict_text = match verdict {
+        Verdict::Pass => "PASS",
+        Verdict::Fail => "FAIL",
+        Verdict::Inconclusive => "INCONCLUSIVE",
+    };
+    links.push(link(
+        "Verdict",
+        LinkState::Present,
+        format!("{verdict_text}: {reason}"),
+    ));
+
+    Chain {
+        complete: links.iter().all(|l| l.state != LinkState::Missing),
+        links,
+        detections,
+        mitigations,
+        diagnostics,
+    }
+}
+
+fn link(name: &str, state: LinkState, evidence: String) -> Link {
+    Link {
+        link: name.to_owned(),
+        state,
+        evidence,
+    }
+}
+
+/// Every Guardian event: the run's session first, each in event-ID order.
+fn timeline(run: &Run<'_>) -> Vec<TimelineEntry> {
+    let mut entries: Vec<TimelineEntry> = run
+        .events
+        .iter()
+        .map(|(t, e)| TimelineEntry {
+            session_id: e.session_id.clone(),
+            event_id: e.event_id,
+            cause_event_id: e.cause_event_id,
+            delivered_ms: *t,
+            guardian_time_ms: e.guardian_time_ms,
+            event: e.kind.describe(),
+            sample: e.sample,
+        })
+        .collect();
+    let first = run.session_id.clone().unwrap_or_default();
+    entries.sort_by(|a, b| {
+        (a.session_id != first, &a.session_id, a.event_id).cmp(&(
+            b.session_id != first,
+            &b.session_id,
+            b.event_id,
+        ))
+    });
+    entries
 }
 
 fn severity(state: &str) -> u8 {
@@ -323,7 +833,14 @@ pub fn evaluate(
         None => Vec::new(),
     };
 
-    let (verdict, reason) = if run.samples.is_empty() && scenario.onset != Onset::NoInput {
+    let (verdict, reason) = if observations.is_empty() {
+        // Not even OpenSOVD was polled: the run itself failed, for example
+        // because the stack did not start. Nothing about the Guardian is known.
+        (
+            Verdict::Inconclusive,
+            "nothing was recorded: the run itself failed".to_owned(),
+        )
+    } else if run.samples.is_empty() && scenario.onset != Onset::NoInput {
         (
             Verdict::Inconclusive,
             "no sample reached the Guardian's input".to_owned(),
@@ -374,6 +891,8 @@ pub fn evaluate(
     for v in &violations {
         requirements.insert(v.requirement.clone(), Verdict::Fail);
     }
+    if onset.is_none() || observations.is_empty() {
+        requirements.clear();
     if judged.is_none() {
         for expectation in &scenario.expectations {
             requirements.insert(expectation.requirement().to_owned(), Verdict::Inconclusive);
@@ -385,7 +904,7 @@ pub fn evaluate(
         hara_tests: scenario.hara_tests.clone(),
         status: scenario.status,
         verdict,
-        reason,
+        reason: reason.clone(),
         onset: early.or(onset),
         session_id: run.session_id.clone(),
         window_end_ms: run.window_end,
@@ -394,6 +913,9 @@ pub fn evaluate(
         requirements,
         samples: run.samples.len(),
         guardian_events: run.events.len(),
+        chain: evidence_chain(scenario, &run, onset.as_ref(), verdict, &reason),
+        timeline: timeline(&run),
+        onset,
     })
 }
 

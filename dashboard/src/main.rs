@@ -98,7 +98,8 @@ async fn main() -> anyhow::Result<()> {
     taps::spawn_sovd(Arc::clone(&taps), Arc::clone(&sovd));
 
     let repo = PathBuf::from(env("REPO_DIR", "/repo"));
-    let launcher = launcher::Launcher::new(docker.clone(), repo.clone(), &socket, &own);
+    let launcher =
+        launcher::Launcher::new(docker.clone(), project.clone(), repo.clone(), &socket, &own);
     if let Some(reason) = launcher.unavailable() {
         warn!(%reason, "campaigns cannot be started from the dashboard");
     }
@@ -136,15 +137,27 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// `docker inspect` of the dashboard's own container, or null outside a
-/// container. Docker sets the hostname to the short container ID.
+/// container. Docker sets the hostname to the short container ID. When
+/// Docker Desktop starts, it starts this container before its API answers,
+/// so the inspect is retried for about a minute.
 async fn own_container(docker: &Docker) -> serde_json::Value {
     let Ok(hostname) = std::env::var("HOSTNAME") else {
         return serde_json::Value::Null;
     };
-    docker.inspect(&hostname).await.unwrap_or_else(|error| {
-        warn!(%error, "cannot inspect own container");
-        serde_json::Value::Null
-    })
+    const ATTEMPTS: u32 = 12;
+    for attempt in 1..=ATTEMPTS {
+        match docker.inspect(&hostname).await {
+            Ok(inspect) => return inspect,
+            Err(error) if attempt == ATTEMPTS => {
+                warn!(%error, "cannot inspect own container");
+            }
+            Err(error) => {
+                warn!(%error, attempt, "cannot inspect own container yet; retrying");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        }
+    }
+    serde_json::Value::Null
 }
 
 /// The Compose project and service of the dashboard's own container.

@@ -265,6 +265,17 @@ td.detail { background: var(--panel-2); }
 .pick label.off { opacity: 0.6; cursor: default; }
 .err { color: var(--bad); }
 
+.chain-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 10px; }
+.chain-step { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); }
+.chain-step.present { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+.chain-step.missing { color: var(--bad); background: var(--bad-bg); border-color: var(--bad); }
+.chain-step.not_expected { color: var(--idle); background: var(--idle-bg); border-style: dashed; }
+.chain-step.unexpected { color: var(--warn); background: var(--warn-bg); border-color: var(--sev-warn); }
+.chain-arrow { color: var(--muted); }
+h4 { font-size: 13px; margin: 14px 0 6px; }
+details.timeline { margin-top: 14px; }
+details.timeline summary { cursor: pointer; font-weight: 600; }
+
 #print-root { display: none; }
 
 @media print {

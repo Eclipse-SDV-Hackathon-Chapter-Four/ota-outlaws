@@ -26,7 +26,9 @@
 //! - the Docker socket.
 //!
 //! The campaign tool runs exactly as from a shell on the host and writes its
-//! evidence to `runs/`, where the campaign tab reads it.
+//! evidence to `runs/`, where the campaign tab reads it. It gets the
+//! diagnostics image of the running stack (`DIAGNOSTICS_IMAGE`): the runner
+//! has no registry login, and the image the stack runs is there locally.
 
 use std::path::{Path, PathBuf};
 
@@ -65,6 +67,8 @@ pub struct ScenarioInfo {
 
 pub struct Launcher {
     pub docker: Docker,
+    /// The Compose project of the dashboard, whose DFM image the runner uses.
+    project: String,
     /// The repository inside the dashboard container.
     pub repo: PathBuf,
     /// The image of the dashboard's own container.
@@ -84,7 +88,7 @@ impl Launcher {
     /// Reads image and mounts from the dashboard's own container (`own`,
     /// from `docker inspect`). `HOST_REPO_DIR` overrides the repository's
     /// host path.
-    pub fn new(docker: Docker, repo: PathBuf, socket: &Path, own: &Value) -> Self {
+    pub fn new(docker: Docker, project: String, repo: PathBuf, socket: &Path, own: &Value) -> Self {
         let mount_source = |target: &Path| {
             own["Mounts"].as_array().and_then(|mounts| {
                 mounts
@@ -102,6 +106,7 @@ impl Launcher {
         let (user, group_add) = owner(&repo, socket);
         Launcher {
             docker,
+            project,
             repo,
             image: own["Config"]["Image"].as_str().map(str::to_owned),
             host_repo,
@@ -207,7 +212,8 @@ impl Launcher {
         let args = runner_args(request);
         // The previous runner's log is gone with it; its evidence stays in runs/.
         self.docker.remove(RUNNER).await?;
-        let config = self.runner_config(&args);
+        let diagnostics_image = self.diagnostics_image().await;
+        let config = self.runner_config(&args, diagnostics_image.as_deref());
         self.docker
             .create(RUNNER, &config)
             .await
@@ -216,14 +222,31 @@ impl Launcher {
         Ok(vec![format!("campaign {}", args.join(" "))])
     }
 
-    fn runner_config(&self, args: &[String]) -> Value {
+    /// The image of the running DFM container of the project, if any.
+    async fn diagnostics_image(&self) -> Option<String> {
+        let containers = self
+            .docker
+            .containers(&format!("com.docker.compose.project={}", self.project))
+            .await
+            .ok()?;
+        containers
+            .iter()
+            .find(|c| c["Labels"]["com.docker.compose.service"] == "opensovd-dfm")
+            .and_then(|c| c["Image"].as_str().map(str::to_owned))
+    }
+
+    fn runner_config(&self, args: &[String], diagnostics_image: Option<&str>) -> Value {
         let host_repo = self.host_repo.clone().unwrap_or_default();
+        let mut env = vec!["HOME=/tmp".to_owned(), "RUST_LOG=info".to_owned()];
+        if let Some(image) = diagnostics_image {
+            env.push(format!("DIAGNOSTICS_IMAGE={image}"));
+        }
         let mut config = json!({
             "Image": self.image,
             "Entrypoint": [CAMPAIGN_BINARY],
             "Cmd": args,
             "WorkingDir": host_repo,
-            "Env": ["HOME=/tmp", "RUST_LOG=info"],
+            "Env": env,
             "Labels": { "ota-outlaws.role": RUNNER },
             "HostConfig": {
                 "NetworkMode": "host",
@@ -366,14 +389,18 @@ mod tests {
         });
         let launcher = Launcher::new(
             Docker::new("/nonexistent.sock"),
+            "ota-outlaws".to_owned(),
             PathBuf::from("/repo"),
             Path::new("/var/run/docker.sock"),
             &own,
         );
-        let config = launcher.runner_config(&runner_args(&StartRequest {
-            scenarios: vec![],
-            build: false,
-        }));
+        let config = launcher.runner_config(
+            &runner_args(&StartRequest {
+                scenarios: vec![],
+                build: false,
+            }),
+            Some("local/opensovd-demo-fork:verified"),
+        );
         let host = "/run/desktop/mnt/host/c/work/ota-outlaws";
         assert_eq!(config["WorkingDir"], host);
         assert_eq!(config["HostConfig"]["NetworkMode"], "host");
@@ -381,6 +408,9 @@ mod tests {
         assert_eq!(config["HostConfig"]["Mounts"][0]["Target"], host);
         assert_eq!(config["Image"], "ota-outlaws/dashboard:dev");
         assert_eq!(config["Cmd"], json!(["run", "--all", "--no-build"]));
+        assert!(config["Env"].as_array().unwrap().contains(&json!(
+            "DIAGNOSTICS_IMAGE=local/opensovd-demo-fork:verified"
+        )));
     }
 
     #[test]
@@ -388,6 +418,7 @@ mod tests {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let launcher = Launcher::new(
             Docker::new("/nonexistent.sock"),
+            "ota-outlaws".to_owned(),
             repo,
             Path::new("/var/run/docker.sock"),
             &Value::Null,

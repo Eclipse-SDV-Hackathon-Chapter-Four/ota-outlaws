@@ -471,6 +471,7 @@ mod tests {
             kind: EventKind::MitigationRequested {
                 mitigation: "DRIVER_WARNING_OVERTEMP".into(),
             },
+            sample: None,
         };
         assert_eq!(
             describe_event(&event),
