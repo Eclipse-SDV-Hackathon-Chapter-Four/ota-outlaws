@@ -1,20 +1,7 @@
-/* 
- * Copyright (c) Microsoft
- * Copyright (c) 2024 Eclipse Foundation
- * 
- *  This program and the accompanying materials are made available 
- *  under the terms of the MIT license which is available at
- *  https://opensource.org/license/mit.
- * 
- *  SPDX-License-Identifier: MIT
- * 
- *  Contributors: 
- *     Microsoft         - Initial version
- *     Frédéric Desbiens - 2024 version.
- * 	   Uttarkar Sopan - Feature enhancements and maintenance
- *     Microsoft Copilot - AI-assisted modifications
+/*
+ * SPDX-License-Identifier: MIT
  */
- 
+
 #include "cloud_config.h"
 #include "board_init.h"
 #include "nx_api.h"
@@ -144,13 +131,14 @@ static UINT send_button_event(const CHAR* type, uint32_t sequence)
     if (strcmp(type, "can_fault") == 0)
     {
         message_length = snprintf(message, sizeof(message),
-                                  "{\"type\":\"can_fault\",\"scenario\":\"counter_stuck\"}");
+                                  "{\"type\":\"can_fault\",\"scenario\":\"all\"}");
     }
     else
     {
         message_length = snprintf(message, sizeof(message),
-                                  "{\"type\":\"bad_sample\",\"seq\":%lu}",
-                                  (unsigned long)sequence);
+                                  "{\"type\":\"bad_sample\",\"seq\":%lu,\"temperature_c\":%u}",
+                                  (unsigned long)sequence,
+                                  (unsigned)GUARDIAN_BAD_TEMPERATURE_C);
     }
 
     if (message_length < 0 || (UINT)message_length >= sizeof(message))
@@ -238,11 +226,12 @@ void guardian_thread_entry(ULONG parameter)
         if (button_pressed(&button_a, BUTTON_A_IS_PRESSED))
         {
             status = send_button_event("can_fault", sequence++);
-            screen_print_button_status('A', "CAN fault", "counter_stuck",
+            screen_print_button_status('A', "CAN faults", "4 faults / 5s gaps",
                                        GUARDIAN_BRIDGE_IP, status == NX_SUCCESS);
             button_status_tick = now;
             button_status_active = 1U;
-            printf("Button A: request counter_stuck CAN replay; UDP status 0x%08x\r\n", status);
+            printf("Button A: request all campaign CAN fault traces; UDP status 0x%08x\r\n",
+                   status);
         }
         if (button_pressed(&button_b, BUTTON_B_IS_PRESSED))
         {
