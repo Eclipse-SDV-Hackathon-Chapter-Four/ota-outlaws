@@ -11,195 +11,237 @@ https://www.eclipse.org/legal/epl-2.0
 SPDX-License-Identifier: EPL-2.0
 -->
 
-# High Level Overview
+# OTA Outlaws Software Architecture
 
-```mermaid
- C4Context
-      title System context diagram
-      Enterprise_Boundary(b0, "OTA-Outlaws") {
-        System_Ext(KUKSACanProvider, "KUKSA CAN Provider", "Converts CAN data to VSS")
+This document follows the 13-part structure from *The Software Architecture
+Guidebook* by Simon Brown. Sections with incomplete project information contain
+short fill-in patterns; these are prompts, not claims about implemented behavior.
 
-        SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores Data from the CAN")
+## 1. Context
 
-        System(OTAOutlawsSW, "OTA Outlaws SW")
-
-        SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
-      }
-
-      Rel(OTAOutlawsSW, OpenSOVDServer, "Reports faults through the DFM", "TBD")
-
-      Rel(OTAOutlawsSW, KUKSADataBroker, "Reads VSS data", "CustomAPI")
-      Rel(KUKSACanProvider, KUKSADataBroker, "Writes data into the ", "CustomAPI")
-```
-# Components View
-
-|Component Name|Code|Documentation|
-|---|---|---|
-|Temperature Sensor|||
-|Trace Generator|[campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
-|VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
-|Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
-|Guardian Watchdog|[watchdog](../../watchdog)|[Guardian Watchdog](components/guardian-watchdog.md)|
-|Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|
-|Dashboard|[dashboard](../../dashboard)|[Dashboard](components/dashboard.md)|
-|KUKSA Data Broker|||
-|OpenSOVD Server|||
+The Battery Thermal Guardian is part of the OTA Outlaws Safety Evidence Factory.
+It evaluates battery temperature data, requests warnings and mitigation, and
+produces diagnostic events. The Evidence Collector observes the run and assembles
+the evidence and verdict; it is test infrastructure, not part of the vehicle
+Guardian.
 
 ```mermaid
 C4Context
-    title Container overview
-        Container_Boundary(c1, "OTA Outlaws SW") {
-    
-            Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
+    title OTA Outlaws system context
+    Enterprise_Boundary(team, "OTA Outlaws") {
+        System(ota, "OTA Outlaws Safety Evidence Factory", "Publishes VSS data, evaluates thermal risk, and collects campaign evidence")
+    }
+    System_Ext(canProvider, "KUKSA CAN Provider", "Decodes CAN signals to VSS")
+    SystemDb_Ext(dataBroker, "KUKSA Data Broker", "Stores VSS data")
+    System_Ext(openSovd, "OpenSOVD Server", "Exposes diagnostic records")
 
-            Container(sg, "Trace Generator", "Python", "Generates faulted CAN traces")
-
-            Container(vsspub, "VSS Publisher", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
-
-            Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
-
-            Container(evc, "Campaign Tool", "Rust", "Runs fault scenarios, collects evidence, decides verdicts")
-        }
-        SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
-
-        Rel(btg, vsspub, "Reads VSS data", "uProtocol")
-        Rel(vsspub, KUKSADataBroker, "Reads data", "Custom API")
-
-        Rel(btg, OpenSOVDServer, "Reports faults through the DFM", "TBD")
-        Rel(evc, OpenSOVDServer, "Read logs", "TBD")
-        Rel(evc, btg, "Observes input and events", "uProtocol")
-        Rel(evc, KUKSADataBroker, "Observes VSS data", "Custom API")
-        Rel(sg, vsspub, "inflict fault", "TBD")
-        Rel(tempsens, vsspub, "Provide temperature value", "TBD")
-        SystemDb_Ext(OpenSOVDServer, "OpenSOVD Server", "Stores all Detected faults")
+    Rel(canProvider, dataBroker, "Publishes decoded VSS data", "KUKSA API")
+    Rel(ota, dataBroker, "Accesses VSS through the VSS Publisher", "Custom API")
+    Rel(ota, openSovd, "Reports faults through DFM", "Interface TBD")
 ```
 
-# Responsibilities: Guardian and Evidence Collector
+**External actors and systems:**
 
-The Battery Thermal Guardian and the Evidence Collector both look at faults, but
-for different reasons. The Guardian **protects**: it warns the occupants. The
-Evidence Collector **explains and proves**: it finds out what happened and
-whether the reaction was correct.
-
-| | Battery Thermal Guardian | Evidence Collector |
+| Name | Role | Interface |
 |---|---|---|
-| Purpose | Warn the occupants | Explain what happened and judge the reaction |
-| Exists in a real vehicle | Yes | No, it is test infrastructure |
-| Timing | Real time, within milliseconds | After the fact |
-| What it sees | Only its own uProtocol input | Several tap points (Data Broker, VSS Publisher output, Guardian input), Guardian events, OpenSOVD, and the scenario manifest |
-| Clock | Its own; cannot compare times across hosts | One clock for all its tap points |
-| Knows about scenarios | No; it behaves the same with or without a test | Yes: run ID, injected faults, expected reactions |
-| If it fails | Hazard: the occupants are not warned | Missing evidence: the verdict is INCONCLUSIVE |
-| Design goal | Small, simple, verifiable | Thorough; may be complex |
+| KUKSA CAN Provider | Converts CAN frames to VSS signals | KUKSA API; configuration TBD |
+| KUKSA Data Broker | Stores decoded VSS values | Custom API |
+| OpenSOVD Server | Makes diagnostic records visible | DFM/OpenSOVD interface; details TBD |
 
-**Rule of thumb:** if it changes what the occupants are told, it belongs in the
-Guardian. If it explains what happened, it belongs in the Evidence Collector.
+## 2. Functional Overview
 
-| Task | Owner |
+The nominal data path is CAN temperature source -> KUKSA CAN Provider -> KUKSA
+Data Broker -> VSS Publisher -> Battery Thermal Guardian -> OpenSOVD Server -> Evidence Collector. The
+Guardian publishes thermal state, monitoring status, heartbeat, warning or
+mitigation events, and faults. The Evidence Collector observes relevant inputs,
+Guardian events, and diagnostics to determine whether each scenario passed.
+
+The Guardian protects: its behavior determines what the vehicle is told. The
+Evidence Collector explains and proves: it attributes faults, measures timing,
+checks diagnostics, and produces the verdict. The Scenario Generator acts as the
+campaign runner by preparing deterministic scenarios and recording a manifest.
+
+| Responsibility | Owner |
 |---|---|
-| Thresholds, trend, hot spot, hysteresis | Guardian |
-| Loss of fresh data, stuck values, implausible values | Guardian |
-| Writing faults to the DFM | Guardian |
-| Guardian heartbeat | Guardian publishes it; the Evidence Collector records a missing heartbeat as a Guardian failure |
-| Attributing a data loss to source, VSS Publisher, or transport | Evidence Collector |
-| Diagnosing duplicated, reordered, or missing messages by sequence number | Evidence Collector; the Guardian only ignores samples that are not fresh |
-| Measuring delays and detection latencies | Evidence Collector |
-| Checking that faults are visible through OpenSOVD | Evidence Collector |
-| Correlating the scenario manifest, Guardian events, and diagnostics; the verdict | Evidence Collector |
+| Temperature thresholds, trend, hot spot, and hysteresis | Guardian |
+| Freshness, stuck-value, and plausibility response | Guardian |
+| Fault reporting to DFM | Guardian |
+| Guardian heartbeat publication | Guardian |
+| Missing-heartbeat observation and verdict evidence | Evidence Collector/runtime, according to the deployment contract |
+| Source/publisher/transport fault attribution | Evidence Collector |
+| Sequence-based duplicate, reorder, and drop analysis | Evidence Collector; Guardian applies its defined freshness rules |
+| Timing measurements, OpenSOVD checks, and verdict | Evidence Collector |
+| Fault scenario execution and manifest | Scenario Generator or documented manual campaign runner |
 
-Anything that protects the occupants stays in the Guardian, even where the
-Evidence Collector could detect it better: the Evidence Collector is not part of
-the vehicle.
+## 3. Quality Attributes
 
-The **Campaign Tool** fills both test roles: as *campaign runner* it injects the
-scenario's fault, as *Evidence Collector* it observes and judges. Its verdict
-uses only what it observed, so it can also judge a hardware demo it did not
-inject. See [Campaign Tool](components/campaign.md).
+| Attribute | Architectural concern | Source or verification |
+|---|---|---|
+| Functional safety | Hazards, operating situations, safety goals, and candidate ratings | [HARA](hara.md); validate S/E/C and ASIL with the vehicle/system safety owner |
+| Safety behavior | Thermal state and monitoring status remain distinct; loss or invalidity must not be interpreted as a safe battery | [Safety Concept](../explanation/safety-concept.md); verify each linked FSR |
+| Timing | Warning, freshness, reaction, and diagnostic visibility have measurable budgets | Safety Concept parameters; measure with the Evidence Collector |
+| Diagnostic observability | Guardian faults can be correlated to DFM and OpenSOVD records | Campaign tests for every relevant fault |
+| Reproducibility | Fault campaigns can be rerun with the same inputs and expected reactions | Scenario manifest, configured environment, and repeat-run comparison |
+| Portability | Guardian logic depends on the uProtocol service contract, not direct broker or CAN-decoder internals | Architecture/interface review and deployment rerun |
 
-The requirements behind this split are in the
-[Safety Concept](../reference/hara.md): FSR requirements for the
-Guardian, EC requirements for the Evidence Collector.
+The HARA identifies hazardous events and candidate safety goals; it is not a
+quality-attribute specification by itself. Measurable implementation behavior is
+defined in the Safety Concept and linked to HARA identifiers there.
 
-# Data Flow
+## 4. Constraints
+
+- The Guardian receives VSS data through the uProtocol service interface and
+  does not read the KUKSA Data Broker directly.
+- Fault campaigns must be deterministic, replayable, and configured rather than
+  relying on machine-specific paths, hosts, or credentials.
+- Every campaign verdict must retain its evidence chain from hazard and safety
+  goal through fault, detection, mitigation, diagnostics, and verdict.
+- Failed scenarios remain visible in campaign reports.
+- The project target includes Ankaios-managed deployment; AutoSD/runtime support
+  must be verified in the deployment environment rather than assumed from this
+  diagram.
+- Clearly label functionality that is mocked, simulated, planned, or incomplete.
+
+## 5. Principles
+
+- Keep Guardian safety reactions independent of the Evidence Collector. The
+  collector observes; it does not influence Guardian behavior.
+- Keep thermal risk and input monitoring trust as separate output dimensions.
+- Fail toward warning when uncertain input could represent a real thermal event;
+  do not let invalid input lower thermal caution.
+- Attribute faults at the layer where evidence supports attribution. Do not make
+  the Guardian diagnose causes that are only visible at other tap points.
+- Treat interfaces, parameters, and campaign manifests as explicit contracts.
+- Record architecture decisions in the decision log below.
+
+## 6. Software Architecture
+
+### Container view
+
+```mermaid
+C4Container
+    title OTA Outlaws containers
+    System_Boundary(ota, "OTA Outlaws Safety Evidence Factory") {
+        Container(sensor, "Temperature Sensor", "C, ThreadX", "Provides battery temperature frames")
+        Container(generator, "Scenario Generator", "Python", "Creates and executes fault campaigns")
+        Container(publisher, "VSS Publisher", "Rust", "Reads VSS data and publishes it over uProtocol")
+        Container(guardian, "Battery Thermal Guardian", "Rust", "Evaluates thermal risk and publishes safety events")
+        Container(collector, "Evidence Collector", "Python", "Observes inputs, events, diagnostics, and creates verdict evidence")
+    }
+    System_Ext(canProvider, "KUKSA CAN Provider", "Decodes CAN to VSS")
+    SystemDb_Ext(dataBroker, "KUKSA Data Broker", "Stores VSS data")
+    System_Ext(openSovd, "OpenSOVD Server", "Exposes DFM records")
+
+    Rel(sensor, canProvider, "Sends CAN frames", "CAN")
+    Rel(canProvider, dataBroker, "Writes VSS", "KUKSA API")
+    Rel(publisher, dataBroker, "Reads VSS", "Custom API")
+    Rel(publisher, guardian, "Publishes temperature service data", "uProtocol")
+    Rel(generator, publisher, "Injects configured faults", "Interface TBD")
+    Rel(collector, publisher, "Observes publisher output", "Tap interface TBD")
+    Rel(collector, guardian, "Observes Guardian events", "uProtocol")
+    Rel(collector, dataBroker, "Observes VSS values", "Custom API")
+    Rel(guardian, openSovd, "Writes faults through DFM", "Interface TBD")
+    Rel(collector, openSovd, "Reads diagnostic evidence", "Interface TBD")
+```
+
+### Component catalog
+
+| Component | Implementation | Documentation |
+|---|---|---|
+| Temperature Sensor | C, ThreadX (target/source details TBD) | TODO: link component documentation |
+| Scenario Generator | Python | TODO: link campaign-runner documentation |
+| VSS Publisher | [vss-publisher](../../vss-publisher) | [Battery Thermal Contract](../../contracts/README.md) |
+| Battery Thermal Guardian | [guardian](../../guardian), [guardian-service](../../guardian-service) | [Battery Thermal Guardian](components/battery-thermal-guardian.md) |
+| Evidence Collector | Python (implementation location TBD) | TODO: link collector documentation |
+| KUKSA Data Broker | External component | KUKSA documentation/configuration TBD |
+| OpenSOVD Server | External component | OpenSOVD/DFM configuration TBD |
+
+### Component design pattern
+
+For each component, document:
+
+| Field | Description |
+|---|---|
+| Responsibility | One sentence describing what the component owns |
+| Interfaces | Provided and required interfaces, protocol, and schema |
+| State and lifecycle | Startup, normal operation, degraded behavior, shutdown |
+| Dependencies | Other components and configuration required |
+| Failure behavior | Detection, reporting, recovery, and supervision |
+| Verification | Unit, integration, and campaign tests |
+
+TODO: Add component diagrams where they improve understanding beyond the
+container view.
+
+## 7. Code
+
+| Codebase | Language/runtime | Responsibility | Entry point and build/test instructions |
+|---|---|---|---|
+| [vss-publisher](../../vss-publisher) | Rust | Exposes VSS data through the service contract | See repository README/Cargo targets; document exact command here |
+| [guardian](../../guardian) | Rust | Evaluates Guardian state and safety behavior | TODO: document entry point and commands |
+| [guardian-service](../../guardian-service) | Rust | Connects Guardian behavior to its runtime interface | TODO: document entry point and commands |
+| Evidence Collector | Python | Correlates campaign evidence | TODO: identify code location and commands |
+| Scenario Generator | Python | Prepares deterministic fault campaigns | TODO: identify code location and commands |
+
+**Code organization pattern:**
+
+- Package/module: `TODO`
+- Public interface: `TODO`
+- Configuration and parameter loading: `TODO`
+- Error handling and diagnostics: `TODO`
+- Unit/integration test locations: `TODO`
+
+## 8. Data
+
+### Data flow
 
 ```mermaid
 flowchart LR
-    TG["Trace Generator<br/>Python"]
-    CAT["Scenario catalog<br/>stimulus, onset, expectations"]
-    ASC[".asc traces<br/>faults live in the trace"]
-    CAN["KUKSA CAN Provider<br/>DBC decode → VSS"]
-    DB["KUKSA Data Broker<br/>VSS signal store"]
-    BR["VSS Publisher<br/>VSS → uProtocol"]
-    GUARD["Battery Thermal Guardian<br/>states, plausibility"]
-    DFM["DFM (fault-lib)<br/>fault storage"]
-    SOVD["OpenSOVD Server<br/>faults over HTTP"]
-    CT["Campaign Tool<br/>stimulus + evidence"]
-    REP["Verdict + report<br/>JSON + Markdown"]
-
-    TG -->|writes| ASC
-    CAT --> CT
-    CT -->|replays once| CAN
-    ASC --> CAN
-    CAN -->|gRPC| DB
-    DB -->|gRPC| BR
-    BR -->|uProtocol| GUARD
-    BR -.->|tap: Guardian input| CT
-    GUARD -.->|tap: state, fault, mitigation events| CT
-    GUARD --> DFM
-    DFM --> SOVD
-    SOVD -.->|tap: polling| CT
-    CT --> REP
+    SG[Scenario Generator] -->|scenario and fault manifest| COL[Evidence Collector]
+    ASC[CAN replay] --> CAN[KUKSA CAN Provider]
+    CAN -->|decoded VSS| DB[KUKSA Data Broker]
+    DB -->|VSS values| PUB[VSS Publisher]
+    PUB -->|uProtocol| GUARD[Battery Thermal Guardian]
+    PUB -->|observed input| COL
+    GUARD -->|state, heartbeat, faults, mitigation| COL
+    GUARD --> DFM[DFM]
+    DFM --> SOVD[OpenSOVD]
+    SOVD --> COL
+    COL --> REPORT[Evidence report and verdict]
 ```
 
-# Deployment
-
-|Deployment Target|Component Name|
-|---|---|
-|MXCHIP|Temperature Sensor|
-|HPC|Campaign Tool|
-|HPC|KUKSA Data Broker|
-|HPC|VSS Publisher|
-|HPC|Battery Thermal Guardian|
-|HPC|OpenSOVD Server|
-|HPC|Evidence Collector|
-
-# Misc
-
-## CAN Signals
+### CAN signal contract
 
 Message `BMS_MSG1`, CAN ID `0x500`, DLC 8 bytes, cycle time 100 ms, sent by the
-BMS. Byte order is little endian. Temperatures are transmitted as raw degrees
-Celsius, factor 1 and offset 0.
+BMS. Byte order is little endian. Temperatures are raw degrees Celsius, factor
+1, offset 0.
 
-| Field Name | Bytes | Bits | Datatype | Range | Unit |
+| Field | Bytes | Bits | Type | Range | Unit |
 |---|---|---|---|---|---|
 | CellTempMax | 0-1 | 0-15 | `uint16` | 0...255 | °C |
 | CellTempMin | 2-3 | 16-31 | `uint16` | 0...255 | °C |
 | CellTempAvg | 4-5 | 32-47 | `uint16` | 0...255 | °C |
-| Quality | 6 | 48-55 | `uint8` | see below | – |
-| AliveCounter | 7 | 56-63 | `uint8` | 0...255 | – |
+| Quality | 6 | 48-55 | `uint8` | See quality enum | - |
+| AliveCounter | 7 | 56-63 | `uint8` | 0...255 | - |
 
-`AliveCounter` is incremented on every transmitted frame and wraps at 255. A
-counter that stops advancing marks the data as stale even while the last value
-still looks plausible.
+`AliveCounter` increments on every transmitted frame and wraps at 255. A counter
+that stops advancing marks the data as stale even while the last value looks
+plausible. The authoritative signal definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
+[can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace.
 
-The authoritative definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
-[can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace of this message.
+### Quality enum
 
-## Quality Enum
-
-```
+```text
 INVALID             = 0x00
 VALID               = 0x80
 ERROR_NOT_AVAILABLE = 0xFF
 ```
 
-## VSS Mapping
+### VSS mapping
 
-The KUKSA CAN Provider maps the CAN signals to the VSS paths below, as defined in
+The KUKSA CAN Provider maps these signals as defined in
 [can/vss_dbc.json](../../can/vss_dbc.json):
 
-| CAN signal | VSS path | Datatype |
+| CAN signal | VSS path | Type |
 |---|---|---|
 | CellTempMax | `Vehicle.Powertrain.TractionBattery.Temperature.Max` | `float` |
 | CellTempMin | `Vehicle.Powertrain.TractionBattery.Temperature.Min` | `float` |
@@ -207,24 +249,107 @@ The KUKSA CAN Provider maps the CAN signals to the VSS paths below, as defined i
 | Quality | `Vehicle.Powertrain.TractionBattery.BMS.SignalQuality` | `uint8` |
 | AliveCounter | `Vehicle.Powertrain.TractionBattery.BMS.AliveCounter` | `uint8` |
 
-The three temperature paths are standard VSS. The `BMS` branch is a
-project-private extension and not part of the VSS standard catalogue.
+The temperature paths are standard VSS. The `BMS` branch is a project-private
+extension, not part of the VSS standard catalogue.
 
-## Manifest Structure
+### Scenario manifest pattern
+
+| Field | Purpose | Status |
+|---|---|---|
+| `run_id` | Identifies one campaign run | Required; schema TBD |
+| `scenario_id` | Identifies the scenario and expected reactions | Required; schema TBD |
+| `seed` | Makes generated input/fault selection repeatable | Required when generation is randomized |
+| `correlation_id` | Links injected fault, Guardian event, diagnostics, and verdict | Required |
+| `faults` | Fault kind, target, parameters, and activation condition | Required; schema TBD |
+| `expected_reactions` | Expected states/events and timing budgets | Required; schema TBD |
+| `environment` | Relevant software versions and configuration | Required fields TBD |
+
+TODO: Define the machine-readable schema and versioning/compatibility rules.
+
+## 9. Infrastructure Architecture
+
+| Infrastructure element | Purpose | Current details or open point |
+|---|---|---|
+| MXCHIP device | Temperature source target | ThreadX firmware and sensor interface details TBD |
+| HPC | Hosts data services, Guardian, campaign and evidence workloads | Hardware and OS profile TBD |
+| CAN replay and KUKSA CAN Provider | Supplies decoded VSS input | Replay/provider deployment and versions TBD |
+| KUKSA Data Broker | Stores VSS values | Endpoint and configuration are environment-specific |
+| OpenSOVD and DFM | Stores/exposes fault records | Deployment and transport details TBD |
+| Network | Connects distributed services | Ports, trust boundaries, and security controls TBD |
+
+TODO: Add an infrastructure diagram showing nodes, networks, trust boundaries,
+and external services when the target environment is finalized.
+
+## 10. Deployment
+
+| Target | Component |
+|---|---|
+| MXCHIP | Temperature Sensor |
+| HPC | Scenario Generator |
+| HPC | KUKSA Data Broker |
+| HPC | VSS Publisher |
+| HPC | Battery Thermal Guardian |
+| HPC | OpenSOVD Server |
+| HPC | Evidence Collector |
+
+Ankaios is the intended workload orchestrator. The exact workload manifests,
+restart policies, resource limits, and AutoSD deployment status must be recorded
+with the runnable deployment configuration.
+
+TODO: Add a deployment view mapping containers in section 6 to runtime nodes,
+including replicas, configuration, and external dependencies.
+
+## 11. Operation and Support
+
+| Operational concern | Current approach | Open item |
+|---|---|---|
+| Guardian health | Guardian publishes a heartbeat | Confirm monitor, timeout, and restart ownership in deployment |
+| Monitoring degradation | Guardian publishes monitoring status and a fault | Link operator/vehicle response to the approved safety concept |
+| Diagnostics | Guardian writes DFM records; OpenSOVD exposes them | Confirm record schema, retention, and failure behavior |
+| Campaign execution | Scenario Generator or documented manual runner | Document repeatable start/stop and cleanup steps |
+| Evidence and failed runs | Evidence Collector creates a verdict report; failures remain visible | Define report retention and artifact locations |
+| Recovery | Per-scenario Guardian restart is planned/used by campaign assumptions | Document runtime recovery behavior for deployed operation |
+
+**Runbook pattern:**
+
+- Start condition: `TODO`
+- Health checks: `TODO`
+- Expected logs/diagnostics: `TODO`
+- Recovery/escalation: `TODO`
+- Stop and cleanup: `TODO`
+
+## 12. Development Environment
+
+| Area | Pattern to complete |
+|---|---|
+| Host prerequisites | OS, toolchains, container runtime, and hardware access: `TODO` |
+| Build | Per-component build commands and required environment: `TODO` |
+| Tests | Unit, integration, and campaign commands: `TODO` |
+| Local services | Broker, publisher, Guardian, DFM/OpenSOVD setup: `TODO` |
+| Configuration | Example config, parameter source, and secret handling: `TODO` |
+| CI | Workflows, required checks, and artifact publication: `TODO` |
+| Reproduction | Clean-checkout procedure and expected baseline result: `TODO` |
+
+## 13. Decision Log
+
+Record decisions that materially affect interfaces, deployment, safety behavior,
+or quality attributes. Link each decision to relevant requirements and code.
+
+| ID | Date | Status | Context | Decision | Consequences | Owner |
+|---|---|---|---|---|---|---|
+| `ADR-XXX` | `YYYY-MM-DD` | Proposed/Accepted/Deprecated | `Problem and forces` | `Chosen option and rationale` | `Trade-offs and follow-up` | `Name/team` |
 
 The scenario catalog and the run manifest are described in the
 [Campaign Tool](components/campaign.md#scenario-catalog).
 
 ## AI Assistance
 
-The section "Responsibilities: Guardian and Evidence Collector" was created with
-the assistance of **Claude Code** using the model **Claude Opus 5.5**
+The original C4 diagrams and component overview were created with the assistance
+of **Claude Code** using the model **Claude Opus 5.5**
 (`claude-opus-5-5`).
 
-The sections "CAN Signals", "Quality Enum" and "VSS Mapping" were updated to the
-`BMS_MSG1` definition with the assistance of **Claude Code** using the model
-**Claude Opus 5** (`claude-opus-5`).
+The CAN signal and VSS mapping material was updated with the assistance of
+**Claude Code** using the model **Claude Opus 5** (`claude-opus-5`).
 
-The "Manifest Structure" and "Data Flow" sections and the Campaign Tool and
-Trace Generator entries were updated with the assistance of **Claude Code** using the
-model **Claude Opus 5.5** (`claude-opus-5-5`).
+This document was reorganized with the assistance of **GitHub Copilot** using
+the model **GPT-6 Luna**.
