@@ -80,7 +80,7 @@ the same style for faults that are not yet implemented.
 | FreshnessLost *(implemented)* | F-4, F-9 | Communication | No fresh data arriving anymore | Error | `DriverWarningMonitoringUnavailable` | |
 | CounterStuck *(implemented)* | F-1 | Communication | ECU frozen, keeps sending the same frame | Error | `DriverWarningMonitoringUnavailable` | |
 | SignalStuck *(implemented)* | F-1 | Communication | All temperature values are stuck | Error | `DriverWarningMonitoringUnavailable` | TS-10 |
-| QualityInvalid *(implemented)* | TS-13 | Communication | Source marks the value as unusable | Error | `DriverWarningMonitoringUnavailable` | TS-13, TS-28 |
+| QualityInvalid *(implemented)* | F-11 | Communication | CAN source marks a fresh temperature sample as unusable | Error | `DriverWarningMonitoringUnavailable` | TS-13, TS-28 |
 | OutOfRange *(implemented)* | F-6, TS-11 | Configuration | Value outside the plausible range | Error | `DriverWarningMonitoringUnavailable` | |
 | RateImplausible *(implemented)* | F-8, TS-11 | Configuration | Rise faster than physically plausible | Error | `DriverWarningMonitoringUnavailable` | |
 | Fast-Heating Trend | F-7 | Hardware | Rise below θ_warn sustained over time, early warning | Warn | `DriverWarning` | |
