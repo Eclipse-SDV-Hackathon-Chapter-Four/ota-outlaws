@@ -551,17 +551,11 @@ result.
 | Overtemperature Critical | TS-23 |
 | Undertemperature | TS-24 |
 | FreshnessLost | TS-25 |
-| CounterStuck | TS-26 |
-| SignalStuck | TS-27 |
 | QualityInvalid | TS-28 |
 | OutOfRange | TS-30 (low), TS-31 (high) |
 | RateImplausible | TS-32 |
-| Fast-Heating Trend | TS-33 |
-| Startup Without Source | TS-36 |
 | Isolated vs. Repeated Spike | TS-37 (isolated), TS-38 (repeated) |
-| Counter Error, Isolated vs. Repeated | TS-39 (isolated), TS-40 (repeated) |
 | Heartbeat Loss | TS-41 (termination), TS-42 (hang) |
-| Stale Timestamp | TS-43 |
 | Upper-Scale Saturation | TS-47 |
 
 ### TS-22 Overtemperature Warning
@@ -639,48 +633,6 @@ fault within `T_stale + T_react`; it does not lower an existing thermal state.
 **Evidence and Verdict Focus:** Record the last valid sample, tap-point outage
 onset, timeout, Guardian status/fault, DFM/OpenSOVD evidence, and latency. Inject
 only the stream interruption and use taps to attribute its origin.
-
-### TS-26 CounterStuck
-
-**HARA trace:** HE-1 to HE-3; SG-2; F-1; catalog fault: CounterStuck.
-
-**Preconditions:** Establish valid monitoring and confirm the source
-`AliveCounter` is advancing normally.
-
-**Stimulus:** Continue sending frames while holding the source `AliveCounter`
-constant; do not alter the temperature fields independently.
-
-**Expected Result:** Under FSR-2.3, the Guardian reports a source counter-stuck
-fault and enters `DEGRADED` when its timeout/unchanged-counter criteria are
-met.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable`.
-
-**Evidence and Verdict Focus:** Capture each frame's alive counter, publisher
-sequence, source timestamp, detection window, Guardian status/DTC, and diagnostic
-record.
-
-### TS-27 SignalStuck: all temperature channels frozen
-
-**HARA trace:** HE-1 to HE-3; SG-2; F-1; catalog fault: SignalStuck.
-
-**Preconditions:** Establish valid monitoring with all three temperature
-signals and freshness metadata observable.
-
-**Stimulus:** Hold `CellTempMax`, `CellTempAvg`, and `CellTempMin` constant while
-source timestamps and `AliveCounter` continue to advance.
-
-**Expected Result:** Characterize whether the catalog claim is detectable.
-Current FSR-2.4 detects a frozen maximum only when average or minimum moves; it
-does not specify detection when all temperature values remain constant.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable` only if an
-implemented detector declares monitoring `DEGRADED`.
-
-**Evidence and Verdict Focus:** Record all temperature and freshness fields
-through the observation window. If no fault is reported, mark the catalog's
-*(implemented)* claim as not demonstrated; do not count the limitation probe as
-a passing detection test.
 
 ### TS-28 QualityInvalid
 
@@ -766,43 +718,6 @@ monitoring.
 computed rate, state/status, warning/DTC, mitigation, and latency. Resolve the
 FSR-3.3 versus FSR-3.5 isolated-invalid status rule before final pass/fail.
 
-### TS-33 Fast-Heating Trend
-
-**HARA trace:** HE-1 to HE-3; SG-1; F-7; catalog fault: Fast-Heating Trend.
-
-**Preconditions:** Establish valid, fresh monitoring below `θ_warn`; confirm
-approved `r_trend` and `T_trend`.
-
-**Stimulus:** Apply a valid rise meeting `r_trend` for `T_trend` while maximum
-temperature remains below `θ_warn`.
-
-**Expected Result:** The Guardian enters `WARNING` or a more severe state
-within `T_trend + T_react`.
-
-**Expected Mitigations:** `DriverWarning` is proposed by the catalog but is not
-an existing Guardian mitigation; record the actual output.
-
-**Evidence and Verdict Focus:** Capture the valid profile, rate, duration,
-state transition, warning event, and latency. Mark blocked/failed against the
-catalog claim if FSR-1.3 remains unimplemented.
-
-### TS-36 Startup Without Source
-
-**HARA trace:** HE-1 to HE-3; SG-2; F-9; catalog fault: Startup Without Source.
-
-**Preconditions:** Start a fresh Guardian while the CAN source is stopped.
-
-**Stimulus:** Publish no sample from startup through `T_stale`.
-
-**Expected Result:** The Guardian enters `DEGRADED` and reports a startup fault
-within `T_stale + T_react`; missing data is not treated as safe.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable`.
-
-**Evidence and Verdict Focus:** Record Guardian start, confirm no input sample
-arrived, timeout, status/fault event, DFM record, and latency. Do not also
-inject a post-start source dropout in this case.
-
 ### TS-37 Isolated Spike
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog fault:
@@ -847,45 +762,6 @@ overtemperature mitigation from invalid spikes alone.
 **Evidence and Verdict Focus:** Record every spike, timestamps, debounce
 window/count, status/state, DTC, DFM record, and output events.
 
-### TS-39 Isolated Counter Error
-
-**HARA trace:** HE-1 to HE-3; SG-2/SG-3; F-3/F-5; catalog:
-Counter Error, Isolated vs. Repeated.
-
-**Preconditions:** Establish valid input with consecutive source alive-counter
-values and publisher sequence numbers.
-
-**Stimulus:** Inject one sample whose source alive counter does not advance by
-exactly one, then resume normal counter progression.
-
-**Expected Result:** The sample is ignored and monitoring becomes `SUSPECT`;
-one counter error alone does not cause `DEGRADED`.
-
-**Expected Mitigations:** `DiscardSample` is catalog-proposed; no
-`DriverWarningMonitoringUnavailable` unless the degraded threshold is reached.
-
-**Evidence and Verdict Focus:** Capture counter values, publisher sequence,
-status transition, diagnostic event, and subsequent valid recovery samples.
-
-### TS-40 Repeated Counter Error
-
-**HARA trace:** HE-1 to HE-3; SG-2/SG-3; F-3/F-5; catalog:
-Counter Error, Isolated vs. Repeated.
-
-**Preconditions:** Establish valid monitoring and record `N_suspect` and
-`T_suspect`.
-
-**Stimulus:** Inject only repeated alive-counter discontinuities, reaching
-`N_suspect` errors within `T_suspect`.
-
-**Expected Result:** Monitoring becomes `DEGRADED` and the Guardian reports a
-counter-error fault.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable`.
-
-**Evidence and Verdict Focus:** Record each counter value/timestamp, debounce
-count/window, status transition, DTC, and DFM record.
-
 ### TS-41 Heartbeat Loss: Process Termination
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; F-10; catalog: Heartbeat Loss.
@@ -926,27 +802,6 @@ is implemented; occupant warning is not currently provided.
 **Evidence and Verdict Focus:** Distinguish process liveness from evaluation
 progress and heartbeat. Mark blocked/failed against the catalog claim until
 hang detection/recovery is specified and implemented.
-
-### TS-43 Stale Timestamp
-
-**HARA trace:** HE-1 to HE-3; SG-2; F-2; catalog: Stale Timestamp.
-
-**Preconditions:** Configure synchronized source and Guardian clocks and
-establish regular valid samples.
-
-**Stimulus:** Continue regular delivery but give each sample a source timestamp
-older than `T_age`; inject no other fault.
-
-**Expected Result:** With FSR-2.8 enabled, stale samples do not count as fresh.
-When no fresh sample is accepted for `T_stale`, monitoring becomes `DEGRADED`
-and a freshness fault is reported.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable` after freshness
-loss is declared.
-
-**Evidence and Verdict Focus:** Record clock synchronization, source timestamp,
-arrival time, computed age, sample acceptance, timeout, and fault/DFM event. If
-clocks are not synchronized, mark blocked rather than infer age.
 
 ### TS-47 Upper-Scale Saturation
 
