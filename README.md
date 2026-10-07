@@ -45,9 +45,10 @@ docker compose up -d --wait opensovd-dfm opensovd-gateway
 
 Guardian CI pulls this image and checks its source-revision label. It still builds
 our Guardian test runner, because that contains the code under test.
-The separate **Diagnostics image** workflow publishes only when its source pin or
-build recipe changes, or when manually dispatched. Existing version tags are
-reused. Bump the `-v1` suffix in `diagnostics/image.env` and both Compose defaults
+The separate **Diagnostics image** workflow is called before main-branch tests
+and can also be manually dispatched. It checks for the pinned version first and
+only builds when that tag is missing. Pull-request CI only pulls existing images;
+publish a new pin before testing a PR that changes it. Existing tags are reused. Bump the `-v1` suffix in `diagnostics/image.env` and both Compose defaults
 when changing the recipe; update the source SHA in the same places when upgrading.
 The workflow builds on native AMD64 and ARM64 runners and caches build layers.
 Publishing uses GitHub Actions' `GITHUB_TOKEN` with `packages: write`; routine CI

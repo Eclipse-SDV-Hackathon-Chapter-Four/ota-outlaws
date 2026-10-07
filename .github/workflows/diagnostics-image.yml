@@ -14,8 +14,9 @@ name: Diagnostics image
 
 on:
   workflow_dispatch:
+  workflow_call:
   push:
-    branches: [main, ci/publish-diagnostics-image]
+    branches: [ci/publish-diagnostics-image]
     paths:
       - diagnostics/Dockerfile
       - diagnostics/build-images.sh

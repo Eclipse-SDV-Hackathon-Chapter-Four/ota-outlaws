@@ -30,6 +30,7 @@ on:
       - "diagnostics/**"
       - "docker-compose.yml"
       - ".github/workflows/guardian.yml"
+      - ".github/workflows/diagnostics-image.yml"
 
 jobs:
   check:
@@ -47,7 +48,16 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  diagnostic-image:
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/diagnostics-image.yml
+
   diagnostics:
+    needs: diagnostic-image
+    if: always() && (needs.diagnostic-image.result == 'success' || needs.diagnostic-image.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
