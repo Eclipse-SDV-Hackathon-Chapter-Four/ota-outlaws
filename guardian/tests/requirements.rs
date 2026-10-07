@@ -28,8 +28,8 @@ const SHIPPED_CONFIG: &str = include_str!("../../config/guardian/safety-params.t
 const CYCLE_MS: u64 = 100;
 /// Tick interval of the runtime adapter.
 const TICK_MS: u64 = 50;
-/// Reaction time budget `T_react` from the safety concept.
-const T_REACT_MS: u64 = 500;
+/// Reaction time budget `T_react` from HARA DFR-1.
+const T_REACT_MS: u64 = 100;
 /// The source clock runs with an offset to the Guardian clock, to show that the
 /// core never compares the two.
 const SOURCE_CLOCK_OFFSET_MS: u64 = 1_000_000;
@@ -692,17 +692,140 @@ fn fsr_2_3_suspect_exactly_at_n_suspect_repeated_frames() {
 }
 
 #[test]
-fn fsr_2_3_fresh_sample_clears_suspect() {
+fn dfr_8_suspect_recovers_only_after_n_recover_fresh_samples() {
     let suspect_frames = config().freshness.suspect_repeated_frames;
+    let recover = config().recovery.valid_samples as usize;
     let mut run = Run::new();
     run.samples(10, 30.0, 28.0, 26.0);
     repeat_frames(&mut run, suspect_frames);
     assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
 
+    run.samples(recover - 1, 30.0, 28.0, 26.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+
     run.sample(30.0, 28.0, 26.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.active_fault_count(), 0);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn dfr_8_repeated_frame_restarts_suspect_recovery() {
+    let suspect_frames = config().freshness.suspect_repeated_frames;
+    let recover = config().recovery.valid_samples as usize;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    repeat_frames(&mut run, suspect_frames);
+
+    run.samples(recover - 1, 30.0, 28.0, 26.0);
+    repeat_frames(&mut run, 1);
+    run.samples(recover - 1, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+}
+
+// --- HARA DFR-7 / TS-07: duplicated messages ----------------------------------
+
+/// Delivers an exact copy of the last fresh sample: same source timestamp,
+/// alive counter, quality, and payload.
+fn duplicate_last(run: &mut Run, count: u32) {
+    let source_timestamp_ms = run.now + SOURCE_CLOCK_OFFSET_MS;
+    let alive_counter = run.alive_counter;
+    for _ in 0..count {
+        run.advance(CYCLE_MS);
+        run.deliver_frame(
+            source_timestamp_ms,
+            alive_counter,
+            Quality::Valid,
+            30.0,
+            28.0,
+            26.0,
+        );
+    }
+}
+
+#[test]
+fn ts_07_single_duplicate_is_tolerated() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    duplicate_last(&mut run, 1);
+    run.samples(10, 30.0, 28.0, 26.0);
 
     assert_eq!(run.monitoring(), MonitoringStatus::Ok);
     assert_eq!(run.active_fault_count(), 0);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn ts_07_more_than_two_messages_with_the_same_counter_set_suspect() {
+    let suspect_frames = config().freshness.suspect_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    duplicate_last(&mut run, suspect_frames);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn ts_07_persistent_duplicates_lead_to_degraded() {
+    let stuck_frames = config().freshness.stuck_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    duplicate_last(&mut run, stuck_frames);
+
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), Some(run.now));
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert!(run
+        .mitigations()
+        .contains(&Mitigation::DriverWarningMonitoringUnavailable));
+}
+
+#[test]
+fn ts_07_duplicates_do_not_advance_the_thermal_assessment() {
+    let mut run = Run::new();
+    ramp_to(&mut run, 44.0);
+    let last = run.now + SOURCE_CLOCK_OFFSET_MS;
+    let counter = run.alive_counter;
+
+    run.advance(CYCLE_MS);
+    run.deliver_frame(last, counter, Quality::Valid, 50.0, 42.0, 34.0);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+// --- HARA TS-08: out-of-order messages ----------------------------------------
+
+#[test]
+fn ts_08_out_of_order_sample_sets_suspect_and_is_ignored() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    let older = run.now + SOURCE_CLOCK_OFFSET_MS - CYCLE_MS;
+    let newest = run.alive_counter;
+
+    run.advance(CYCLE_MS);
+    run.deliver_frame(
+        older,
+        newest.wrapping_sub(1),
+        Quality::Valid,
+        70.0,
+        62.0,
+        54.0,
+    );
+    // The source itself continues from its newest counter.
+    run.alive_counter = newest;
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    assert_eq!(run.active_fault_count(), 0);
+    assert!(run.mitigations().is_empty());
+
+    let recover = config().recovery.valid_samples as usize;
+    run.samples(recover, 30.0, 28.0, 26.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
 }
 
 #[test]
@@ -900,20 +1023,104 @@ fn fsr_3_2_range_bounds_are_plausible() {
 }
 
 #[test]
-fn fsr_3_3_spike_raises_warning_not_critical() {
+fn ts_22_isolated_spike_sets_suspect_and_warning_not_critical() {
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
     let t0 = run.now + CYCLE_MS;
 
     run.sample(70.0, 62.0, 54.0);
 
+    let warning = run
+        .thermal_change_time(ThermalState::Warning)
+        .expect("warning");
+    assert!(warning - t0 <= T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+    assert_eq!(run.fault_time(FaultCode::RateImplausible), None);
+    // SUSPECT is a debounce: no monitoring-unavailable warning (TS-22).
+    assert!(run.mitigations().is_empty());
+
+    // The spike was discarded: valid nominal samples follow without a fault.
+    let recover = config().recovery.valid_samples as usize;
+    run.samples(recover, 40.0, 32.0, 24.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert_eq!(run.active_fault_count(), 0);
+}
+
+#[test]
+fn ts_22_warning_from_isolated_spike_is_caused_by_suspect() {
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+
+    run.sample(70.0, 62.0, 54.0);
+
+    let suspect = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::MonitoringStatusChanged {
+                    to: MonitoringStatus::Suspect,
+                    ..
+                }
+            )
+        })
+        .expect("suspect");
+    let warning = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::ThermalStateChanged {
+                    to: ThermalState::Warning,
+                    ..
+                }
+            )
+        })
+        .expect("warning");
+    assert_eq!(warning.cause, Some(suspect.id));
+}
+
+#[test]
+fn ts_23_repeated_spikes_within_t_suspect_lead_to_degraded() {
+    let plausibility = config().plausibility;
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let t0 = run.now + CYCLE_MS;
+
+    // Each spike rises far more than r_max since the last valid sample.
+    for _ in 0..plausibility.suspect_spikes {
+        run.sample(100.0, 92.0, 84.0);
+    }
+
     let detected = run
         .fault_time(FaultCode::RateImplausible)
         .expect("rate implausible");
-    assert!(detected - t0 <= T_REACT_MS);
+    assert!(detected - t0 <= plausibility.suspect_window_ms + T_REACT_MS);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
     assert_eq!(run.thermal(), ThermalState::Warning);
+    assert!(run
+        .mitigations()
+        .contains(&Mitigation::DriverWarningMonitoringUnavailable));
     assert!(!overtemp_requested(&run));
+}
+
+#[test]
+fn ts_23_spikes_further_apart_than_t_suspect_stay_suspect() {
+    let plausibility = config().plausibility;
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let gap = (plausibility.suspect_window_ms / CYCLE_MS) as usize;
+
+    for _ in 0..plausibility.suspect_spikes {
+        run.sample(70.0, 62.0, 54.0);
+        run.samples(gap, 40.0, 32.0, 24.0);
+    }
+
+    assert_eq!(run.fault_time(FaultCode::RateImplausible), None);
+    assert_ne!(run.monitoring(), MonitoringStatus::Degraded);
 }
 
 #[test]
@@ -1009,7 +1216,112 @@ fn fsr_3_3_larger_rise_within_jitter_is_a_spike() {
     let last = run.now + SOURCE_CLOCK_OFFSET_MS;
     run.deliver(last + 2, 41.0, 32.0, 25.0);
 
-    assert!(run.fault_time(FaultCode::RateImplausible).is_some());
+    // Isolated, so only SUSPECT (FSR-3.5).
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+}
+
+// --- HARA TS-28: upper-scale saturation -----------------------------------------
+
+#[test]
+fn ts_28_saturated_maximum_is_degraded_and_warning_not_critical() {
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let t0 = run.now + CYCLE_MS;
+
+    run.sample(255.0, 32.0, 24.0);
+
+    let detected = run.fault_time(FaultCode::OutOfRange).expect("out of range");
+    assert!(detected - t0 <= T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert!(run
+        .mitigations()
+        .contains(&Mitigation::DriverWarningMonitoringUnavailable));
+    assert!(!overtemp_requested(&run));
+}
+
+// --- FSR-1.3 / HARA TS-27: rising trend below θ_warn ----------------------------
+
+/// Rises from 20 °C by `step` °C per cycle for `cycles` cycles.
+fn drift(run: &mut Run, step: f32, cycles: usize) {
+    let mut max = 20.0;
+    for _ in 0..cycles {
+        max += step;
+        run.sample(max, max - 4.0, max - 8.0);
+    }
+}
+
+#[test]
+fn ts_27_sustained_rise_below_warn_raises_warning_within_budget() {
+    let thermal = config().thermal;
+    let mut run = Run::new();
+    run.samples(5, 20.0, 16.0, 12.0);
+    let t0 = run.now;
+
+    // 1.2 °C/s for 8 s: stays below θ_warn.
+    drift(&mut run, 0.12, 80);
+
+    let warning = run
+        .thermal_change_time(ThermalState::Warning)
+        .expect("warning from trend");
+    assert!(warning - t0 <= thermal.trend_duration_ms + T_REACT_MS);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert!(!overtemp_requested(&run));
+    assert_eq!(run.active_fault_count(), 0);
+}
+
+#[test]
+fn ts_27_drift_at_can_resolution_raises_warning() {
+    // The campaign's drift trace: +1 °C every 600 ms, integer values.
+    let mut run = Run::new();
+    run.samples(50, 30.0, 22.0, 14.0);
+    for max in 31..43 {
+        let max = max as f32;
+        run.samples(6, max, max - 8.0, max - 16.0);
+    }
+
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert_eq!(run.active_fault_count(), 0);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn ts_27_slow_rise_is_no_trend() {
+    let mut run = Run::new();
+    run.samples(5, 20.0, 16.0, 12.0);
+
+    // 0.5 °C/s for 10 s, below r_trend.
+    drift(&mut run, 0.05, 100);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+#[test]
+fn ts_27_warning_from_trend_is_lowered_after_the_rise_stops() {
+    let recovery = config().recovery;
+    let mut run = Run::new();
+    run.samples(5, 20.0, 16.0, 12.0);
+    drift(&mut run, 0.12, 80);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+
+    // Held constant: the trend ends once the window no longer spans the rise.
+    let hold = (config().thermal.trend_duration_ms / CYCLE_MS) as usize;
+    run.samples(hold, 29.6, 25.6, 21.6);
+    run.samples(recovery.valid_samples as usize + 1, 29.6, 25.6, 21.6);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+#[test]
+fn ts_27_gap_does_not_turn_a_slow_rise_into_a_trend() {
+    let mut run = Run::new();
+    run.samples(10, 20.0, 16.0, 12.0);
+
+    // 6 °C higher after a 10 s gap: 0.6 °C/s, below r_trend.
+    run.advance(10_000);
+    run.samples(60, 26.0, 22.0, 18.0);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
 }
 
 #[test]
@@ -1197,6 +1509,26 @@ fn config_rejects_suspect_after_stuck() {
     );
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn config_rejects_single_suspect_spike() {
+    let text = SHIPPED_CONFIG.replace("suspect_spikes = 3", "suspect_spikes = 1");
+
+    assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn config_rejects_zero_trend_parameters() {
+    for (from, to) in [
+        ("trend_rise_c_per_s = 1.0", "trend_rise_c_per_s = 0.0"),
+        ("trend_duration_ms = 5000", "trend_duration_ms = 0"),
+        ("suspect_window_ms = 1000", "suspect_window_ms = 0"),
+    ] {
+        let text = SHIPPED_CONFIG.replace(from, to);
+
+        assert!(GuardianConfig::from_toml_str(&text).is_err(), "{to}");
+    }
 }
 
 #[test]

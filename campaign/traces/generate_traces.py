@@ -22,6 +22,9 @@
                  (source shutdown, transport dropout).
 - invalid_during_warning.asc: heats to WARNING, then 1 s of low readings with
                  quality INVALID, then valid WARNING-level data again (HARA TS-10).
+- isolated_spike.asc: a single spike frame to 70 degC (FSR-3.5, HARA TS-22).
+- drift.asc:     a sustained rise of about 1.7 degC/s that stays below the
+                 warning threshold (FSR-1.3, HARA TS-27).
 - spike.asc:     an in-range spike from 40 degC to 100 degC for 1 s, then back
                  (FSR-3.3). implausible_jump.asc
                  jumps beyond the plausible range, so it tests FSR-3.2.
@@ -135,6 +138,22 @@ def invalid_during_warning():
     return frames
 
 
+def isolated_spike():
+    """4 s at 40 degC, one frame at 70 degC (30 degC within 100 ms), then 6 s
+    at 40 degC (FSR-3.5, HARA TS-22)."""
+    nominal = (40, 24, 32)
+    return [nominal] * 40 + [(70, 54, 62)] + [nominal] * 60
+
+
+def drift():
+    """5 s at 30 degC, then +1 degC per 600 ms to 42 degC, below the WARNING
+    threshold, then 5 s hold (FSR-1.3, HARA F-7, TS-27)."""
+    profile = [30] * 50
+    profile += [t for t in range(31, 43) for _ in range(6)]
+    profile += [42] * 50
+    return [(m, m - 16, m - 8) for m in profile]
+
+
 def nominal():
     """20 s at 40 degC."""
     return [(40, 24, 32)] * 200
@@ -146,6 +165,8 @@ def main():
     write(here / "max_stuck.asc", "Maximum frozen while average and minimum rise.", max_stuck())
     write(here / "nominal.asc", "20 s of nominal data at 40 degC.", nominal())
     write(here / "spike.asc", "In-range spike from 40 to 100 degC for 1 s.", spike())
+    write(here / "isolated_spike.asc", "One frame spiking from 40 to 70 degC.", isolated_spike())
+    write(here / "drift.asc", "Sustained rise below the WARNING threshold.", drift())
     write_with_quality(
         here / "invalid_during_warning.asc",
         "WARNING, then low readings marked INVALID, then WARNING again.",

@@ -13,10 +13,10 @@
 
 //! The Guardian core: a deterministic state machine without I/O.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::config::{GuardianConfig, PlausibilityConfig, RecoveryConfig, ThermalConfig};
-use crate::detectors::{FreshnessMonitor, Repetition, StuckDetector};
+use crate::detectors::{FreshnessMonitor, Repetition, StuckDetector, TrendDetector};
 use crate::model::{
     Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,
     SampleRef, ThermalState,
@@ -45,6 +45,14 @@ pub struct Guardian {
     last_fresh_sample: Option<SampleRef>,
     freshness: FreshnessMonitor,
     stuck: StuckDetector,
+    trend: TrendDetector,
+    /// Whether the last valid sample showed a rising trend (FSR-1.3).
+    trend_active: bool,
+    /// Local times of recent rate-implausible samples, within `T_suspect`
+    /// (FSR-3.5).
+    recent_spikes: VecDeque<Millis>,
+    /// Consecutive fresh, valid, healthy samples while SUSPECT (DFR-8).
+    suspect_recovery_samples: u32,
     active_faults: BTreeMap<FaultCode, EventId>,
     recovery: RecoveryConfig,
     fault_recovery: BTreeMap<FaultCode, RecoveryWindow>,
@@ -67,6 +75,10 @@ impl Guardian {
             last_fresh_sample: None,
             freshness: FreshnessMonitor::new(&config.freshness),
             stuck: StuckDetector::new(&config.stuck),
+            trend: TrendDetector::new(&config.thermal),
+            trend_active: false,
+            recent_spikes: VecDeque::new(),
+            suspect_recovery_samples: 0,
             active_faults: BTreeMap::new(),
             recovery: config.recovery.clone(),
             fault_recovery: BTreeMap::new(),
@@ -96,24 +108,36 @@ impl Guardian {
     /// Samples that are not fresh are ignored: repeated or older source
     /// timestamps, an unchanged alive counter, and non-finite values. If only
     /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data:
-    /// repeated frames set SUSPECT and, once `N_stuck` arrived, DEGRADED.
+    /// repeated frames, exact duplicates included, set SUSPECT and, once
+    /// `N_stuck` arrived, DEGRADED (DFR-7, TS-07). An out-of-order sample sets
+    /// SUSPECT at once (TS-08). SUSPECT returns to OK only after `N_recover`
+    /// consecutive fresh, valid samples (DFR-8).
+    ///
     /// Fresh samples whose quality is not `Valid` (FSR-3.4) or that are
-    /// implausible (FSR-3.1 to FSR-3.3) are reported, but not evaluated. Invalid
-    /// samples never lower the thermal state and never raise it to CRITICAL
-    /// (FSR-3.6); an implausibly high one raises it to WARNING.
+    /// implausible (FSR-3.1 to FSR-3.3) are reported, but not evaluated. An
+    /// isolated spike only sets SUSPECT; `N_suspect` spikes within `T_suspect`
+    /// lead to DEGRADED (FSR-3.5, DFR-4). Invalid samples never lower the
+    /// thermal state and never raise it to CRITICAL (FSR-3.6); an implausibly
+    /// high one raises it to WARNING.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         self.started_at.get_or_insert(now);
         if !self.is_fresh(&sample) {
             self.reset_recovery();
-            if self.is_repeated_frame(&sample) {
-                match self.freshness.record_repeated_frame(now) {
+            match self.non_fresh_kind(&sample) {
+                Some(NonFresh::Repeated) => match self.freshness.record_repeated_frame(now) {
                     Repetition::Isolated => {}
-                    Repetition::Suspect => self.set_suspect(true, now, &mut events),
+                    Repetition::Suspect => {
+                        self.set_suspect(now, &mut events);
+                    }
                     Repetition::Stuck => {
                         self.report_fault(FaultCode::CounterStuck, now, &mut events)
                     }
+                },
+                Some(NonFresh::OutOfOrder) => {
+                    self.set_suspect(now, &mut events);
                 }
+                None => {}
             }
             return events;
         }
@@ -123,7 +147,6 @@ impl Guardian {
         }
         self.last_fresh_sample = Some(sample.reference());
         self.freshness.record_fresh_sample(now);
-        self.set_suspect(false, now, &mut events);
 
         if sample.quality != Quality::Valid {
             self.reset_recovery();
@@ -132,20 +155,27 @@ impl Guardian {
         }
         if let Some((fault, may_be_real_heat)) = self.implausibility(&sample) {
             self.reset_recovery();
-            self.report_fault(fault, now, &mut events);
+            let cause = if fault == FaultCode::RateImplausible && !self.record_spike(now) {
+                // FSR-3.5: an isolated spike is discarded and only debounced.
+                self.set_suspect(now, &mut events)
+            } else {
+                self.report_fault(fault, now, &mut events);
+                self.active_faults.get(&fault).copied()
+            };
             if may_be_real_heat {
-                let cause = self.active_faults.get(&fault).copied();
                 self.raise_to_warning(&sample, cause, now, &mut events);
             }
             return events;
         }
         self.last_valid = Some((sample.max_c, sample.source_timestamp_ms));
+        self.trend_active = self.trend.observe(&sample);
         if self.stuck.observe(&sample, now) {
             self.reset_recovery();
             self.stuck_fault_max = Some(sample.max_c);
             self.report_fault(FaultCode::SignalStuck, now, &mut events);
         } else {
             self.recover_faults(&sample, now, &mut events);
+            self.recover_suspect(now, &mut events);
         }
         self.evaluate_thermal(&sample, now, &mut events);
         events
@@ -233,12 +263,31 @@ impl Guardian {
         advanced && sample.has_finite_values()
     }
 
-    /// A newer frame that carries the alive counter of the last fresh sample.
-    fn is_repeated_frame(&self, sample: &Sample) -> bool {
-        self.last_fresh_sample.is_some_and(|last| {
-            sample.source_timestamp_ms > last.source_timestamp_ms
-                && sample.alive_counter == last.alive_counter
-        })
+    /// Classifies a sample that is not fresh. `None` for samples before the
+    /// first fresh one and for non-finite values.
+    fn non_fresh_kind(&self, sample: &Sample) -> Option<NonFresh> {
+        let last = self.last_fresh_sample?;
+        if !sample.has_finite_values() {
+            return None;
+        }
+        if sample.alive_counter == last.alive_counter
+            && sample.source_timestamp_ms >= last.source_timestamp_ms
+        {
+            Some(NonFresh::Repeated)
+        } else if sample.source_timestamp_ms <= last.source_timestamp_ms {
+            Some(NonFresh::OutOfOrder)
+        } else {
+            None
+        }
+    }
+
+    /// Records a rate-implausible sample. Returns true once `N_suspect` of
+    /// them arrived within `T_suspect` (FSR-3.5).
+    fn record_spike(&mut self, now: Millis) -> bool {
+        let window = self.plausibility.suspect_window_ms;
+        self.recent_spikes.retain(|at| now.since(*at) <= window);
+        self.recent_spikes.push_back(now);
+        self.recent_spikes.len() >= self.plausibility.suspect_spikes as usize
     }
 
     /// FSR-1.1/1.2 escalation; FSR-1.5 recovery with hysteresis.
@@ -246,7 +295,7 @@ impl Guardian {
     fn evaluate_thermal(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
         let mut assessed = if sample.max_c >= self.thermal_config.critical_c {
             ThermalState::Critical
-        } else if sample.max_c >= self.thermal_config.warn_c {
+        } else if sample.max_c >= self.thermal_config.warn_c || self.trend_active {
             ThermalState::Warning
         } else {
             ThermalState::Monitoring
@@ -262,7 +311,9 @@ impl Guardian {
                     Some(ThermalState::Warning)
                 }
                 ThermalState::Warning
-                    if sample.max_c < self.thermal_config.warn_c - self.recovery.hysteresis_c =>
+                    if !self.trend_active
+                        && sample.max_c
+                            < self.thermal_config.warn_c - self.recovery.hysteresis_c =>
                 {
                     Some(ThermalState::Monitoring)
                 }
@@ -346,22 +397,45 @@ impl Guardian {
         );
     }
 
-    /// Switches between OK and SUSPECT (FSR-2.3). SUSPECT requests no
-    /// mitigation; DEGRADED is left alone.
-    fn set_suspect(&mut self, suspect: bool, now: Millis, events: &mut Vec<Event>) {
-        let (from, to) = if suspect {
-            (MonitoringStatus::Ok, MonitoringStatus::Suspect)
-        } else {
-            (MonitoringStatus::Suspect, MonitoringStatus::Ok)
-        };
-        if self.monitoring != from {
+    /// Switches from OK to SUSPECT (FSR-2.3, FSR-3.5, TS-07, TS-08). SUSPECT
+    /// requests no mitigation; DEGRADED is left alone. Returns the status
+    /// change event, if there was one.
+    fn set_suspect(&mut self, now: Millis, events: &mut Vec<Event>) -> Option<EventId> {
+        self.suspect_recovery_samples = 0;
+        if self.monitoring != MonitoringStatus::Ok {
+            return None;
+        }
+        self.monitoring = MonitoringStatus::Suspect;
+        Some(self.emit(
+            None,
+            now,
+            EventKind::MonitoringStatusChanged {
+                from: MonitoringStatus::Ok,
+                to: MonitoringStatus::Suspect,
+            },
+            events,
+        ))
+    }
+
+    /// Returns from SUSPECT to OK after `N_recover` consecutive fresh, valid,
+    /// healthy samples (DFR-8).
+    fn recover_suspect(&mut self, now: Millis, events: &mut Vec<Event>) {
+        if self.monitoring != MonitoringStatus::Suspect {
             return;
         }
-        self.monitoring = to;
+        self.suspect_recovery_samples = self.suspect_recovery_samples.saturating_add(1);
+        if self.suspect_recovery_samples < self.recovery.valid_samples {
+            return;
+        }
+        self.suspect_recovery_samples = 0;
+        self.monitoring = MonitoringStatus::Ok;
         self.emit(
             None,
             now,
-            EventKind::MonitoringStatusChanged { from, to },
+            EventKind::MonitoringStatusChanged {
+                from: MonitoringStatus::Suspect,
+                to: MonitoringStatus::Ok,
+            },
             events,
         );
     }
@@ -369,6 +443,7 @@ impl Guardian {
     fn reset_recovery(&mut self) {
         self.fault_recovery.clear();
         self.thermal_recovery = None;
+        self.suspect_recovery_samples = 0;
     }
 
     fn recover_faults(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
@@ -466,6 +541,17 @@ impl Guardian {
         });
         id
     }
+}
+
+/// Why a sample is not fresh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonFresh {
+    /// Same alive counter as the last fresh sample, source timestamp not
+    /// older: a frozen source or a duplicated message (FSR-2.3, DFR-7).
+    Repeated,
+    /// Source timestamp not newer than the last fresh sample: delivered out
+    /// of order (TS-08).
+    OutOfOrder,
 }
 
 #[derive(Debug, Clone)]

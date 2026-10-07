@@ -22,8 +22,9 @@
 #          and is reported, and fails until the requirement is implemented.
 
 # Budget parameters in milliseconds that are not in
-# config/guardian/safety-params.toml. T_stale, T_stuck, and T_recover come
-# from there; T_counter_stuck is N_stuck repeated frames times the cycle.
+# config/guardian/safety-params.toml. T_stale, T_stuck, T_recover, T_suspect,
+# and T_trend come from there; T_counter_stuck is N_stuck repeated frames
+# times the cycle.
 [budgets]
 cycle = 100
 T_react = 100  # HARA DFR-1
@@ -481,16 +482,17 @@ description = "In-range spike from 40 degC to 100 degC for 1 s"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-11", "TS-12"]
+hara_tests = ["TS-21", "TS-23"]
 status = "implemented"
+note = "Every frame at 100 degC is a spike against the last valid 40 degC, so N_suspect spikes arrive within T_suspect (HARA F-13)."
 stimulus = { type = "can_trace", trace = "campaign/traces/spike.asc" }
 onset = "max_at_least:100"
 
 [[scenario.expect]]
 kind = "fault"
 dtc = "BTG_TempRateImplausible"
-budget = "T_react"
-requirement = "FSR-3.3"
+budget = "T_suspect + T_react"
+requirement = "FSR-3.5"
 
 [[scenario.expect]]
 kind = "degraded"
@@ -518,6 +520,59 @@ requirement = "FSR-D.2"
 kind = "recovery"
 dtc = "BTG_TempRateImplausible"
 requirement = "FSR-2.6"
+
+[[scenario]]
+id = "isolated_spike"
+description = "One frame spiking from 40 degC to 70 degC, then nominal data"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-22"]
+status = "implemented"
+note = "An isolated spike only sets SUSPECT (FSR-3.5): no fault and no monitoring-unavailable warning, but WARNING because a real runaway cannot be excluded."
+stimulus = { type = "can_trace", trace = "campaign/traces/isolated_spike.asc" }
+onset = "max_at_least:70"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "FSR-3.5"
+
+[[scenario]]
+id = "drift"
+description = "Sustained rise of about 1.7 degC/s from 30 degC to 42 degC, below the WARNING threshold"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+hara_tests = ["TS-27"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/drift.asc" }
+onset = "max_at_least:31"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_trend + T_react"
+requirement = "FSR-1.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
 
 [[scenario]]
 id = "min_gt_avg"

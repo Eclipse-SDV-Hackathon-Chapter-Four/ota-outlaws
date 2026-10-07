@@ -15,7 +15,9 @@
 //! only answers whether its fault condition holds; the Guardian decides what
 //! happens next.
 
-use crate::config::{FreshnessConfig, StuckConfig};
+use std::collections::VecDeque;
+
+use crate::config::{FreshnessConfig, StuckConfig, ThermalConfig};
 use crate::model::{Millis, Sample};
 
 /// What a repeated frame means for the source (FSR-2.3).
@@ -136,5 +138,47 @@ impl StuckDetector {
                 false
             }
         }
+    }
+}
+
+/// FSR-1.3: detects a valid maximum that rises by at least `r_trend` on
+/// average over at least `T_trend` (HARA F-7, TS-27).
+///
+/// Works on source timestamps, so delivery jitter does not distort the rate.
+#[derive(Debug, Clone)]
+pub(crate) struct TrendDetector {
+    rise_c_per_s: f32,
+    duration_ms: u64,
+    /// Valid maxima with their source timestamps. Keeps exactly one entry at
+    /// or before the start of the window, so the window spans `T_trend`.
+    history: VecDeque<(u64, f32)>,
+}
+
+impl TrendDetector {
+    pub(crate) fn new(config: &ThermalConfig) -> Self {
+        Self {
+            rise_c_per_s: config.trend_rise_c_per_s,
+            duration_ms: config.trend_duration_ms,
+            history: VecDeque::new(),
+        }
+    }
+
+    /// Observes a valid sample. Returns true while the rising trend holds.
+    pub(crate) fn observe(&mut self, sample: &Sample) -> bool {
+        let now = sample.source_timestamp_ms;
+        self.history.push_back((now, sample.max_c));
+        while self
+            .history
+            .get(1)
+            .is_some_and(|&(time, _)| now.saturating_sub(time) >= self.duration_ms)
+        {
+            self.history.pop_front();
+        }
+        let (start, start_max) = self.history[0];
+        let span_ms = now.saturating_sub(start);
+        // The average rate over the actual span, so that a gap in the data
+        // cannot stretch the window and fake a slow rise into a trend.
+        span_ms >= self.duration_ms
+            && sample.max_c - start_max >= self.rise_c_per_s * span_ms as f32 / 1000.0
     }
 }
