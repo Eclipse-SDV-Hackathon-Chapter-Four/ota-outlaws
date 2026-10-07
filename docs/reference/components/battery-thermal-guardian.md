@@ -44,6 +44,7 @@ The Guardian is split into a **core** that contains all safety logic and
 | Input adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Subscribe to `BatteryTemperature` over uProtocol, decode the Protobuf payload, call the core |
 | Tick ([`guardian-service`](../../../guardian-service)) | **Implemented** | Call the core every 50 ms, so that missing samples are detected |
 | Output adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Publish every core event as a `GuardianEvent` over uProtocol |
+| Heartbeat ([`guardian-service`](../../../guardian-service)) | **Implemented** | Publish a `Heartbeat` every 500 ms from the same loop, watched by the [Guardian Watchdog](guardian-watchdog.md) (FSR-2.7) |
 | DFM adapter | Not implemented | Write fault events to the DFM without blocking the safety reaction (FSR-D.1) |
 
 The messages and topics are defined in the

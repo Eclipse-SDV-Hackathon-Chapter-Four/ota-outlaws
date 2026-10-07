@@ -21,6 +21,7 @@ members = [
     "contracts",
     "vss-publisher",
     "campaign",
+    "watchdog",
     "third-party/fault-lib",
 ]
 

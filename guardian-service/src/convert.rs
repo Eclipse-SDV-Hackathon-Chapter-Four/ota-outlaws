@@ -86,6 +86,16 @@ pub fn encode_event_for_session(event: &Event, session: &str) -> Vec<u8> {
     message.encode_to_vec()
 }
 
+/// Encodes a `Heartbeat` payload (FSR-2.7).
+pub fn encode_heartbeat(session: &str, sequence: u64, guardian_time_ms: u64) -> Vec<u8> {
+    pb::Heartbeat {
+        session_id: session.into(),
+        sequence,
+        guardian_time_ms,
+    }
+    .encode_to_vec()
+}
+
 fn to_message(event: &Event) -> pb::GuardianEvent {
     use pb::guardian_event::Kind;
 
@@ -267,6 +277,20 @@ mod tests {
                 requirement: "FSR-2.3".to_owned(),
                 last_sample: None,
             }))
+        );
+    }
+
+    #[test]
+    fn encodes_heartbeat() {
+        let message = pb::Heartbeat::decode(encode_heartbeat("s1", 4, 2_000).as_slice()).unwrap();
+
+        assert_eq!(
+            message,
+            pb::Heartbeat {
+                session_id: "s1".to_owned(),
+                sequence: 4,
+                guardian_time_ms: 2_000,
+            }
         );
     }
 

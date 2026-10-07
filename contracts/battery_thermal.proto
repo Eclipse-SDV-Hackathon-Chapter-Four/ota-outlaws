@@ -67,6 +67,18 @@ message GuardianEvent {
   }
 }
 
+// Published by the Guardian every T_hb_period, independent of state changes,
+// so the watchdog can tell "nothing changed" from "Guardian crashed or hung"
+// (FSR-2.7). Not part of GuardianEvent: it carries no event ID and no cause.
+message Heartbeat {
+  // Same session ID as the Guardian's GuardianEvent messages.
+  string session_id = 1;
+  // Increases by one per heartbeat, starting at 1.
+  uint64 sequence = 2;
+  // Guardian's local monotonic time in milliseconds since it started.
+  uint64 guardian_time_ms = 3;
+}
+
 message ThermalStateChanged {
   ThermalState previous = 1;
   ThermalState current = 2;

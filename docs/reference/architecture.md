@@ -39,6 +39,7 @@ SPDX-License-Identifier: EPL-2.0
 |Trace Generator|[Fault_Injection_CAN_Logs](../../Fault_Injection_CAN_Logs), [campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
 |VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
 |Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
+|Guardian Watchdog|[watchdog](../../watchdog)|[Guardian Watchdog](components/guardian-watchdog.md)|
 |Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|
 |KUKSA Data Broker|||
 |OpenSOVD Server|||

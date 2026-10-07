@@ -20,4 +20,5 @@ SPDX-License-Identifier: EPL-2.0
 - [Faults to Be Detected](faults-to-be-detected.md)
 - Components
   - [Battery Thermal Guardian](components/battery-thermal-guardian.md)
+  - [Guardian Watchdog](components/guardian-watchdog.md)
   - [Campaign Tool](components/campaign.md)

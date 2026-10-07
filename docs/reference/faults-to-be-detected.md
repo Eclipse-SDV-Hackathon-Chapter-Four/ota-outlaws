@@ -34,9 +34,12 @@ monitoring is marked unavailable; `Fatal` means the battery itself is in a
 dangerous state and requires an active protective response.
 
 Faults marked *(implemented)* exist as a `FaultCode` and DTC in the Guardian
-today. The rest are derivable from the same four signals and are either
-specified in the Safety Concept as `planned`, or proposed here as not yet
-specified at all; none of those are implemented.
+today. The exception is Heartbeat Loss (`BTG_GuardianHeartbeatLoss`): a crashed
+or hung Guardian cannot report its own failure, so the separate
+[watchdog](../../watchdog/README.md) reports it, to the same DFM entity. The
+rest are derivable from the same four signals and are either specified in the
+Safety Concept as `planned`, or proposed here as not yet specified at all; none
+of those are implemented.
 
 The HARA ID column traces each fault to the
 [preliminary HARA](hara.md#candidate-faults-and-malfunctions)'s candidate faults
@@ -82,7 +85,7 @@ the same style for faults that are not yet implemented.
 | Startup Without Source | — | Communication | No valid sample since Guardian start | Error | `DriverWarningMonitoringUnavailable` |
 | Isolated vs. Repeated Spike | F-8 | Configuration | Single occurrence sets SUSPECT, repeated sets DEGRADED | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` |
 | Counter Error, Isolated vs. Repeated | F-3, F-5 | Communication | Counter jump, not advancing by exactly one | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` |
-| Heartbeat Loss | F-10 | Timing | Guardian itself stops reporting | Fatal | `RestartGuardian` |
+| Heartbeat Loss *(implemented)* | F-10 | Software | Guardian itself stops reporting | Error | `RestartGuardian` |
 | Stale Timestamp | F-2 | Communication | Constant transport delay despite synchronized clocks | Error | `DriverWarningMonitoringUnavailable` |
 | Min Stuck | F-1 | Communication | Mirror of SignalStuck, but on the cold side | Error | `DriverWarningMonitoringUnavailable` |
 | Avg Deviates from (Min+Max)/2 | — | Configuration | Internal aggregation error in the BMS | Error | `DriverWarningMonitoringUnavailable` |
