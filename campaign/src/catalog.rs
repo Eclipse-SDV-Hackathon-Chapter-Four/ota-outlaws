@@ -39,6 +39,9 @@ pub struct Scenario {
     pub fault_class: String,
     pub hazard: Option<String>,
     pub safety_goal: Option<String>,
+    /// Test scenarios of the HARA this scenario implements, for example TS-04.
+    #[serde(default)]
+    pub hara_tests: Vec<String>,
     /// `implemented`: every requirement the scenario checks is implemented,
     /// so a failure is a defect. `planned`: the scenario checks a planned
     /// requirement and is expected to fail until it is implemented.
@@ -61,7 +64,7 @@ pub enum ScenarioStatus {
 }
 
 /// How the fault gets into the system.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Stimulus {
     /// Replay a CAN trace once through the KUKSA CAN Provider.
@@ -73,7 +76,20 @@ pub enum Stimulus {
         pause: Vec<String>,
         pause_after_ms: Option<u64>,
         pause_for_ms: Option<u64>,
+        /// Services to stop for good after the trace has started, for example
+        /// the CAN provider to shut the source down.
+        #[serde(default)]
+        stop: Vec<String>,
+        stop_after_ms: Option<u64>,
+        /// A service to cut off from the network for a while, for example the
+        /// Guardian for a dropout between the publisher and the Guardian.
+        isolate: Option<String>,
+        isolate_after_ms: Option<u64>,
+        isolate_for_ms: Option<u64>,
     },
+    /// Start the chain without any temperature source and record for
+    /// `duration_ms`.
+    NoSource { duration_ms: u64 },
     /// The tool does not inject; someone else does, for example by unplugging
     /// the hardware source. Only usable with `campaign observe`.
     External,
@@ -117,6 +133,18 @@ pub enum Expectation {
     NotThermal { state: String, requirement: String },
     /// No fault is reported during the scenario.
     NoFault { requirement: String },
+    /// With no sample at the Guardian's input, it reports this fault within
+    /// the budget after its own start, measured on its own clock.
+    StartupFault {
+        dtc: String,
+        budget: String,
+        requirement: String,
+    },
+    /// Samples keep reaching the tap after the onset, so the source and the
+    /// publisher are alive and a loss at the Guardian lies behind the tap.
+    SamplesContinue { requirement: String },
+    /// The thermal state is never lowered after the onset.
+    NotLowered { requirement: String },
 }
 
 impl Expectation {
@@ -129,7 +157,10 @@ impl Expectation {
             | Expectation::Thermal { requirement, .. }
             | Expectation::OvertempWarning { requirement }
             | Expectation::NotThermal { requirement, .. }
-            | Expectation::NoFault { requirement } => requirement,
+            | Expectation::NoFault { requirement }
+            | Expectation::StartupFault { requirement, .. }
+            | Expectation::SamplesContinue { requirement }
+            | Expectation::NotLowered { requirement } => requirement,
         }
     }
 }

@@ -127,7 +127,7 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
             .catalog
             .scenarios
             .iter()
-            .filter(|s| matches!(s.stimulus, Stimulus::CanTrace { .. }))
+            .filter(|s| !matches!(s.stimulus, Stimulus::External))
             .map(|s| s.id.clone())
             .collect()
     } else {
@@ -297,18 +297,7 @@ fn manifest(
 }
 
 fn stimulus_json(stimulus: &Stimulus) -> serde_json::Value {
-    match stimulus {
-        Stimulus::CanTrace {
-            trace,
-            pause,
-            pause_after_ms,
-            pause_for_ms,
-        } => serde_json::json!({
-            "type": "can_trace", "trace": trace, "pause": pause,
-            "pause_after_ms": pause_after_ms, "pause_for_ms": pause_for_ms,
-        }),
-        Stimulus::External => serde_json::json!({"type": "external"}),
-    }
+    serde_json::to_value(stimulus).unwrap_or(serde_json::Value::Null)
 }
 
 fn git_revision(repo: &Path) -> Option<String> {

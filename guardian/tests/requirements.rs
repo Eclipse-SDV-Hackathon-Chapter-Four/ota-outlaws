@@ -288,6 +288,51 @@ fn fsr_1_2_critical_is_requested_only_once() {
     assert_eq!(run.mitigations(), vec![Mitigation::DriverWarningOvertemp]);
 }
 
+// --- FSR-2.1: no data after startup ---------------------------------------------
+
+#[test]
+fn fsr_2_1_no_data_after_start_leads_to_degraded_within_budget() {
+    // HARA TS-03: the Guardian starts, no temperature data arrives.
+    let stale_timeout = config().freshness.stale_timeout_ms;
+    let mut run = Run::new();
+
+    run.advance(2_000);
+
+    let detected = run
+        .fault_time(FaultCode::NoDataAtStartup)
+        .expect("startup fault");
+    assert!(detected <= stale_timeout + T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(
+        run.mitigations(),
+        vec![Mitigation::DriverWarningMonitoringUnavailable]
+    );
+    assert_eq!(run.thermal(), ThermalState::Clear);
+}
+
+#[test]
+fn fsr_2_1_first_sample_within_t_stale_is_no_fault() {
+    let mut run = Run::new();
+
+    run.samples(20, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.fault_time(FaultCode::NoDataAtStartup), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+}
+
+#[test]
+fn fsr_2_1_startup_fault_recovers_when_data_arrives() {
+    let mut run = Run::new();
+    run.advance(1_000);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+
+    run.samples(30, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    assert_eq!(run.active_fault_count(), 0);
+}
+
 // --- FSR-2.2: loss of fresh data --------------------------------------------
 
 #[test]
@@ -916,6 +961,7 @@ fn fsr_d_1_fault_codes_identify_detecting_requirement() {
     assert_eq!(FaultCode::OrderImplausible.requirement(), "FSR-3.1");
     assert_eq!(FaultCode::OutOfRange.requirement(), "FSR-3.2");
     assert_eq!(FaultCode::RateImplausible.requirement(), "FSR-3.3");
+    assert_eq!(FaultCode::NoDataAtStartup.requirement(), "FSR-2.1");
 }
 
 #[test]
@@ -1151,7 +1197,7 @@ fn recovery_initial_monitor_tests_require_observation_before_pass() {
             .iter()
             .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
             .count(),
-        6
+        7
     );
     run.samples(31, 35.0, 30.0, 25.0);
     assert_eq!(
@@ -1159,7 +1205,7 @@ fn recovery_initial_monitor_tests_require_observation_before_pass() {
             .iter()
             .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
             .count(),
-        7
+        8
     );
     assert!(!run
         .events

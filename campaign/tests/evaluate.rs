@@ -147,6 +147,44 @@ impl Recording {
         self.sovd(recovered_at + 300, dtc, fault, false, true);
     }
 
+    fn injection(&mut self, t_ms: u64, action: &str) {
+        self.observations.push(Observation {
+            t_ms,
+            tap: Tap::Injection {
+                action: action.to_owned(),
+                detail: String::new(),
+            },
+        });
+    }
+
+    fn degraded_after(&mut self, dtc: &str, at: u64) -> u64 {
+        let fault = self.event(
+            at,
+            0,
+            EventKind::FaultDetected {
+                dtc: dtc.into(),
+                requirement: "FSR".into(),
+            },
+        );
+        let degraded = self.event(
+            at,
+            fault,
+            EventKind::MonitoringStatusChanged {
+                previous: "OK".into(),
+                current: "DEGRADED".into(),
+            },
+        );
+        self.event(
+            at,
+            degraded,
+            EventKind::MitigationRequested {
+                mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+            },
+        );
+        self.sovd(at + 300, dtc, fault, true, true);
+        fault
+    }
+
     fn judge(&self, context: &Context, id: &str) -> Evaluation {
         let mut observations = self.observations.clone();
         observations.sort_by_key(|o| o.t_ms);
@@ -217,7 +255,7 @@ fn fault_codes_come_from_the_dfm_catalog() {
     assert!(context
         .fault_codes
         .contains(&"BTG_TempFreshnessLost".to_owned()));
-    assert_eq!(context.fault_codes.len(), 7);
+    assert_eq!(context.fault_codes.len(), 8);
 }
 
 // --- PASS -----------------------------------------------------------------------
@@ -553,7 +591,7 @@ fn onset(r: &Recording, onset: Onset) -> Option<u64> {
             _ => None,
         })
         .collect();
-    onset.find(&samples, &context.onset).map(|f| f.t_ms)
+    onset.find(&samples, &[], &context.onset).map(|f| f.t_ms)
 }
 
 #[test]
@@ -599,4 +637,192 @@ fn gap_needs_more_than_t_stale() {
     assert_eq!(onset(&r, Onset::Gap), None);
     r.sample_at(700, 3, "VALID", 40.0, 32.0, 24.0);
     assert_eq!(onset(&r, Onset::Gap), Some(400));
+}
+
+// --- HARA test scenarios ----------------------------------------------------------
+
+#[test]
+fn ts_03_startup_fault_in_time_is_pass() {
+    let context = context();
+    let mut r = Recording::default();
+    r.injection(10, "start_guardian");
+    // guardian_time_ms equals t_ms in this helper: 350 ms after its start.
+    r.degraded_after("BTG_TempNoDataAtStartup", 350);
+
+    let evaluation = r.judge(&context, "startup_without_source");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+}
+
+#[test]
+fn ts_03_late_startup_fault_is_fail() {
+    let context = context();
+    let mut r = Recording::default();
+    r.degraded_after("BTG_TempNoDataAtStartup", 900);
+
+    let evaluation = r.judge(&context, "startup_without_source");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert_eq!(evaluation.requirements["FSR-2.1"], Verdict::Fail);
+}
+
+#[test]
+fn ts_03_with_samples_at_the_input_is_inconclusive() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 1000);
+    r.degraded_after("BTG_TempNoDataAtStartup", 350);
+
+    let evaluation = r.judge(&context, "startup_without_source");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+}
+
+#[test]
+fn ts_04_stream_end_is_the_onset() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 6000);
+    // Last sample at 5900, t0 = 6000; detected 300 ms later.
+    r.degraded_after("BTG_TempFreshnessLost", 6300);
+
+    let evaluation = r.judge(&context, "source_shutdown");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.onset.as_ref().unwrap().t_ms, 6000);
+}
+
+#[test]
+fn ts_06_dropout_behind_the_tap_is_pass_with_attribution() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 12000);
+    r.injection(6000, "isolate");
+    r.injection(8000, "reconnect");
+    r.full_reaction("BTG_TempFreshnessLost", 6350, 9500);
+
+    let evaluation = r.judge(&context, "transport_dropout");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.requirements["EC-1"], Verdict::Pass);
+}
+
+#[test]
+fn ts_06_without_samples_at_the_tap_attribution_is_inconclusive() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 6000);
+    r.nominal(8000, 12000);
+    r.injection(6000, "isolate");
+    r.full_reaction("BTG_TempFreshnessLost", 6350, 9500);
+
+    let evaluation = r.judge(&context, "transport_dropout");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+    assert_eq!(evaluation.requirements["EC-1"], Verdict::Inconclusive);
+}
+
+#[test]
+fn ts_10_lowering_after_invalid_input_is_fail() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 3000);
+    r.sample_at(3000, 31, "VALID", 47.0, 39.0, 31.0);
+    r.event(
+        3001,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "MONITORING".into(),
+            current: "WARNING".into(),
+        },
+    );
+    r.sample_at(3100, 32, "INVALID", 20.0, 15.0, 10.0);
+    r.sample_at(3200, 33, "VALID", 47.0, 39.0, 31.0);
+    r.full_reaction("BTG_TempQualityInvalid", 3101, 4500);
+    r.event(
+        4600,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "WARNING".into(),
+            current: "MONITORING".into(),
+        },
+    );
+    r.nominal(3300, 6000);
+
+    let evaluation = r.judge(&context, "invalid_during_warning");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert_eq!(evaluation.requirements["FSR-3.6"], Verdict::Fail);
+}
+
+#[test]
+fn samples_before_the_guardian_started_are_not_judged() {
+    // A gap before the Guardian started is not a fault the Guardian could see.
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 1000);
+    r.nominal(2000, 3000);
+    r.injection(2500, "start_guardian");
+    r.nominal(3000, 6000);
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+    assert!(evaluation.reason.contains("never showed"));
+}
+
+#[test]
+fn detection_time_comes_from_the_guardian_when_delivery_is_delayed() {
+    // TS-06 on the real chain: cut off the network, the Guardian detects the
+    // fault in time, but its event reaches the tap only after reconnecting.
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 12000);
+    r.injection(6000, "isolate");
+    r.injection(8500, "reconnect");
+    // An early event on time: Guardian clock = tool clock - 3000.
+    r.event(
+        3100,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CLEAR".into(),
+            current: "MONITORING".into(),
+        },
+    );
+    r.full_reaction("BTG_TempFreshnessLost", 8600, 10000);
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(event) = &mut observation.tap {
+            event.guardian_time_ms = if event.event_id == 2 {
+                // The fault: detected at tool time 6350, delivered at 8600.
+                3350
+            } else {
+                observation.t_ms - 3000
+            };
+        }
+    }
+
+    let evaluation = r.judge(&context, "transport_dropout");
+
+    let fault = &evaluation.checks[0];
+    assert_eq!(fault.latency_ms, Some(350), "{fault:#?}");
+    assert_eq!(evaluation.requirements["FSR-2.2"], Verdict::Pass);
+    match &fault.outcome {
+        Outcome::Met { detail } => assert!(detail.contains("delivered"), "{detail}"),
+        other => panic!("{other:?}"),
+    }
 }
