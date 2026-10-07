@@ -20,6 +20,7 @@ members = [
     "guardian-service",
     "contracts",
     "vss-publisher",
+    "campaign",
     "third-party/fault-lib",
 ]
 
