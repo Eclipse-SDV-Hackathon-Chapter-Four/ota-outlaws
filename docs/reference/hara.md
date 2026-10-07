@@ -76,6 +76,15 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 
 > NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility should be tracked separately as evidence-chain faults. They test whether a scenario is observable and its verdict is supportable; they are not temperature-input malfunctions by themselves.
 
+## Severity Definition
+
+|Name|Description|
+|---|---|
+| S0 | No harm |
+| S1 | Light injuries |
+| S2 | Severe injures |
+| S3 | Death |
+
 ## Hazardous Events
 
 For every hazardous event, assess **S** (severity of potential harm), **E** (exposure to the operational situation), and **C** (controllability of the hazardous event by the driver or other persons at risk). Use the definitions and ASIL determination table from the applicable ISO 26262 edition and vehicle category. Do not infer exposure from fault frequency. Record the rationale and evidence for each rating; derive ASIL only after S/E/C are agreed. **Most ratings
