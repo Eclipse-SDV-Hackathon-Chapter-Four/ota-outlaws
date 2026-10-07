@@ -62,3 +62,5 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 - Documentation follows the diataxis framework
 - Team communication happens via a dedicated slack channel: [ota-outlaws](https://app.slack.com/client/T02MS1M89UH/C0C6LDHN079)
 - Decision making is done via majority vote.
+## Constraints
+- Lower bound temperature could not safely asserted, because our temperature values range from 0-255 and 0 degrees is valid temperature for a battery, while reportedly temperature of 255 either indicates a crash or a fault sensor.
