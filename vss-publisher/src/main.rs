@@ -35,7 +35,9 @@ use vss_publisher::{
     BatteryTemperature, Quality,
 };
 
-// Generated from proto/kuksa/val/v1/
+// Generated from proto/kuksa/val/v1/. Generated code is not linted: its gRPC
+// client returns tonic::Status by value, which newer clippy versions flag.
+#[allow(clippy::all)]
 mod kuksa {
     pub mod val {
         pub mod v1 {
