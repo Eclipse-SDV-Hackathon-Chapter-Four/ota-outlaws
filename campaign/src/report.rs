@@ -415,7 +415,12 @@ pub fn markdown(manifest: &Manifest, scenario: &Scenario, evaluation: &Evaluatio
     }
 
     chain_markdown(&mut out, &evaluation.chain);
-    timeline_markdown(&mut out, &evaluation.timeline, evaluation.window_end_ms);
+    // When the end of the stream is the injected fault, the events after it
+    // are the reaction, not an artifact of the trace ending.
+    let window_end = evaluation
+        .window_end_ms
+        .filter(|_| scenario.onset != crate::onset::Onset::StreamEnd);
+    timeline_markdown(&mut out, &evaluation.timeline, window_end);
     let _ = writeln!(out, "\n## Inputs\n");
     if let Some(revision) = &manifest.git_revision {
         let _ = writeln!(out, "- git revision `{revision}`");

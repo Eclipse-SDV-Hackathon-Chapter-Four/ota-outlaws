@@ -560,8 +560,12 @@ fn evidence_chain(
     let of_session = |e: &GuardianEvent| Some(e.session_id.as_str()) == session;
     // After the onset, and within the judged window: faults after it come
     // from the end of the stimulus.
-    let in_scope =
-        |t: u64| t0.is_some_and(|t0| t >= t0) && (run.window_end.is_none() || run.in_window(t));
+    // When the end of the stream is the injected fault, the reactions to it
+    // come after the window by design.
+    let windowed = scenario.onset != Onset::StreamEnd;
+    let in_scope = |t: u64| {
+        t0.is_some_and(|t0| t >= t0) && (!windowed || run.window_end.is_none() || run.in_window(t))
+    };
     let by_id: BTreeMap<u64, &GuardianEvent> = run
         .events
         .iter()
@@ -1427,13 +1431,43 @@ fn check(
             result.outcome = match run.reference(after, t0, params) {
                 None => never_showed(after),
                 Some(reference) => {
+                    // The state the Guardian held when the reference came:
+                    // it may already be there, for example because it saw the
+                    // first sample before the tool saw it was ready.
+                    let held = run
+                        .events
+                        .iter()
+                        .filter(|(t, e)| {
+                            *t < reference
+                                && Some(e.session_id.as_str()) == run.session_id.as_deref()
+                                && matches!(e.kind, EventKind::ThermalStateChanged { .. })
+                        })
+                        .max_by_key(|(_, e)| e.event_id);
+                    let already = held.filter(|(_, e)| {
+                        matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if severity(current) >= severity(state))
+                    });
                     let reached = run.events.iter().find(|(t, e)| {
                         *t >= reference
                             && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if severity(current) >= severity(state))
                     });
-                    match reached {
-                        None => failed(format!("thermal state never reached {state}")),
-                        Some((t, event)) => {
+                    match (already, reached) {
+                        (Some((t, event)), _) => {
+                            result.t_ms = Some(*t);
+                            result.latency_ms = Some(0);
+                            let current = match &event.kind {
+                                EventKind::ThermalStateChanged { current, .. } => current,
+                                _ => unreachable!(),
+                            };
+                            Outcome::Met {
+                                detail: format!(
+                                    "already {current} at the reference, since event #{} at {}",
+                                    event.event_id,
+                                    seconds(*t)
+                                ),
+                            }
+                        }
+                        (None, None) => failed(format!("thermal state never reached {state}")),
+                        (None, Some((t, event))) => {
                             let latency = t - reference;
                             result.t_ms = Some(*t);
                             result.latency_ms = Some(latency);

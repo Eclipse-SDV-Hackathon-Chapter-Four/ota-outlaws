@@ -22,8 +22,9 @@
 warn_c = 45.0
 # θ_crit: CRITICAL threshold for the maximum cell temperature (FSR-1.2, SG-1).
 critical_c = 55.0
-# r_trend, T_trend: a valid maximum that rises by at least r_trend on average
-# over T_trend raises WARNING even below θ_warn (FSR-1.3, HARA F-7, TS-25).
+# r_trend, T_trend: a valid maximum that rises by at least r_trend, sustained
+# over T_trend (in both halves of the window), raises WARNING even below θ_warn
+# (FSR-1.3, HARA F-7, TS-25).
 trend_rise_c_per_s = 1.0
 trend_duration_ms = 5000
 # Δ_hotspot: a valid maximum more than this above the average is a local hot
