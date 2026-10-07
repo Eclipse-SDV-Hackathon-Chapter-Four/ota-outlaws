@@ -256,6 +256,12 @@ For each component, document:
 | [watchdog](../../watchdog) | Rust | Monitors Guardian heartbeat and reports heartbeat loss to DFM | `cargo test -p watchdog`; service entry point: `watchdog/src/main.rs` |
 | [dashboard](../../dashboard) | Rust | Inspects and controls the local Compose stack and launches campaign runs | `cargo test -p dashboard`; [Dashboard](components/dashboard.md) |
 
+The checked-in [workspace SBOM](../../sbom.cdx.json) is a single CycloneDX 1.6
+document covering all eight Cargo workspace members and their resolved
+dependencies. Regenerate it from the repository root after changing a Cargo
+manifest or `Cargo.lock` with `cargo install cargo-sbom --version 0.10.0 --locked`
+followed by `cargo sbom --output-format cyclone_dx_json_1_6 > sbom.cdx.json`.
+
 **Code organization pattern:**
 
 - Package/module: Rust workspace crates, listed in the Code table above
@@ -445,3 +451,6 @@ view were updated with the assistance of **GitHub Copilot** using the model
 The Draw.io container view, watchdog and TS-27 alignment, and repository
 validation details were updated with the assistance of **GitHub Copilot** using
 the model **GPT-6 Luna** (`GPT-6 Luna`).
+
+The workspace SBOM reference and regeneration command were added with the
+assistance of **GitHub Copilot** using the model **GPT-6 Luna** (`GPT-6 Luna`).
