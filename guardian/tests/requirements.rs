@@ -630,26 +630,79 @@ fn fsr_2_5_valid_sample_still_raises_thermal_state_while_degraded() {
 
 // --- FSR-2.3: stuck alive counter ---------------------------------------------
 
-#[test]
-fn fsr_2_3_repeated_frame_leads_to_counter_stuck_within_budget() {
-    // A frozen source keeps sending the same frame. The timestamps stay fresh;
-    // only the alive counter reveals it.
-    let stale_timeout = config().freshness.stale_timeout_ms;
-    let mut run = Run::new();
-    run.samples(10, 30.0, 28.0, 26.0);
+/// Delivers `count` frames that repeat the alive counter of the last fresh
+/// sample, one per cycle.
+fn repeat_frames(run: &mut Run, count: u32) {
     let frozen_counter = run.alive_counter;
-    let t0 = run.now + CYCLE_MS;
-
-    for _ in 0..20 {
+    for _ in 0..count {
         run.frame(frozen_counter, Quality::Valid, 30.0);
     }
+}
+
+#[test]
+fn fsr_2_3_repeated_frames_lead_to_counter_stuck_within_budget() {
+    // A frozen source keeps sending the same frame. The timestamps stay fresh;
+    // only the alive counter reveals it.
+    let stuck_frames = config().freshness.stuck_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    let t0 = run.now + CYCLE_MS;
+
+    repeat_frames(&mut run, 20);
 
     let detected = run
         .fault_time(FaultCode::CounterStuck)
         .expect("counter stuck");
-    assert!(detected - t0 <= stale_timeout + T_REACT_MS);
+    assert!(detected - t0 <= u64::from(stuck_frames) * CYCLE_MS + T_REACT_MS);
     assert_eq!(run.fault_time(FaultCode::FreshnessLost), None);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+}
+
+#[test]
+fn fsr_2_3_counter_stuck_exactly_at_n_stuck_repeated_frames() {
+    let stuck_frames = config().freshness.stuck_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    repeat_frames(&mut run, stuck_frames - 1);
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+
+    repeat_frames(&mut run, 1);
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), Some(run.now));
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert!(run
+        .mitigations()
+        .contains(&Mitigation::DriverWarningMonitoringUnavailable));
+}
+
+#[test]
+fn fsr_2_3_suspect_exactly_at_n_suspect_repeated_frames() {
+    let suspect_frames = config().freshness.suspect_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    repeat_frames(&mut run, suspect_frames - 1);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+
+    repeat_frames(&mut run, 1);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+    assert_eq!(run.active_fault_count(), 0);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn fsr_2_3_fresh_sample_clears_suspect() {
+    let suspect_frames = config().freshness.suspect_repeated_frames;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    repeat_frames(&mut run, suspect_frames);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+
+    run.sample(30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.active_fault_count(), 0);
 }
 
 #[test]
@@ -658,13 +711,32 @@ fn fsr_2_3_single_repeated_frame_before_outage_is_freshness_lost() {
     // itself, the data simply stopped.
     let mut run = Run::new();
     run.samples(10, 30.0, 28.0, 26.0);
-    let last_counter = run.alive_counter;
-    run.frame(last_counter, Quality::Valid, 30.0);
+    repeat_frames(&mut run, 1);
 
     run.advance(2_000);
 
     assert!(run.fault_time(FaultCode::FreshnessLost).is_some());
     assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
+}
+
+#[test]
+fn fsr_2_3_repeated_frames_below_n_stuck_before_outage_are_freshness_lost() {
+    let stuck_frames = config().freshness.stuck_repeated_frames;
+    let stale_timeout = config().freshness.stale_timeout_ms;
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    repeat_frames(&mut run, stuck_frames - 1);
+    let last_frame = run.now;
+
+    run.advance(2_000);
+
+    // T_stale counts from the last repeated frame: the source sent until then.
+    let detected = run
+        .fault_time(FaultCode::FreshnessLost)
+        .expect("freshness lost");
+    assert!(detected - last_frame <= stale_timeout + T_REACT_MS);
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
 }
 
 #[test]
@@ -1097,6 +1169,32 @@ fn config_rejects_warn_threshold_not_below_critical() {
 #[test]
 fn config_rejects_zero_stale_timeout() {
     let text = SHIPPED_CONFIG.replace("stale_timeout_ms = 300", "stale_timeout_ms = 0");
+
+    assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn config_rejects_zero_suspect_repeated_frames() {
+    let text = SHIPPED_CONFIG.replace("suspect_repeated_frames = 2", "suspect_repeated_frames = 0");
+
+    assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn config_rejects_single_stuck_repeated_frame() {
+    let text = SHIPPED_CONFIG
+        .replace("suspect_repeated_frames = 2", "suspect_repeated_frames = 1")
+        .replace("stuck_repeated_frames = 10", "stuck_repeated_frames = 1");
+
+    assert!(GuardianConfig::from_toml_str(&text).is_err());
+}
+
+#[test]
+fn config_rejects_suspect_after_stuck() {
+    let text = SHIPPED_CONFIG.replace(
+        "suspect_repeated_frames = 2",
+        "suspect_repeated_frames = 11",
+    );
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());
 }

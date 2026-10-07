@@ -23,7 +23,7 @@
 
 # Budget parameters in milliseconds that are not in
 # config/guardian/safety-params.toml. T_stale, T_stuck, and T_recover come
-# from there.
+# from there; T_counter_stuck is N_stuck repeated frames times the cycle.
 [budgets]
 cycle = 100
 T_react = 100  # HARA DFR-1
@@ -153,7 +153,7 @@ onset = "alive_counter_repeats"
 [[scenario.expect]]
 kind = "fault"
 dtc = "BTG_TempCounterStuck"
-budget = "T_stale + T_react"
+budget = "T_counter_stuck + T_react"
 requirement = "FSR-2.3"
 
 [[scenario.expect]]

@@ -226,6 +226,19 @@ fn timeout_run() -> Recording {
     r
 }
 
+/// A `counter_stuck` run: 2 s nominal, 2 s of frames that repeat the alive
+/// counter, then nominal again.
+fn counter_stuck_run() -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 2000);
+    let frozen = r.counter;
+    for t in (2000..4000).step_by(100) {
+        r.sample_at(t, frozen, "VALID", 40.0, 32.0, 24.0);
+    }
+    r.nominal(4000, 9000);
+    r
+}
+
 // --- Catalog --------------------------------------------------------------------
 
 #[test]
@@ -351,6 +364,32 @@ fn late_detection_is_fail() {
 
     assert_eq!(evaluation.verdict, Verdict::Fail);
     assert_eq!(evaluation.requirements["FSR-2.2"], Verdict::Fail);
+    assert!(failed_checks(&evaluation)[0].contains("late"));
+}
+
+#[test]
+fn counter_stuck_at_n_stuck_repeated_frames_is_in_budget() {
+    let context = context();
+    let mut r = counter_stuck_run();
+    // The 10th repeated frame arrives at 2900. Budget T_counter_stuck + T_react
+    // = 10 × 100 + 100 ms after t0 = 2000.
+    r.full_reaction("BTG_TempCounterStuck", 2900, 6000);
+
+    let evaluation = r.judge(&context, "counter_stuck");
+
+    assert_eq!(context.budgets["T_counter_stuck"], 1000);
+    assert_eq!(evaluation.requirements["FSR-2.3"], Verdict::Pass);
+}
+
+#[test]
+fn counter_stuck_after_budget_is_fail() {
+    let context = context();
+    let mut r = counter_stuck_run();
+    r.full_reaction("BTG_TempCounterStuck", 3200, 6000);
+
+    let evaluation = r.judge(&context, "counter_stuck");
+
+    assert_eq!(evaluation.requirements["FSR-2.3"], Verdict::Fail);
     assert!(failed_checks(&evaluation)[0].contains("late"));
 }
 

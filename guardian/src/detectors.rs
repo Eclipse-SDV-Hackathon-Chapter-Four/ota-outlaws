@@ -18,17 +18,28 @@
 use crate::config::{FreshnessConfig, StuckConfig};
 use crate::model::{Millis, Sample};
 
-/// Repeated frames since the last fresh sample from which the source counts as
-/// repeating itself (FSR-2.3). A single repeated frame, such as a duplicate,
-/// is not enough.
-const MIN_REPEATED_FRAMES: u32 = 2;
+/// What a repeated frame means for the source (FSR-2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Repetition {
+    /// Fewer repeated frames than `N_suspect`, such as a single duplicate.
+    Isolated,
+    /// At least `N_suspect` repeated frames: the source may be frozen.
+    Suspect,
+    /// At least `N_stuck` repeated frames: the source repeats itself.
+    Stuck,
+}
 
-/// FSR-2.2: detects that no fresh sample arrived for longer than `T_stale`.
-/// FSR-2.3: tells whether the source kept sending the same frame meanwhile.
+/// FSR-2.2: detects that neither a fresh sample nor a repeated frame arrived
+/// for longer than `T_stale`.
+/// FSR-2.3: counts the repeated frames since the last fresh sample.
 #[derive(Debug, Clone)]
 pub(crate) struct FreshnessMonitor {
     stale_timeout_ms: u64,
-    last_fresh_at: Option<Millis>,
+    suspect_repeated_frames: u32,
+    stuck_repeated_frames: u32,
+    /// Last fresh sample or repeated frame. Repeated frames show that the
+    /// source still sends, so FSR-2.3 judges them instead of FSR-2.2.
+    last_frame_at: Option<Millis>,
     repeated_frames: u32,
 }
 
@@ -36,13 +47,15 @@ impl FreshnessMonitor {
     pub(crate) fn new(config: &FreshnessConfig) -> Self {
         Self {
             stale_timeout_ms: config.stale_timeout_ms,
-            last_fresh_at: None,
+            suspect_repeated_frames: config.suspect_repeated_frames,
+            stuck_repeated_frames: config.stuck_repeated_frames,
+            last_frame_at: None,
             repeated_frames: 0,
         }
     }
 
     pub(crate) fn record_fresh_sample(&mut self, now: Millis) {
-        self.last_fresh_at = Some(now);
+        self.last_frame_at = Some(now);
         self.repeated_frames = 0;
     }
 
@@ -51,20 +64,24 @@ impl FreshnessMonitor {
     }
 
     /// Records a newer frame that carries the alive counter of the last fresh
-    /// sample.
-    pub(crate) fn record_repeated_frame(&mut self) {
+    /// sample. Only called after a fresh sample.
+    pub(crate) fn record_repeated_frame(&mut self, now: Millis) -> Repetition {
+        self.last_frame_at = Some(now);
         self.repeated_frames = self.repeated_frames.saturating_add(1);
+        if self.repeated_frames >= self.stuck_repeated_frames {
+            Repetition::Stuck
+        } else if self.repeated_frames >= self.suspect_repeated_frames {
+            Repetition::Suspect
+        } else {
+            Repetition::Isolated
+        }
     }
 
-    /// True if the source keeps sending, but repeats the same frame.
-    pub(crate) fn source_repeats_itself(&self) -> bool {
-        self.repeated_frames >= MIN_REPEATED_FRAMES
-    }
-
-    /// True once the last fresh sample is older than `T_stale`. Before the first
-    /// fresh sample, the startup case applies instead (FSR-2.1, not implemented).
+    /// True once the last fresh sample or repeated frame is older than
+    /// `T_stale`. Before the first fresh sample, the startup case applies
+    /// instead (FSR-2.1).
     pub(crate) fn is_stale(&self, now: Millis) -> bool {
-        self.last_fresh_at
+        self.last_frame_at
             .is_some_and(|last| now.since(last) > self.stale_timeout_ms)
     }
 }

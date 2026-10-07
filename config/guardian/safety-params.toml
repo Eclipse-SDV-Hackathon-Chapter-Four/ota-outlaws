@@ -29,6 +29,13 @@ critical_c = 55.0
 # FSR-2.3, SG-2).
 # Three times the 100 ms signal cycle.
 stale_timeout_ms = 300
+# N_suspect: repeated frames (newer source timestamp, unchanged alive counter)
+# since the last fresh sample that set SUSPECT (FSR-2.3). Repeated frames show
+# that the source still sends, so they do not count as an outage (FSR-2.2).
+suspect_repeated_frames = 2
+# N_stuck: repeated frames that lead to DEGRADED with a counter stuck fault
+# (FSR-2.3, SG-2). One second at the 100 ms signal cycle.
+stuck_repeated_frames = 10
 
 [stuck]
 # T_stuck: maximum time the maximum may stay frozen while other signals change
