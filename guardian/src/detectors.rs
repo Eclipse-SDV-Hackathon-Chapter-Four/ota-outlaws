@@ -23,7 +23,7 @@ use crate::model::{Millis, Sample};
 /// What a repeated frame means for the source (FSR-2.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Repetition {
-    /// Fewer repeated frames than `N_suspect`, such as a single duplicate.
+    /// Fewer repeated frames than `N_suspect`.
     Isolated,
     /// At least `N_suspect` repeated frames: the source may be frozen.
     Suspect,
@@ -142,7 +142,7 @@ impl StuckDetector {
 }
 
 /// FSR-1.3: detects a valid maximum that rises by at least `r_trend` on
-/// average over at least `T_trend` (HARA F-7, TS-27).
+/// average over at least `T_trend` (HARA F-7, TS-25).
 ///
 /// Works on source timestamps, so delivery jitter does not distort the rate.
 #[derive(Debug, Clone)]

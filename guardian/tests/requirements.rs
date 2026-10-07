@@ -745,28 +745,44 @@ fn duplicate_last(run: &mut Run, count: u32) {
 }
 
 #[test]
-fn ts_07_single_duplicate_is_tolerated() {
+fn ts_07_second_message_with_the_same_counter_sets_suspect() {
+    // DFR-7: two messages with the same counter, the original and one duplicate.
     let mut run = Run::new();
     run.samples(10, 30.0, 28.0, 26.0);
 
     duplicate_last(&mut run, 1);
-    run.samples(10, 30.0, 28.0, 26.0);
 
-    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
     assert_eq!(run.active_fault_count(), 0);
     assert!(run.mitigations().is_empty());
 }
 
 #[test]
-fn ts_07_more_than_two_messages_with_the_same_counter_set_suspect() {
-    let suspect_frames = config().freshness.suspect_repeated_frames;
+fn ts_07_single_duplicate_causes_no_freshness_timeout_and_recovers() {
+    let recover = config().recovery.valid_samples as usize;
     let mut run = Run::new();
     run.samples(10, 30.0, 28.0, 26.0);
 
-    duplicate_last(&mut run, suspect_frames);
+    duplicate_last(&mut run, 1);
+    run.samples(recover, 30.0, 28.0, 26.0);
 
-    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.fault_time(FaultCode::FreshnessLost), None);
     assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn ts_07_tenth_message_with_the_same_counter_sets_degraded() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    // The original plus eight duplicates: nine messages.
+    duplicate_last(&mut run, 8);
+    assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
+
+    duplicate_last(&mut run, 1);
+    assert_eq!(run.fault_time(FaultCode::CounterStuck), Some(run.now));
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
 }
 
 #[test]
@@ -1023,7 +1039,7 @@ fn fsr_3_2_range_bounds_are_plausible() {
 }
 
 #[test]
-fn ts_22_isolated_spike_sets_suspect_and_warning_not_critical() {
+fn ts_20_isolated_spike_sets_suspect_and_warning_not_critical() {
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
     let t0 = run.now + CYCLE_MS;
@@ -1036,7 +1052,7 @@ fn ts_22_isolated_spike_sets_suspect_and_warning_not_critical() {
     assert!(warning - t0 <= T_REACT_MS);
     assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
     assert_eq!(run.fault_time(FaultCode::RateImplausible), None);
-    // SUSPECT is a debounce: no monitoring-unavailable warning (TS-22).
+    // SUSPECT is a debounce: no monitoring-unavailable warning (TS-20).
     assert!(run.mitigations().is_empty());
 
     // The spike was discarded: valid nominal samples follow without a fault.
@@ -1048,7 +1064,7 @@ fn ts_22_isolated_spike_sets_suspect_and_warning_not_critical() {
 }
 
 #[test]
-fn ts_22_warning_from_isolated_spike_is_caused_by_suspect() {
+fn ts_20_warning_from_isolated_spike_is_caused_by_suspect() {
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
 
@@ -1084,7 +1100,7 @@ fn ts_22_warning_from_isolated_spike_is_caused_by_suspect() {
 }
 
 #[test]
-fn ts_23_repeated_spikes_within_t_suspect_lead_to_degraded() {
+fn ts_21_repeated_spikes_within_t_suspect_lead_to_degraded() {
     let plausibility = config().plausibility;
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
@@ -1108,7 +1124,7 @@ fn ts_23_repeated_spikes_within_t_suspect_lead_to_degraded() {
 }
 
 #[test]
-fn ts_23_spikes_further_apart_than_t_suspect_stay_suspect() {
+fn ts_21_spikes_further_apart_than_t_suspect_stay_suspect() {
     let plausibility = config().plausibility;
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
@@ -1220,10 +1236,10 @@ fn fsr_3_3_larger_rise_within_jitter_is_a_spike() {
     assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
 }
 
-// --- HARA TS-28: upper-scale saturation -----------------------------------------
+// --- HARA TS-26: upper-scale saturation -----------------------------------------
 
 #[test]
-fn ts_28_saturated_maximum_is_degraded_and_warning_not_critical() {
+fn ts_26_saturated_maximum_is_degraded_and_warning_not_critical() {
     let mut run = Run::new();
     run.samples(10, 40.0, 32.0, 24.0);
     let t0 = run.now + CYCLE_MS;
@@ -1240,7 +1256,7 @@ fn ts_28_saturated_maximum_is_degraded_and_warning_not_critical() {
     assert!(!overtemp_requested(&run));
 }
 
-// --- FSR-1.3 / HARA TS-27: rising trend below θ_warn ----------------------------
+// --- FSR-1.3 / HARA TS-25: rising trend below θ_warn ----------------------------
 
 /// Rises from 20 °C by `step` °C per cycle for `cycles` cycles.
 fn drift(run: &mut Run, step: f32, cycles: usize) {
@@ -1252,7 +1268,7 @@ fn drift(run: &mut Run, step: f32, cycles: usize) {
 }
 
 #[test]
-fn ts_27_sustained_rise_below_warn_raises_warning_within_budget() {
+fn ts_25_sustained_rise_below_warn_raises_warning_within_budget() {
     let thermal = config().thermal;
     let mut run = Run::new();
     run.samples(5, 20.0, 16.0, 12.0);
@@ -1271,7 +1287,7 @@ fn ts_27_sustained_rise_below_warn_raises_warning_within_budget() {
 }
 
 #[test]
-fn ts_27_drift_at_can_resolution_raises_warning() {
+fn ts_25_drift_at_can_resolution_raises_warning() {
     // The campaign's drift trace: +1 °C every 600 ms, integer values.
     let mut run = Run::new();
     run.samples(50, 30.0, 22.0, 14.0);
@@ -1286,7 +1302,7 @@ fn ts_27_drift_at_can_resolution_raises_warning() {
 }
 
 #[test]
-fn ts_27_slow_rise_is_no_trend() {
+fn ts_25_slow_rise_is_no_trend() {
     let mut run = Run::new();
     run.samples(5, 20.0, 16.0, 12.0);
 
@@ -1297,7 +1313,7 @@ fn ts_27_slow_rise_is_no_trend() {
 }
 
 #[test]
-fn ts_27_warning_from_trend_is_lowered_after_the_rise_stops() {
+fn ts_25_warning_from_trend_is_lowered_after_the_rise_stops() {
     let recovery = config().recovery;
     let mut run = Run::new();
     run.samples(5, 20.0, 16.0, 12.0);
@@ -1313,7 +1329,7 @@ fn ts_27_warning_from_trend_is_lowered_after_the_rise_stops() {
 }
 
 #[test]
-fn ts_27_gap_does_not_turn_a_slow_rise_into_a_trend() {
+fn ts_25_gap_does_not_turn_a_slow_rise_into_a_trend() {
     let mut run = Run::new();
     run.samples(10, 20.0, 16.0, 12.0);
 
@@ -1487,16 +1503,14 @@ fn config_rejects_zero_stale_timeout() {
 
 #[test]
 fn config_rejects_zero_suspect_repeated_frames() {
-    let text = SHIPPED_CONFIG.replace("suspect_repeated_frames = 2", "suspect_repeated_frames = 0");
+    let text = SHIPPED_CONFIG.replace("suspect_repeated_frames = 1", "suspect_repeated_frames = 0");
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());
 }
 
 #[test]
 fn config_rejects_single_stuck_repeated_frame() {
-    let text = SHIPPED_CONFIG
-        .replace("suspect_repeated_frames = 2", "suspect_repeated_frames = 1")
-        .replace("stuck_repeated_frames = 10", "stuck_repeated_frames = 1");
+    let text = SHIPPED_CONFIG.replace("stuck_repeated_frames = 9", "stuck_repeated_frames = 1");
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());
 }
@@ -1504,8 +1518,8 @@ fn config_rejects_single_stuck_repeated_frame() {
 #[test]
 fn config_rejects_suspect_after_stuck() {
     let text = SHIPPED_CONFIG.replace(
-        "suspect_repeated_frames = 2",
-        "suspect_repeated_frames = 11",
+        "suspect_repeated_frames = 1",
+        "suspect_repeated_frames = 10",
     );
 
     assert!(GuardianConfig::from_toml_str(&text).is_err());

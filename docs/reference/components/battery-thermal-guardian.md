@@ -129,12 +129,12 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 
 | Detector | Requirement | Rule |
 |----------|-------------|------|
-| Freshness monitor | FSR-2.2, FSR-2.3, FSR-2.8; HARA DFR-7, DFR-8 | Do not evaluate samples that are not fresh. A frame with the alive counter of the last fresh sample and a source timestamp that is not older (a frozen source or an exact duplicate) counts as a repeated frame: one is tolerated, `N_suspect` (2) set `SUSPECT`, `N_stuck` (10) report counter-stuck and set `DEGRADED`. A sample with an older or equal source timestamp and another counter is out of order and sets `SUSPECT` at once. After `T_stale` without fresh data, report freshness loss. `SUSPECT` returns to `OK` only after `N_recover` (10) consecutive fresh, valid samples. FSR-2.8 (`T_age`, synchronized clocks) is not implemented. Checked on each sample and 50 ms tick. |
+| Freshness monitor | FSR-2.2, FSR-2.3, FSR-2.8; HARA DFR-7, DFR-8 | Do not evaluate samples that are not fresh. A frame with the alive counter of the last fresh sample and a source timestamp that is not older (a frozen source or an exact duplicate) counts as a repeated frame. Per DFR-7, two messages with the same counter (`N_suspect` = 1 repeat) set `SUSPECT`, and ten (`N_stuck` = 9 repeats) report counter-stuck and set `DEGRADED`. A sample with an older or equal source timestamp and another counter is out of order and sets `SUSPECT` at once. After `T_stale` without fresh data, report freshness loss. `SUSPECT` returns to `OK` only after `N_recover` (10) consecutive fresh, valid samples. FSR-2.8 (`T_age`, synchronized clocks) is not implemented. Checked on each sample and 50 ms tick. |
 | Quality check | FSR-3.4 | A fresh sample whose quality is not `VALID` is discarded, reported, and sets monitoring to `DEGRADED` without debounce. The sample indicates source activity but cannot support thermal assessment. |
 | Stuck detector | FSR-2.4 | If maximum temperature stays unchanged for `T_stuck` while average or minimum moves by at least `Δ_stuck`, report a stuck-signal fault and set monitoring to `DEGRADED`. It does not detect all temperature channels frozen together. |
 | Order and range checks | FSR-3.1, FSR-3.2 | Reject a sample that violates `Min ≤ Avg ≤ Max` or lies outside `[θ_min, θ_max]`; report the fault and set monitoring to `DEGRADED`. An above-range maximum also raises thermal state to at least `WARNING`. |
-| Rate plausibility | FSR-3.3, FSR-3.5, FSR-3.6; HARA DFR-4 | Discard a rate-implausible sample and raise thermal state to at least `WARNING`, because the rise could be real. An isolated spike sets `SUSPECT` only, without a fault or monitoring-unavailable warning (TS-22). `N_suspect` (3) spikes within `T_suspect` (1 s) report the rate fault and set `DEGRADED` (TS-23). Invalid spikes alone never cause `CRITICAL` or overtemperature mitigation. |
-| Thermal thresholds and trends | FSR-1.1 to FSR-1.4 | On valid samples, threshold criteria raise the state to `WARNING` or `CRITICAL`. A valid maximum that rises by at least `r_trend` (1 °C/s) on average over `T_trend` (5 s) raises `WARNING` below `θ_warn` and keeps it while the trend holds (FSR-1.3, TS-27). The rate uses source timestamps over the actual span, so a data gap cannot fake a trend. The hot-spot criterion (FSR-1.4) is not implemented. Invalid samples do not lower the thermal state. |
+| Rate plausibility | FSR-3.3, FSR-3.5, FSR-3.6; HARA DFR-4 | Discard a rate-implausible sample and raise thermal state to at least `WARNING`, because the rise could be real. An isolated spike sets `SUSPECT` only, without a fault or monitoring-unavailable warning (TS-20). `N_suspect` (3) spikes within `T_suspect` (1 s) report the rate fault and set `DEGRADED` (TS-21). Invalid spikes alone never cause `CRITICAL` or overtemperature mitigation. |
+| Thermal thresholds and trends | FSR-1.1 to FSR-1.4 | On valid samples, threshold criteria raise the state to `WARNING` or `CRITICAL`. A valid maximum that rises by at least `r_trend` (1 °C/s) on average over `T_trend` (5 s) raises `WARNING` below `θ_warn` and keeps it while the trend holds (FSR-1.3, TS-25). The rate uses source timestamps over the actual span, so a data gap cannot fake a trend. The hot-spot criterion (FSR-1.4) is not implemented. Invalid samples do not lower the thermal state. |
 | Independent supervision | HARA DFR-5 | An independent in-vehicle supervisor must detect Guardian termination or evaluation hang and request the defined monitoring-unavailable warning. This supervisor is not implemented; the Evidence Collector and runtime restart do not satisfy this occupant-protection requirement. |
 
 The Guardian detects faults, but does not find out what caused them. Telling a
@@ -167,7 +167,7 @@ unavailable warning.
 | Status | Meaning and transition condition | Event / response | Implementation status |
 |---|---|---|---|
 | `OK` | Input is fresh, in order, and plausible. | Published as the `current` status when monitoring returns to healthy operation. | Implemented. |
-| `SUSPECT` | Repeated frames or duplicates (`N_suspect`), an out-of-order sample, or an isolated spike have been discarded; debounce has not reached the degraded threshold. Returns to `OK` after `N_recover` consecutive fresh, valid samples (DFR-8). | `MonitoringStatusChanged`; no mitigation. | Implemented (FSR-2.3, FSR-3.5, DFR-7, DFR-8, TS-07, TS-08, TS-22). |
+| `SUSPECT` | Repeated frames or duplicates (`N_suspect`), an out-of-order sample, or an isolated spike have been discarded; debounce has not reached the degraded threshold. Returns to `OK` after `N_recover` consecutive fresh, valid samples (DFR-8). | `MonitoringStatusChanged`; no mitigation. | Implemented (FSR-2.3, FSR-3.5, DFR-7, DFR-8, TS-07, TS-08, TS-20). |
 | `DEGRADED` | Fresh data is lost or input is invalid/persistently faulty, so temperature cannot be assessed reliably. | `FaultDetected` and `MonitoringStatusChanged`; request `DRIVER_WARNING_MONITORING_UNAVAILABLE`. | Implemented for freshness, counter-stuck (repeated frames and duplicates), quality, order, range, stuck-signal, and repeated-spike checks. Independent Guardian supervision is the watchdog's job (HARA DFR-5). |
 
 ### Thermal state
@@ -189,7 +189,7 @@ change as its cause, so the evidence chain shows the warning comes from
 untrusted input. It never causes `CRITICAL` or `DRIVER_WARNING_OVERTEMP`.
 Repeated spikes escalate monitoring to `DEGRADED`; their `WARNING` is caused by
 the rate fault. This resolves the FSR-3.3 / FSR-3.5 conflict in favor of the
-HARA (DFR-4, TS-22, TS-23): FSR-3.3's immediate `DEGRADED` applies only once
+HARA (DFR-4, TS-20, TS-21): FSR-3.3's immediate `DEGRADED` applies only once
 the spike debounce is exceeded.
 
 ## HARA fault allocation
@@ -201,18 +201,18 @@ is implemented.
 | HARA fault | Design response and current status | HARA verification |
 |---|---|---|
 | F-1: Temperature value frozen while messages continue | FSR-2.4 detects a frozen maximum only when average or minimum changes. All temperature channels frozen together are not detectable from current inputs. | TS-10 is a limitation probe; it does not demonstrate detection. |
-| F-2: Message arrives after its allowed age/deadline | FSR-2.2 detects a freshness gap. FSR-2.8 rejects over-age timestamps only with synchronized clocks and is planned. | TS-05 tests a prolonged gap; proposed TS-26 covers explicit late arrival. |
-| F-3: Same message delivered more than once | Duplicates are not evaluated and count as repeated frames: one is tolerated, `N_suspect` set `SUSPECT`, `N_stuck` report counter-stuck and set `DEGRADED` (FSR-2.3, DFR-7). Collector-side duplicate attribution (EC-2) is planned. | TS-07. |
-| F-4: Expected update dropped before reaching Guardian | FSR-2.2 reports freshness loss and requests the degraded response. | TS-05, TS-06, TS-17. |
+| F-2: Message arrives after its allowed age/deadline | FSR-2.2 detects a freshness gap. FSR-2.8 rejects over-age timestamps only with synchronized clocks and is planned. | TS-05 tests a prolonged gap; proposed TS-24 covers explicit late arrival. |
+| F-3: Same message delivered more than once | Duplicates are not evaluated and count as repeated frames: the first duplicate sets `SUSPECT` without mitigation, the tenth message with the same counter reports counter-stuck and sets `DEGRADED` (FSR-2.3, DFR-7). Collector-side duplicate attribution (EC-2) is planned. | TS-07. |
+| F-4: Expected update dropped before reaching Guardian | FSR-2.2 reports freshness loss and requests the degraded response. | TS-05, TS-06, TS-15. |
 | F-5: Messages arrive out-of-order | A sample with an older source timestamp is not evaluated and sets `SUSPECT`; recovery needs `N_recover` fresh samples (DFR-8). Collector attribution is planned under EC-2. | TS-08. |
-| F-6: Isolated temperature sample outside configured interval | FSR-3.2 rejects the sample and sets monitoring to `DEGRADED`; high out-of-range input also keeps thermal state at least `WARNING`. | TS-11, TS-12, TS-14, TS-19, TS-20. |
-| F-7: Temperature drifts over time | FSR-1.3 raises `WARNING` for a sustained upward trend below `θ_warn`; FSR-1.4 (hot spot) is planned. Aggregate signals cannot identify every sensor drift, and a downward drift is not detected. | TS-27 tests a rising thermal trend, not sensor-bias detection. |
-| F-8: Isolated rate-implausible spike | FSR-3.3/3.5 discard the sample, set `SUSPECT`, and raise at least `WARNING`; no fault, no mitigation. | TS-21, TS-22. |
-| F-9: Source disconnect or replay stops | FSR-2.2 reports freshness loss and requests the degraded response. | TS-03, TS-04, TS-17. |
-| F-10: Guardian terminates or evaluation hangs | FSR-2.7 observes heartbeat loss and restarts a terminated process; independent occupant warning and verified hang detection are missing per DFR-5. | TS-24, TS-25; these do not prove occupant protection. |
-| F-11: Source marks fresh sample invalid or unavailable | FSR-3.4 rejects the sample, sets `DEGRADED`, and reports the quality fault without debounce. | TS-13, TS-18. |
-| F-12: Temperature saturates at 255 °C | FSR-3.2 treats it as high out-of-range and requires at least `WARNING`; no separate saturation diagnosis is available. | TS-14 is generic high-range coverage; proposed TS-28 uses 255 °C explicitly. |
-| F-13: Repeated rate-implausible spikes | `N_suspect` spikes within `T_suspect` report the rate fault, set `DEGRADED`, and request the monitoring-unavailable warning; no overtemperature mitigation (FSR-3.5, DFR-4). | TS-23. |
+| F-6: Isolated temperature sample outside configured interval | FSR-3.2 rejects the sample and sets monitoring to `DEGRADED`; high out-of-range input also keeps thermal state at least `WARNING`. | TS-12, TS-17, TS-18. |
+| F-7: Temperature drifts over time | FSR-1.3 raises `WARNING` for a sustained upward trend below `θ_warn`; FSR-1.4 (hot spot) is planned. Aggregate signals cannot identify every sensor drift, and a downward drift is not detected. | TS-25 tests a rising thermal trend, not sensor-bias detection. |
+| F-8: Isolated rate-implausible spike | FSR-3.3/3.5 discard the sample, set `SUSPECT`, and raise at least `WARNING`; no fault, no mitigation. | TS-19, TS-20. |
+| F-9: Source disconnect or replay stops | FSR-2.2 reports freshness loss and requests the degraded response. | TS-03, TS-04, TS-15. |
+| F-10: Guardian terminates or evaluation hangs | FSR-2.7 observes heartbeat loss and restarts a terminated process; independent occupant warning and verified hang detection are missing per DFR-5. | TS-22, TS-23; these do not prove occupant protection. |
+| F-11: Source marks fresh sample invalid or unavailable | FSR-3.4 rejects the sample, sets `DEGRADED`, and reports the quality fault without debounce. | TS-11, TS-16. |
+| F-12: Temperature saturates at 255 °C | FSR-3.2 treats it as high out-of-range and requires at least `WARNING`; no separate saturation diagnosis is available. | TS-12 is generic high-range coverage; TS-26 uses 255 °C explicitly (core test). |
+| F-13: Repeated rate-implausible spikes | `N_suspect` spikes within `T_suspect` report the rate fault, set `DEGRADED`, and request the monitoring-unavailable warning; no overtemperature mitigation (FSR-3.5, DFR-4). | TS-21. |
 
 ## Timing and recovery
 
@@ -259,15 +259,15 @@ and response latency for each applicable run.
 
 | HARA tests | Verification focus | Status / limitation |
 |---|---|---|
-| TS-01, TS-02, TS-15, TS-16 | Nominal monitoring and valid threshold warning/critical response | FSR-1.1/1.2 tested. |
-| TS-03 to TS-06, TS-17 | Startup timeout, source loss, delayed/withheld updates, and transport dropout | FSR-2.1/2.2 tested; path attribution under EC-1 is planned. |
+| TS-01, TS-02, TS-13, TS-14 | Nominal monitoring and valid threshold warning/critical response | FSR-1.1/1.2 tested. |
+| TS-03 to TS-06, TS-15 | Startup timeout, source loss, delayed/withheld updates, and transport dropout | FSR-2.1/2.2 tested; path attribution under EC-1 is planned. |
 | TS-07, TS-08 | Duplicate and out-of-order inputs | Guardian tests for DFR-7/DFR-8 and TS-08; collector attribution under EC-2 is planned. |
 | TS-09, TS-10 | Stuck maximum and all-temperature-frozen limitation | FSR-2.4 tested for a stuck maximum with reference movement; TS-10 is not a detection pass. |
-| TS-11 to TS-14, TS-18 to TS-21 | Thermal-state retention, quality, range, and rate plausibility | FSR-3.2 to FSR-3.4 and FSR-3.6 are tested. |
-| TS-22, TS-23 | Isolated and repeated spikes | FSR-3.5 tested; campaign scenarios `isolated_spike` and `spike`. |
-| TS-24, TS-25 | Guardian process termination and evaluation hang | FSR-2.7 is planned; DFR-5's independent in-vehicle response is missing. |
-| TS-26 | Late-arriving stale message | Not implemented: needs synchronized clocks (FSR-2.8). |
-| TS-27, TS-28 | Gradual trend, explicit upper-scale saturation (255 °C) | Tested in the core; campaign scenario `drift` for TS-27. TS-28 does not show that saturation can be told apart from a real extreme temperature. |
+| TS-11, TS-12, TS-16 to TS-19 | Quality, mitigation gating, range, and rate plausibility | FSR-3.2 to FSR-3.4 and FSR-3.6 are tested. |
+| TS-20, TS-21 | Isolated and repeated spikes | FSR-3.5 tested; campaign scenarios `isolated_spike` and `spike`. |
+| TS-22, TS-23 | Guardian process termination and evaluation hang | FSR-2.7 is planned; DFR-5's independent in-vehicle response is missing. |
+| TS-24 | Late-arriving stale message | Not implemented: needs synchronized clocks (FSR-2.8). |
+| TS-25, TS-26 | Gradual trend, explicit upper-scale saturation (255 °C) | Tested in the core; campaign scenario `drift` for TS-25. TS-26 does not show that saturation can be told apart from a real extreme temperature. |
 | Diagnostic campaigns | DFM writes and OpenSOVD visibility | FSR-D.1/.2 are tested; diagnostic-path failures must not delay Guardian safety responses. |
 
 ## AI Assistance

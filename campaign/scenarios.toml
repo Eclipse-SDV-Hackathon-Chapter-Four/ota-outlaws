@@ -64,7 +64,7 @@ description = "Heating through 45 degC and 55 degC, hold, cool down"
 fault_class = "Thermal"
 hazard = "HE-1"
 safety_goal = "SG-1"
-hara_tests = ["TS-02", "TS-12"]
+hara_tests = ["TS-02", "TS-13", "TS-14"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/heating.asc" }
 onset = "max_at_least:45"
@@ -114,7 +114,7 @@ description = "A 1.8 s gap without frames between normal sections"
 fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-05"]
+hara_tests = ["TS-05", "TS-15"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/timeout.asc" }
 onset = "gap"
@@ -147,6 +147,7 @@ description = "AliveCounter remains fixed for 2 s while frames keep arriving"
 fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-07"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
@@ -181,6 +182,7 @@ description = "Quality alternates between invalid (0x00) and not available (0xFF
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-11", "TS-16"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/invalid_quality.asc" }
 onset = "quality_not_valid"
@@ -213,7 +215,7 @@ description = "Maximum frozen at 42 degC for 5 s while average and minimum rise"
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-08"]
+hara_tests = ["TS-09"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/max_stuck.asc" }
 onset = "max_frozen_while_reference_moves"
@@ -246,7 +248,7 @@ description = "Maximum, average, and minimum all fixed at 39 degC for 2 s"
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-09"]
+hara_tests = ["TS-10"]
 status = "implemented"
 note = "Known limitation: all temperatures frozen together look like a battery at constant temperature, so FSR-2.4 does not apply and no fault is expected. max_stuck tests FSR-2.4."
 stimulus = { type = "can_trace", trace = "campaign/traces/temp_stuck.asc" }
@@ -358,7 +360,7 @@ description = "In WARNING, 1 s of low readings marked INVALID, then valid WARNIN
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-4"
-hara_tests = ["TS-10"]
+hara_tests = ["TS-11"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/invalid_during_warning.asc" }
 onset = "quality_not_valid"
@@ -393,7 +395,7 @@ description = "CellTempMax 250 degC, beyond the plausible range"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-11", "TS-12"]
+hara_tests = ["TS-12", "TS-18"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/out_of_range.asc" }
 onset = "max_at_least:126"
@@ -437,7 +439,7 @@ description = "All temperatures jump from about 40 degC to 160 degC"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-11", "TS-12"]
+hara_tests = ["TS-12", "TS-18"]
 status = "implemented"
 note = "160 degC is above the plausible range, so FSR-3.2 rejects it before the rise rate is checked. spike tests FSR-3.3."
 stimulus = { type = "can_trace", trace = "campaign/traces/implausible_jump.asc" }
@@ -482,7 +484,7 @@ description = "In-range spike from 40 degC to 100 degC for 1 s"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-21", "TS-23"]
+hara_tests = ["TS-12", "TS-21"]
 status = "implemented"
 note = "Every frame at 100 degC is a spike against the last valid 40 degC, so N_suspect spikes arrive within T_suspect (HARA F-13)."
 stimulus = { type = "can_trace", trace = "campaign/traces/spike.asc" }
@@ -527,7 +529,7 @@ description = "One frame spiking from 40 degC to 70 degC, then nominal data"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-22"]
+hara_tests = ["TS-19", "TS-20"]
 status = "implemented"
 note = "An isolated spike only sets SUSPECT (FSR-3.5): no fault and no monitoring-unavailable warning, but WARNING because a real runaway cannot be excluded."
 stimulus = { type = "can_trace", trace = "campaign/traces/isolated_spike.asc" }
@@ -554,7 +556,7 @@ description = "Sustained rise of about 1.7 degC/s from 30 degC to 42 degC, below
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-1"
-hara_tests = ["TS-27"]
+hara_tests = ["TS-25"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/drift.asc" }
 onset = "max_at_least:31"

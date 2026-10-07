@@ -47,7 +47,7 @@ pub struct PlausibilityConfig {
     pub resolution_c: f32,
     /// `N_suspect` for spikes: rate-implausible samples within
     /// `suspect_window_ms` that lead to DEGRADED. Fewer only set SUSPECT
-    /// (FSR-3.5, HARA DFR-4, TS-22, TS-23).
+    /// (FSR-3.5, HARA DFR-4, TS-20, TS-21).
     pub suspect_spikes: u32,
     /// `T_suspect` in milliseconds.
     pub suspect_window_ms: u64,
@@ -83,7 +83,7 @@ pub struct ThermalConfig {
     /// `θ_crit` in °C.
     pub critical_c: f32,
     /// `r_trend`: sustained rise of the maximum, in °C per second, that raises
-    /// WARNING below `θ_warn` (FSR-1.3, HARA F-7, TS-27).
+    /// WARNING below `θ_warn` (FSR-1.3, HARA F-7, TS-25).
     pub trend_rise_c_per_s: f32,
     /// `T_trend` in milliseconds: how long the rise must be sustained.
     pub trend_duration_ms: u64,
