@@ -42,6 +42,7 @@ depend on it. How to run it is in the [dashboard README](../../../dashboard/READ
 | Taps ([`taps.rs`](../../../dashboard/src/taps.rs)) | **Implemented** | Passive observers of the data between the components, for the input and output logs |
 | OpenSOVD ([`sovd.rs`](../../../dashboard/src/sovd.rs)) | **Implemented** | DTC list joined with the fault catalog, one DTC with its environment data, clearing |
 | Campaign evidence ([`runs.rs`](../../../dashboard/src/runs.rs)) | **Implemented** | Campaigns in `runs/`, which one is running, the reports of its scenarios |
+| Signal plot ([`signal.rs`](../../../dashboard/src/signal.rs)) | **Implemented** | Reduces a scenario's `recording.jsonl` to the series of its signal plot |
 | Web page ([`static/`](../../../dashboard/static)) | **Implemented** | Overview, one tab per component, campaign tab. Plain JavaScript, no build step |
 | Launcher ([`launcher.rs`](../../../dashboard/src/launcher.rs)) | **Implemented** | Starts a campaign in a `campaign-runner` container, stops it, removes what it left behind |
 
@@ -146,12 +147,34 @@ FAIL, and INCONCLUSIVE, a progress bar, and one card per scenario.
 
 | Scenario state | Card |
 |----------------|------|
-| Judged | Verdict, reason, hazard → safety goal, onset, Guardian session, the [evidence chain](campaign.md#evidence-chain) with its links, detections, mitigations (with their cause chain), and DTCs (severity, fault type, status, environment data), the checks (requirement, expectation, observation, latency, budget, result), forbidden reactions, result per requirement, and the Guardian event timeline |
-| Running | Number of observations recorded so far |
+| Judged | Verdict, reason, hazard → safety goal, onset, Guardian session, the [signal plot](#signal-plot), the [evidence chain](campaign.md#evidence-chain) with its links, detections, mitigations (with their cause chain), and DTCs (severity, fault type, status, environment data), the checks (requirement, expectation, observation, latency, budget, result), forbidden reactions, result per requirement, and the Guardian event timeline |
+| Running | Number of observations recorded so far, and the signal plot as it is recorded |
 | To come | Listed from the campaign's plan |
 | Not judged | The campaign tool stopped during the scenario |
 
-**Print report (PDF)** prints the campaign summary and every judged scenario.
+**Print report (PDF)** prints the campaign summary and every judged scenario,
+with its signal plot.
+
+### Signal plot
+
+Each scenario card plots what the campaign tool recorded, on one time axis
+from the start of the recording:
+
+| Row | Shows | From the recording |
+|-----|-------|--------------------|
+| Plot | Maximum, average, and minimum cell temperature as the Guardian received them over uProtocol. Samples whose quality is not `VALID` are shaded and break the lines; so are gaps in the stream (more than four sample periods, at least 400 ms) | `battery_temperature` |
+| Vertical lines | The tool's injections (dashed; setup steps faint, the fault labeled), and the onset t0 from the report (solid) | `injection`, `report.json` |
+| thermal | The Guardian's thermal state: CLEAR, MONITORING, WARNING, CRITICAL, MITIGATING | `guardian_event` `ThermalStateChanged` |
+| monitoring | The Guardian's monitoring status | `guardian_event` `MonitoringStatusChanged` |
+| events | Detected faults ▲, recoveries ▼, mitigation requests ◆, watchdog events ■. Passed fault tests are left out | `guardian_event`, `supervisor_event` |
+| DTC | While a DTC's `testFailed` flag is set in OpenSOVD | `sovd_fault` |
+
+What follows the evaluation window (`window_end_ms`) is shaded: it was recorded
+during teardown and is not judged. Hovering shows the nearest sample and the
+states at that time. The page fetches the series from
+`GET /api/signal/<run_id>`, where `run_id` is the manifest's
+(`<campaign>/<scenario>`, or `<campaign>` for an `observe` run); judged runs
+once, a running scenario on every poll.
 
 The dashboard reads what the campaign tool writes to `runs/`. To show what is
 still to come, the campaign tool now writes `plan.json` with the campaign's
