@@ -217,7 +217,7 @@ fn fault_codes_come_from_the_dfm_catalog() {
     assert!(context
         .fault_codes
         .contains(&"BTG_TempFreshnessLost".to_owned()));
-    assert_eq!(context.fault_codes.len(), 4);
+    assert_eq!(context.fault_codes.len(), 7);
 }
 
 // --- PASS -----------------------------------------------------------------------
@@ -253,6 +253,32 @@ fn evaluation_is_deterministic() {
     let b = serde_json::to_string(&r.judge(&context, "timeout")).unwrap();
 
     assert_eq!(a, b);
+}
+
+#[test]
+fn events_arriving_out_of_order_are_judged_in_guardian_order() {
+    // Observed on the real chain: two events published in order reach the
+    // tool 1 ms swapped. Causality comes from the event IDs, not arrival.
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(event) = &observation.tap {
+            // Event 5 (DEGRADED -> OK) arrives before event 4 (recovered).
+            if event.event_id == 5 {
+                observation.t_ms -= 1;
+            }
+        }
+    }
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
 }
 
 // --- FAIL -----------------------------------------------------------------------
@@ -426,7 +452,7 @@ fn nominal_false_alarm_is_fail() {
     let evaluation = r.judge(&context, "normal");
 
     assert_eq!(evaluation.verdict, Verdict::Fail);
-    assert_eq!(evaluation.requirements["H-3"], Verdict::Fail);
+    assert_eq!(evaluation.requirements["SG-4"], Verdict::Fail);
 }
 
 // --- INCONCLUSIVE ---------------------------------------------------------------
