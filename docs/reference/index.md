@@ -20,3 +20,5 @@ SPDX-License-Identifier: EPL-2.0
 - [Fault Classes](faultClasses.md)
 - Components
   - [Battery Thermal Guardian](components/battery-thermal-guardian.md)
+  - [Scenario Generator](components/scenario-generator.md)
+  - [Evidence Collector](components/evidence-collector.md)

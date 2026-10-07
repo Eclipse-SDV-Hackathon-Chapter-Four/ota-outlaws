@@ -36,10 +36,10 @@ SPDX-License-Identifier: EPL-2.0
 |Component Name|Code|Documentation|
 |---|---|---|
 |Temperature Sensor|||
-|Scenario Generator|||
+|Scenario Generator|[Fault_Injection_CAN_Logs](../../Fault_Injection_CAN_Logs), [diagnostics](../../diagnostics)|[Scenario Generator](components/scenario-generator.md)|
 |VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
 |Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
-|Evidence Collector|||
+|Evidence Collector|planned|[Evidence Collector](components/evidence-collector.md)|
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
 
@@ -56,7 +56,7 @@ C4Context
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
-            Container(evc, "Evidence Collector", "Python", "Collects evidence of faults and creates a log")
+            Container(evc, "Evidence Collector", "Rust", "Collects evidence of faults and creates a log")
         }
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
 
@@ -208,6 +208,9 @@ project-private extension and not part of the VSS standard catalogue.
 
 ## Manifest Structure
 
+The scenario catalog and the run manifest are described in the
+[Scenario Generator](components/scenario-generator.md#scenario-catalog).
+
 ## AI Assistance
 
 The section "Responsibilities: Guardian and Evidence Collector" was created with
@@ -217,3 +220,7 @@ the assistance of **Claude Code** using the model **Claude Opus 5.5**
 The sections "CAN Signals", "Quality Enum" and "VSS Mapping" were updated to the
 `BMS_MSG1` definition with the assistance of **Claude Code** using the model
 **Claude Opus 5** (`claude-opus-5`).
+
+The "Manifest Structure" section and the Evidence Collector and Scenario
+Generator entries were updated with the assistance of **Claude Code** using the
+model **Claude Opus 5.5** (`claude-opus-5-5`).
