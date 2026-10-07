@@ -44,6 +44,33 @@ fault that is lost on the way is reported as INCONCLUSIVE ("fault not
 delivered"), not as PASS, and the same evidence part can judge runs it did not
 inject, such as the hardware demo.
 
+## Evidence Collector to OpenSOVD
+
+The Guardian publishes DTC lifecycle records to the local DFM; it does not call
+OpenSOVD over HTTP. The DFM and OpenSOVD gateway expose those records for the
+Evidence Collector to read. Diagnostic delivery is asynchronous, so the
+collector verifies visibility rather than inferring it from a successful DFM
+enqueue.
+
+The collector uses read-only GET requests. `SOVD_URL` is the gateway base URL
+(for example, `http://127.0.0.1:7690/sovd/v1` locally), and `SOVD_ENTITY`
+selects the application/catalog entity (default: `battery_guardian`):
+
+| Request | Purpose |
+|---|---|
+| `GET {SOVD_URL}/apps/{SOVD_ENTITY}/faults` | List fault records for the Guardian entity; the response contains an `items` array. |
+| `GET {SOVD_URL}/apps/{SOVD_ENTITY}/faults/{DTC}` | Read the current record for one DTC, for example `BTG_TempFreshnessLost`. |
+
+The collector checks `status.testFailed` to determine whether a DTC is
+currently failed, `status.testFailedSinceLastClear` and `occurrence_counter`
+for retained history, and `environment_data` to correlate the record with the
+Guardian's session/event and requirement. A recovered DTC may have
+`testFailed: false` while `testFailedSinceLastClear: true` remains set. The
+collector matches `environment_data.session_id` and `event_id` to Guardian
+events. The exercised endpoint and response fields are shown in the
+[diagnostic integration test](../../../guardian-service/tests/diagnostics.rs)
+and [signal-chain guide](../../how-to/run-signal-chain.md).
+
 ## Scenario catalog
 
 [`campaign/scenarios.toml`](../../../campaign/scenarios.toml) holds one test
@@ -237,3 +264,6 @@ TS-01 to TS-18. Each scenario in the catalog names the ones it implements
 
 This document was created with the assistance of **Claude Code** using the model
 **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The OpenSOVD evidence interface was added with the assistance of **GitHub
+Copilot** using the model **GPT-6 Luna**.

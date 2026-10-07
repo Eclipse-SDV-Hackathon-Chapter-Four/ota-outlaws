@@ -16,7 +16,7 @@ SPDX-License-Identifier: EPL-2.0
 The Battery Thermal Guardian evaluates battery temperatures and the trustworthiness
 of their input, then publishes thermal, monitoring, fault, and mitigation events.
 The [HARA](../hara.md) is authoritative for the item boundary, hazards, safety goals,
-faults, and derived requirements. The [Safety Concept](../../reference/hara.md)
+faults, and derived requirements. The [Safety Concept](../../explanation/safety-concept.md)
 records the current implementation status. Where it conflicts with the HARA, this
 design follows the HARA and records the implementation as a gap rather than changing
 the safety requirement.
@@ -62,6 +62,35 @@ cannot decode is rejected before it reaches the core; if only such payloads
 arrive, the core reports the loss of fresh data. An unknown quality value is
 passed to the core as `UNDEFINED`, so the core reports it instead of using the
 value.
+
+## Diagnostics and SOVD interfaces
+
+The Guardian does not call an OpenSOVD HTTP endpoint. Its diagnostics adapter
+maps Guardian events to DTC lifecycle records and publishes them through the
+local `fault_lib` Reporter/DFM interface. The DFM and OpenSOVD gateway expose
+those records; the Campaign Tool's Evidence Collector reads them over HTTP (see
+[Evidence Collector to OpenSOVD](campaign.md#evidence-collector-to-opensovd)).
+Diagnostic delivery is asynchronous and does not gate thermal evaluation or
+mitigation requests.
+
+### Guardian to DFM
+
+The DFM catalog entity is configured by `SOVD_ENTITY` (default:
+`battery_guardian`) and must match the catalog ID. Each catalog DTC is initialized
+as `NotTested`. Guardian events then map to DTC lifecycle updates:
+
+| Guardian event | DFM lifecycle update |
+|---|---|
+| `FaultDetected` | Mark the matching input-fault DTC `Failed`. |
+| `FaultRecovered` or `FaultTestPassed` | Mark the matching input-fault DTC `Passed`. |
+| Thermal transition into `WARNING` or `CRITICAL` from a real temperature sample | Mark the corresponding overtemperature DTC `Failed`. A warning caused by an invalid sample does not create an overtemperature DTC. |
+| Thermal transition below a previously failed warning/critical level | Mark that overtemperature DTC `Passed`. |
+
+Each record carries environment data for correlation: `session_id`, `event_id`,
+`guardian_time_ms`, detecting `requirement`, catalog `fault_type` and `severity`,
+and, when available, the sample sequence, source timestamp, and alive counter.
+The DFM reporter publishes these records locally; there is no Guardian-side
+SOVD write endpoint.
 
 ### Why this split
 
@@ -212,7 +241,7 @@ configuration.
 
 The table under [Core and adapters](#core-and-adapters) shows which parts exist.
 Which requirements are implemented is recorded in the status column of the
-[Safety Concept](../../reference/hara.md#functional-safety-requirements).
+[Safety Concept](../../explanation/safety-concept.md#functional-safety-requirements).
 
 ## Verification strategy
 
