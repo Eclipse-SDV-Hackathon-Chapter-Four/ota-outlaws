@@ -268,7 +268,6 @@ The current trust boundary is the local developer host: the dashboard is bound
 to localhost but receives the Docker socket, which grants broad host control.
 KUKSA and diagnostic ports are environment-configurable; production network
 segmentation, credentials, and a target-HPC trust boundary are not specified.
-The AutoSD/Ankaios target remains open until runnable deployment manifests exist.
 
 # 10. Deployment
 

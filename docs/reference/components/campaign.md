@@ -282,7 +282,7 @@ Zenoh router on `127.0.0.1:7447` (`ZENOH_HOST_PORT`) and OpenSOVD on
 
 ```sh
 cargo run -p campaign -- observe source_dropout --seconds 60
-# unplug the board, wait, plug it back in
+# virtually unplug the board, wait, plug it back in
 ```
 
 ## Traces

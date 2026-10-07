@@ -107,7 +107,7 @@ OpenSOVD, including a DFM and gateway outage. Reports go to
 ## 5. Hardware demo
 
 Start the stack, then record and judge while the fault is injected by hand,
-for example by unplugging the board:
+for example by virtually unplugging the board:
 
 ```sh
 docker compose up -d

@@ -40,7 +40,7 @@ use watchdog::diagnostics::{Diagnostics, DiagnosticsConfig, GuardianSeen, Report
 use watchdog::supervisor::Supervisor;
 use watchdog::{HeartbeatMonitor, Transition};
 
-/// `T_hb` from the Safety Concept: three heartbeat periods of 500 ms.
+/// Default `T_hb`: three 500 ms heartbeat periods (HARA DFR-5, TS-22/TS-23).
 const DEFAULT_TIMEOUT_MS: u64 = 1_500;
 /// How often the watchdog checks the timeout. Adds at most this much to the
 /// detection time.
