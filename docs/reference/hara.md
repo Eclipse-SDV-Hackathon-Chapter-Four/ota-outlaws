@@ -17,8 +17,6 @@ SPDX-License-Identifier: EPL-2.0
 
 This is a preliminary, software-item-level HARA draft for the Battery Thermal Guardian. It organizes candidate malfunctions and hazardous events for the fault campaigns.
 
-The Guardian is intended to monitor battery cell temperatures, identify conditions that may lead to thermal runaway, request occupant warnings, and request mitigation when required. The warning deadline, thermal thresholds, and  mitigation authority must be defined by the system safety concept; "minutes before" is not a measurable requirement until those values and reference conditions are specified.
-
 ## Item definition
 
 **Item:** Battery Thermal Guardian service.
@@ -29,9 +27,9 @@ The Guardian is intended to monitor battery cell temperatures, identify conditio
 
 **Provisional boundary:** The Guardian's evaluation and output requests are in scope. Physical sensors, CAN decoding, KUKSA components, the occupant interface, and physical mitigation actuators are external dependencies unless the system architecture explicitly brings them into the item. Their failure behavior and interfaces still need to be included in the system-level safety analysis.
 
-**Safety-related objective:** Detect developing battery thermal events and provide
-timely warning and defined mitigation, without treating unavailable or untrusted
-temperature data as evidence that the battery is safe.
+**Safety-related objective:** Detect developing battery thermal events and provide timely warning and defined mitigation, without treating unavailable or untrusted temperature data as evidence that the battery is safe.
+
+**Considered functionality:** The Battery Thermal Guardian shall monitor battery-cell temperature data, identify developing thermal hazards, and request occupant warnings and defined mitigation actions.
 
 ## Terms and traceability
 
