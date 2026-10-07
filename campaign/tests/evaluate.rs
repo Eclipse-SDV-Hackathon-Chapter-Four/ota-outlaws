@@ -93,10 +93,18 @@ impl Recording {
             tap: Tap::SovdFault {
                 code: code.to_owned(),
                 http_status: Some(200),
-                body: serde_json::json!({
-                    "status": {"testFailed": failed, "testFailedSinceLastClear": since_clear},
-                    "environment_data": {"session_id": SESSION, "event_id": event_id.to_string()},
-                }),
+                body: {
+                    let (fault_type, severity) = context().classes[code].clone();
+                    serde_json::json!({
+                        "status": {"testFailed": failed, "testFailedSinceLastClear": since_clear},
+                        "environment_data": {
+                            "session_id": SESSION,
+                            "event_id": event_id.to_string(),
+                            "fault_type": fault_type,
+                            "severity": severity,
+                        },
+                    })
+                },
             },
         });
     }
@@ -193,6 +201,7 @@ impl Recording {
             &observations,
             &context.budgets,
             &context.onset,
+            &context.classes,
         )
         .unwrap()
     }
@@ -244,8 +253,14 @@ fn every_budget_in_the_catalog_resolves() {
         r.sample_at(9100, 7, "VALID", 70.0, 90.0, 20.0);
         let mut observations = r.observations.clone();
         observations.sort_by_key(|o| o.t_ms);
-        evaluate(scenario, &observations, &context.budgets, &context.onset)
-            .unwrap_or_else(|error| panic!("{}: {error}", scenario.id));
+        evaluate(
+            scenario,
+            &observations,
+            &context.budgets,
+            &context.onset,
+            &context.classes,
+        )
+        .unwrap_or_else(|error| panic!("{}: {error}", scenario.id));
     }
 }
 
@@ -255,7 +270,7 @@ fn fault_codes_come_from_the_dfm_catalog() {
     assert!(context
         .fault_codes
         .contains(&"BTG_TempFreshnessLost".to_owned()));
-    assert_eq!(context.fault_codes.len(), 8);
+    assert_eq!(context.fault_codes.len(), 10);
 }
 
 // --- PASS -----------------------------------------------------------------------
@@ -825,4 +840,127 @@ fn detection_time_comes_from_the_guardian_when_delivery_is_delayed() {
         Outcome::Met { detail } => assert!(detail.contains("delivered"), "{detail}"),
         other => panic!("{other:?}"),
     }
+}
+
+// --- Overtemperature DTCs and classification ----------------------------------
+
+/// Heating run: WARNING (event 1), CRITICAL (2) with its mitigation (3), then
+/// cooling to WARNING (4) and MONITORING (5), with OpenSOVD records.
+fn heating_run(classify: bool) -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 2000);
+    r.sample_at(2000, 21, "VALID", 45.0, 37.0, 29.0);
+    r.sample_at(3000, 31, "VALID", 55.0, 47.0, 39.0);
+    r.nominal(3100, 9000);
+    let warning = r.event(
+        2001,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "MONITORING".into(),
+            current: "WARNING".into(),
+        },
+    );
+    let critical = r.event(
+        3001,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "WARNING".into(),
+            current: "CRITICAL".into(),
+        },
+    );
+    r.event(
+        3001,
+        critical,
+        EventKind::MitigationRequested {
+            mitigation: "DRIVER_WARNING_OVERTEMP".into(),
+        },
+    );
+    r.event(
+        5000,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CRITICAL".into(),
+            current: "WARNING".into(),
+        },
+    );
+    r.event(
+        7000,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "WARNING".into(),
+            current: "MONITORING".into(),
+        },
+    );
+    r.sovd(2400, "BTG_TempOverTempWarning", warning, true, true);
+    r.sovd(3400, "BTG_TempOverTempCritical", critical, true, true);
+    r.sovd(5300, "BTG_TempOverTempCritical", critical, false, true);
+    r.sovd(7300, "BTG_TempOverTempWarning", warning, false, true);
+    if !classify {
+        for observation in &mut r.observations {
+            if let Tap::SovdFault { body, .. } = &mut observation.tap {
+                body["environment_data"]["severity"] = "Error".into();
+            }
+        }
+    }
+    r
+}
+
+#[test]
+fn overtemperature_dtcs_with_history_are_pass() {
+    let context = context();
+
+    let evaluation = heating_run(true).judge(&context, "heating");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+}
+
+#[test]
+fn wrong_severity_in_opensovd_is_fail() {
+    let context = context();
+
+    let evaluation = heating_run(false).judge(&context, "heating");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("expected Hardware and Warn")));
+}
+
+#[test]
+fn overtemperature_dtc_not_passed_after_cooling_is_fail() {
+    let context = context();
+    let mut r = heating_run(true);
+    r.observations.retain(|o| {
+        !matches!(&o.tap, Tap::SovdFault { code, body, .. }
+            if code == "BTG_TempOverTempWarning" && body["status"]["testFailed"] == false)
+    });
+
+    let evaluation = r.judge(&context, "heating");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn input_fault_without_classification_is_fail() {
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+    for observation in &mut r.observations {
+        if let Tap::SovdFault { body, .. } = &mut observation.tap {
+            body["environment_data"]
+                .as_object_mut()
+                .unwrap()
+                .remove("fault_type");
+        }
+    }
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert_eq!(evaluation.requirements["FSR-D.2"], Verdict::Fail);
 }
