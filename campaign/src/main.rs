@@ -105,10 +105,7 @@ async fn dispatch(args: &[String]) -> anyhow::Result<bool> {
             let mut ok = true;
             for dir in &options.positional {
                 let evaluation = judge(&repo, &context, Path::new(dir))?;
-                println!(
-                    "{}: {:?} — {}",
-                    evaluation.scenario, evaluation.verdict, evaluation.reason
-                );
+                println!("{}", report::console(&evaluation));
                 ok &= passed(&evaluation);
             }
             Ok(ok)
@@ -184,7 +181,7 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
             std::fs::write(run_dir.join("error.txt"), format!("{error:#}\n"))?;
         }
         let evaluation = judge(repo, context, &run_dir)?;
-        println!("{id}: {:?} — {}", evaluation.verdict, evaluation.reason);
+        println!("{}", report::console(&evaluation));
         evaluations.push((id.to_string(), evaluation));
     }
     let summaries: Vec<_> = evaluations
@@ -198,7 +195,9 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         campaign_dir.join("campaign.md"),
         report::campaign_markdown(&campaign_id, &summaries),
     )?;
-    println!("evidence: {}", campaign_dir.display());
+    let judged: Vec<&Evaluation> = evaluations.iter().map(|(_, e)| e).collect();
+    println!("{}", report::console_summary(&campaign_id, &judged));
+    println!("evidence: {}", campaign_dir.join("campaign.md").display());
     Ok(evaluations.iter().all(|(_, e)| passed(e)))
 }
 
@@ -246,8 +245,8 @@ async fn observe(repo: &Path, context: &Context, options: &Options) -> anyhow::R
     }
     drop(taps);
     let evaluation = judge(repo, context, &run_dir)?;
-    println!("{id}: {:?} — {}", evaluation.verdict, evaluation.reason);
-    println!("evidence: {}", run_dir.display());
+    println!("{}", report::console(&evaluation));
+    println!("evidence: {}", run_dir.join("report.md").display());
     Ok(passed(&evaluation))
 }
 

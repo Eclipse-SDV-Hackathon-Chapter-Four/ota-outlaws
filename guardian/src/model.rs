@@ -97,8 +97,9 @@ pub enum ThermalState {
     Monitoring,
     Warning,
     Critical,
-    /// Same severity as `Critical`; the mitigation has been requested.
-    /// Not reachable yet: belongs to FSR-1.6.
+    /// Same severity as `Critical`; the overtemperature mitigation has been
+    /// requested (FSR-1.6). Returns to `Critical` when the maximum keeps
+    /// rising for `T_mitigation` (FSR-1.7).
     Mitigating,
 }
 
@@ -200,6 +201,9 @@ pub enum Mitigation {
     DriverWarningOvertemp,
     /// Thermal monitoring is unavailable.
     DriverWarningMonitoringUnavailable,
+    /// A received sample was not evaluated: not fresh, late, invalid, or
+    /// implausible (HARA TS-06, TS-19, TS-20).
+    DiscardSample,
 }
 
 /// Identifies an event within one Guardian run. Assigned in order, starting at 1.

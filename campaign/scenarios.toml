@@ -694,6 +694,55 @@ kind = "recovery"
 dtc = "BTG_TempOrderImplausible"
 requirement = "FSR-2.6"
 
+# --- Hot spot (FSR-1.4) and a large spread that arrives as a spike ----------------
+
+[[scenario]]
+id = "high_delta"
+description = "CellTempMax 100 degC and CellTempMin 10 degC, a 90 degC spread"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+status = "implemented"
+note = "100 degC appears within 100 ms, so FSR-3.3 rejects it as a spike and raises WARNING. hot_spot tests a hot spot that builds up plausibly (FSR-1.4)."
+stimulus = { type = "can_trace", trace = "campaign/traces/high_delta.asc" }
+onset = "max_at_least:100"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario]]
+id = "hot_spot"
+description = "The maximum rises to 44 degC while the average stays at 32 degC, a 12 degC spread"
+fault_class = "Thermal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/hot_spot.asc" }
+onset = "max_at_least:43"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-1.4"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
+
 # --- Planned requirements: expected to fail until implemented ---------------------
 
 [[scenario]]
@@ -711,23 +760,6 @@ kind = "fault"
 dtc = "BTG_TempCounterError"
 budget = "T_react"
 requirement = "FSR-3.7"
-
-[[scenario]]
-id = "high_delta"
-description = "CellTempMax 100 degC and CellTempMin 10 degC, a 90 degC spread"
-fault_class = "Signal"
-hazard = "HE-1"
-safety_goal = "SG-1"
-status = "planned"
-note = "100 degC appears within 100 ms, so FSR-3.3 rejects it as a spike and raises WARNING. A hot spot that builds up plausibly (FSR-1.4) is not tested by this trace."
-stimulus = { type = "can_trace", trace = "campaign/traces/high_delta.asc" }
-onset = "max_at_least:100"
-
-[[scenario.expect]]
-kind = "thermal"
-state = "WARNING"
-budget = "T_react"
-requirement = "FSR-1.4"
 
 # --- External stimulus: hardware demo, judged with `campaign observe` -------------
 
@@ -805,6 +837,39 @@ dtc = "BTG_TempQualityInvalid"
 requirement = "FSR-2.6"
 
 # is min_c = 0.0, so a value of 8 degC is plausible and no fault is raised.
+
+[[scenario]]
+id = "source_loss_during_diagnostics_outage"
+description = "The source is lost for 2 s while DFM and the OpenSOVD gateway are paused; diagnostics resume after the Guardian recovered"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-27"]
+status = "implemented"
+note = "Combined fault: F-9 during a diagnostics outage. The warning must not wait for DFM; OpenSOVD visibility is measured from the resume, not from the onset."
+stimulus = { type = "can_trace", trace = "campaign/traces/source_loss.asc", pause = ["opensovd-dfm", "opensovd-gateway"], pause_after_ms = 6000, pause_for_ms = 7000 }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "DFR-2"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-2.5"
+
+[[scenario.expect]]
+kind = "diagnostics_outage"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "DFR-6"
 
 [[scenario]]
 id = "guardian_crash"
@@ -1000,7 +1065,7 @@ hazard = "HE-1"
 safety_goal = "SG-2"
 hara_tests = ["TS-24"]
 status = "planned"
-note = "Needs FSR-2.8 (T_age with synchronised clocks), which is planned. Needs a transport fault injector (fault_send on branch feature/transport-fault-injection) that delays one message while the campaign observes."
+note = "The Guardian rejects a sample more than T_age late relative to the last fresh sample, without synchronised clocks (core tests). Needs a transport fault injector (fault_send on branch feature/transport-fault-injection) that delays one message while the campaign observes."
 stimulus = { type = "external" }
 onset = "gap"
 

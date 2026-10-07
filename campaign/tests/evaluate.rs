@@ -1621,3 +1621,212 @@ fn dfr_5_hang_without_restoration_is_fail() {
     assert_eq!(evaluation.verdict, Verdict::Fail);
     assert!(supervisor_failures(&evaluation)[0].contains("GuardianRestored"));
 }
+
+// --- HARA TS-27: source loss during a DFM/OpenSOVD outage --------------------------
+
+const FRESHNESS_LOST: &str = "BTG_TempFreshnessLost";
+const OUTAGE: &str = "source_loss_during_diagnostics_outage";
+
+/// Diagnostics paused at 6 s and resumed at 13 s; the source is lost from 8 s
+/// to 10 s. The Guardian detects at 8.3 s and recovers at `recovered_at`.
+/// Returns the run and the fault event's ID.
+fn outage_run(recovered_at: u64) -> (Recording, u64) {
+    let mut r = Recording::default();
+    r.nominal(0, 8000);
+    r.nominal(10000, 22000);
+    r.injection(6000, "pause");
+    r.injection(13000, "unpause");
+    let fault = r.event(
+        8300,
+        0,
+        EventKind::FaultDetected {
+            dtc: FRESHNESS_LOST.into(),
+            requirement: "FSR-2.2".into(),
+        },
+    );
+    let degraded = r.event(
+        8300,
+        fault,
+        EventKind::MonitoringStatusChanged {
+            previous: "OK".into(),
+            current: "DEGRADED".into(),
+        },
+    );
+    r.event(
+        8300,
+        degraded,
+        EventKind::MitigationRequested {
+            mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+        },
+    );
+    let recovered = r.event(
+        recovered_at,
+        fault,
+        EventKind::FaultRecovered {
+            dtc: FRESHNESS_LOST.into(),
+            requirement: "FSR-2.6".into(),
+        },
+    );
+    r.event(
+        recovered_at,
+        recovered,
+        EventKind::MonitoringStatusChanged {
+            previous: "DEGRADED".into(),
+            current: "OK".into(),
+        },
+    );
+    (r, fault)
+}
+
+fn outage_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::DiagnosticsOutage { .. }))
+        .expect("the scenario has a diagnostics_outage check")
+        .outcome
+}
+
+#[test]
+fn ts_27_reaction_during_outage_and_lifecycle_after_resume_is_pass() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13000 + 600, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+    let check = evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::DiagnosticsOutage { .. }))
+        .unwrap();
+    // Measured from the resume, not from the onset.
+    assert_eq!(check.latency_ms, Some(600));
+}
+
+#[test]
+fn ts_27_recovery_only_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(13500);
+    r.sovd(14000, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("after diagnostics resumed"))
+    );
+}
+
+#[test]
+fn ts_27_lifecycle_visible_too_late_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    // T_diag (2000 ms) after the resume is the budget.
+    r.sovd(13000 + 2500, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("late"))
+    );
+}
+
+#[test]
+fn ts_27_passed_without_history_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, false);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("passed with its history"))
+    );
+}
+
+#[test]
+fn ts_27_opensovd_answering_during_the_pause_is_inconclusive() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(8700, FRESHNESS_LOST, fault, true, true);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert!(matches!(
+        outage_outcome(&evaluation),
+        Outcome::Unobservable { detail } if detail.contains("not effective")
+    ));
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+}
+
+// --- Readable pass/fail output ----------------------------------------------------
+
+#[test]
+fn console_shows_a_pass_on_one_line() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, true);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.starts_with("✓ PASS"));
+    assert!(text.contains("[TS-27]") && text.contains("4/4 checks met"));
+}
+
+#[test]
+fn console_lists_each_failed_check_with_its_reason() {
+    let context = context();
+    let (r, _) = outage_run(13500);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert!(text.starts_with("✗ FAIL"), "{text}");
+    let failed: Vec<&str> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with('✗'))
+        .collect();
+    assert_eq!(failed.len(), 2, "{text}");
+    assert!(failed[1].contains("DFR-6") && failed[1].contains("after diagnostics resumed"));
+}
+
+#[test]
+fn campaign_summary_counts_verdicts_and_explains_failures() {
+    let context = context();
+    let (mut passing, fault) = outage_run(11100);
+    passing.sovd(13600, FRESHNESS_LOST, fault, false, true);
+    let pass = passing.judge(&context, OUTAGE);
+    let fail = outage_run(13500).0.judge(&context, OUTAGE);
+    let summaries = [
+        campaign::report::Summary {
+            run_dir: "a".into(),
+            evaluation: &pass,
+        },
+        campaign::report::Summary {
+            run_dir: "b".into(),
+            evaluation: &fail,
+        },
+    ];
+
+    let markdown = campaign::report::campaign_markdown("c1", &summaries);
+    let console = campaign::report::console_summary("c1", &[&pass, &fail]);
+
+    assert!(markdown.contains("2 scenario(s): 1 PASS, 1 FAIL, 0 INCONCLUSIVE"));
+    assert!(markdown.contains("## Not passed"));
+    assert!(markdown.contains("after diagnostics resumed"));
+    assert!(console.contains("1 PASS, 1 FAIL"));
+    assert_eq!(
+        console.lines().filter(|l| l.starts_with("✗ FAIL")).count(),
+        1
+    );
+}

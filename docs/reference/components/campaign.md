@@ -178,11 +178,36 @@ A run directory holds the evidence:
 |------|---------|
 | `manifest.json` | run ID, scenario, stimulus, git revision, SHA-256 of the catalog, the parameters, and the trace |
 | `recording.jsonl` | every observation |
-| `report.json`, `report.md` | verdict, onset, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, checks, result per requirement, Guardian event timeline |
+| `report.json`, `report.md` | verdict, onset, checks, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, result per requirement, Guardian event timeline |
 | `services.log` | logs of all services |
 | `error.txt` | only if the run itself failed; the scenario is still judged |
 
-`campaign.md` in the campaign directory lists every scenario with its verdict.
+`campaign.md` in the campaign directory counts the verdicts, lists every
+scenario with its verdict and checks met, and, under *Not passed*, every check
+that failed or lacked evidence, with its reason.
+
+### Reading the results
+
+`report.md` leads with the verdict and a one-line summary, then the checks that
+decided it: failed checks first, each with what it expects in words, what was
+observed, and the time against its budget (✓ met, ✗ failed, ? evidence
+missing). The evidence chain and the raw Guardian events follow; events after
+the end of the trace are marked as not judged. A DTC whose failure OpenSOVD only
+shows in its history (passed, `testFailedSinceLastClear`), because no poll
+caught it failed, counts as evidence and is named as such.
+
+The console prints one line per scenario while the campaign runs. A scenario
+that did not pass gets its reason and each failed check below it:
+
+```text
+✓ PASS          guardian_hang  [TS-23]  4/4 checks met
+✗ FAIL          guardian_crash  [TS-22]  1/2 checks met
+                an expected reaction is missing or late
+                ✗ DFR-5: watchdog requests DRIVER_WARNING_MONITORING_UNAVAILABLE within T_hb + T_react — the watchdog never requested DRIVER_WARNING_MONITORING_UNAVAILABLE after the onset (budget 1.60 s)
+```
+
+After the last scenario, it prints the counts per verdict and the scenarios
+that did not pass.
 
 ## Verdicts
 
@@ -224,6 +249,28 @@ timestamp, alive counter), so the report shows which sample a detection or
 thermal change refers to. Recordings from before that have none.
 | INCONCLUSIVE | Onset not observed, onset before the Guardian was ready, or evidence missing (for example, OpenSOVD never answered) |
 
+## Combined fault: source loss during a diagnostics outage (TS-27)
+
+`source_loss_during_diagnostics_outage` replays
+[`source_loss.asc`](../../../campaign/traces/source_loss.asc) (8 s nominal,
+2 s without frames, 12 s nominal) and pauses `opensovd-dfm` and
+`opensovd-gateway` from 6 s to 13 s. The source loss and the Guardian's
+recovery both fall into the pause.
+
+The `diagnostics_outage` check judges the diagnostic side:
+
+- the fault is detected after the `pause` injection and monitoring returns to
+  `OK` before the `unpause` injection, so neither waited for DFM;
+- OpenSOVD shows nothing of the fault during the pause; if it does, the outage
+  was not effective and the result is INCONCLUSIVE;
+- after the resume, OpenSOVD shows the DTC passed with its history
+  (`testFailed` false, `testFailedSinceLastClear` true) and this run's session
+  and event ID, within `T_diag` **measured from the resume**.
+
+The `fault`, `degraded`, and `not_lowered` checks of the same scenario judge the
+safety reaction with their usual budgets: the monitoring-unavailable warning
+within `T_stale + T_react`, while diagnostics are paused.
+
 ## Hardware demo
 
 The hardware source is not part of the automated campaigns: it cannot be
@@ -256,7 +303,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-26. Each scenario in the catalog names the ones it implements
+TS-01 to TS-27. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -284,9 +331,10 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-21 Repeated spikes | `spike` | campaign |
 | TS-22 Guardian termination | `guardian_crash` | campaign, with the watchdog |
 | TS-23 Guardian hang | `guardian_hang` | campaign, with the watchdog |
-| TS-24 Late-arriving stale message | `late_message` | planned: needs synchronized clocks (FSR-2.8) and a transport fault injector |
+| TS-24 Late-arriving stale message | `late_message` | planned: needs a transport fault injector; Guardian core tests cover the late-sample check |
 | TS-25 Gradual drift | `drift` | campaign |
 | TS-26 Upper-scale saturation | `saturation_255` | campaign |
+| TS-27 Source loss during a DFM/OpenSOVD outage | `source_loss_during_diagnostics_outage` | campaign |
 
 TS-22 and TS-23 start the Guardian watchdog next to the Guardian
 (`watchdog = true` in the stimulus). `supervisor_warning` checks that the
@@ -298,15 +346,18 @@ caused by `GuardianLost`, within `T_hb + T_react` (HARA DFR-5);
 compares the raw CAN quality byte with the quality the Guardian input shows
 (TS-11, TS-16).
 
+Scenarios without a HARA test: `hot_spot` (FSR-1.4), `high_delta` (a large
+spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
+`avg_gt_max`, `min_gt_max` (FSR-3.1).
+
 ## Not covered yet
 
 - **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
-- **Diagnostics outage**: still covered by
-  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
-  `pause` stimulus exists, but its OpenSOVD budget would have to count from the
-  resume.
+- **Diagnostics outage alone**: still covered by
+  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). Combined
+  with a source loss, it is TS-27 (below).
 - **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
   behind the tap (`samples_continue`) exists; sequence diagnosis and delay
   measurement do not.
