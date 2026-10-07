@@ -40,10 +40,6 @@ This is a preliminary, software-item-level HARA draft for the Battery Thermal Gu
 - **Hazardous event:** A hazard in a specific vehicle operational situation.
 - **Harm:** Injury to people, such as burns or smoke inhalation.
 
-Fault-campaign identifiers below are not themselves HARA hazards. The intended
-trace is: injected fault -> malfunctioning behavior -> hazardous event -> safety
-goal -> detection/mitigation evidence -> verdict.
-
 ## Operational situations to assess
 
 These are candidate situations, not exposure ratings. Assess each relevant
