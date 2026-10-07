@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use campaign::catalog::{Scenario, Stimulus};
+use campaign::catalog::{Expectation, Scenario, ScenarioStatus, Stimulus};
 use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
 use campaign::onset::Onset;
 use campaign::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
@@ -288,6 +288,27 @@ fn fault_codes_come_from_the_dfm_catalog() {
         .fault_codes
         .contains(&"BTG_GuardianHeartbeatLoss".to_owned()));
     assert_eq!(context.fault_codes.len(), 11);
+}
+
+#[test]
+fn a_scenario_dtc_outside_the_dfm_catalog_is_rejected() {
+    let context = context();
+    context.catalog.check_dtcs(&context.fault_codes).unwrap();
+
+    let mut catalog = context.catalog.clone();
+    let scenario = catalog
+        .scenarios
+        .iter_mut()
+        .find(|scenario| scenario.status == ScenarioStatus::Implemented)
+        .unwrap();
+    scenario.expectations.push(Expectation::Fault {
+        dtc: "BTG_TempOutofRange".into(),
+        budget: "T_react".into(),
+        requirement: "FSR-3.2".into(),
+    });
+
+    let error = catalog.check_dtcs(&context.fault_codes).unwrap_err();
+    assert!(error.to_string().contains("BTG_TempOutofRange"), "{error}");
 }
 
 // --- PASS -----------------------------------------------------------------------

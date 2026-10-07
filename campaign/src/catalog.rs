@@ -179,6 +179,24 @@ impl Expectation {
             | Expectation::OvertempDtc { requirement, .. } => requirement,
         }
     }
+
+    /// The DTC the expectation names, if any.
+    pub fn dtc(&self) -> Option<&str> {
+        match self {
+            Expectation::Fault { dtc, .. }
+            | Expectation::Degraded { dtc, .. }
+            | Expectation::Sovd { dtc, .. }
+            | Expectation::Recovery { dtc, .. }
+            | Expectation::StartupFault { dtc, .. }
+            | Expectation::OvertempDtc { dtc, .. } => Some(dtc),
+            Expectation::Thermal { .. }
+            | Expectation::DriverWarningOvertemp { .. }
+            | Expectation::NotThermal { .. }
+            | Expectation::NoFault { .. }
+            | Expectation::SamplesContinue { .. }
+            | Expectation::NotLowered { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -207,6 +225,28 @@ impl Catalog {
 
     pub fn scenario(&self, id: &str) -> Option<&Scenario> {
         self.scenarios.iter().find(|scenario| scenario.id == id)
+    }
+
+    /// Checks that every DTC the implemented scenarios expect is in the DFM
+    /// catalog. A misspelt DTC would otherwise show as a missing reaction: a
+    /// FAIL that blames the Guardian for a configuration error. Planned
+    /// scenarios may name a DTC that does not exist yet.
+    pub fn check_dtcs(&self, fault_codes: &[String]) -> Result<(), CatalogError> {
+        let implemented = self
+            .scenarios
+            .iter()
+            .filter(|scenario| scenario.status == ScenarioStatus::Implemented);
+        for scenario in implemented {
+            for dtc in scenario.expectations.iter().filter_map(Expectation::dtc) {
+                if !fault_codes.iter().any(|code| code == dtc) {
+                    return Err(CatalogError::Invalid(format!(
+                        "scenario {} expects {dtc}, which is not in the DFM catalog",
+                        scenario.id
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), CatalogError> {

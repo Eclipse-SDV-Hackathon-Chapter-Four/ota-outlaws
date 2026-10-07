@@ -94,7 +94,8 @@ impl Context {
             .context("DFM catalog without faults")?
             .iter()
             .filter_map(|fault| fault["id"]["Text"].as_str().map(str::to_owned))
-            .collect();
+            .collect::<Vec<_>>();
+        catalog.check_dtcs(&fault_codes)?;
         Ok(Context {
             catalog,
             budgets,
