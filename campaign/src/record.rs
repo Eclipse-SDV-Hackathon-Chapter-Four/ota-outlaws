@@ -22,10 +22,10 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use prost::Message;
 use thermal_contract::transport::{self, uri, ZenohEndpoints};
-use thermal_contract::{v1 as pb, BATTERY_TEMPERATURE, GUARDIAN_EVENTS};
+use thermal_contract::{v1 as pb, BATTERY_TEMPERATURE, GUARDIAN_EVENTS, SUPERVISOR_EVENTS};
 use up_rust::{UListener, UMessage, UTransport};
 
-use crate::recording::{GuardianEvent, Observation, Tap, Temperature, Writer};
+use crate::recording::{GuardianEvent, Observation, SupervisorEvent, Tap, Temperature, Writer};
 
 /// Authority of the tool's own uEntity on the bus.
 const AUTHORITY: &str = "campaign";
@@ -109,6 +109,21 @@ impl UListener for EventListener {
     }
 }
 
+struct SupervisorListener(Arc<Recorder>);
+
+#[async_trait]
+impl UListener for SupervisorListener {
+    async fn on_receive(&self, message: UMessage) {
+        let Some(payload) = message.payload else {
+            return;
+        };
+        if let Ok(event) = pb::SupervisorEvent::decode(payload) {
+            self.0
+                .log(Tap::SupervisorEvent(SupervisorEvent::from(&event)));
+        }
+    }
+}
+
 pub struct SovdTap {
     /// For example `http://127.0.0.1:7690/sovd/v1`.
     pub url: String,
@@ -152,6 +167,14 @@ pub async fn start(
         )
         .await
         .map_err(|status| anyhow::anyhow!("cannot subscribe to Guardian events: {status:?}"))?;
+    transport
+        .register_listener(
+            &uri(SUPERVISOR_EVENTS),
+            None,
+            Arc::new(SupervisorListener(Arc::clone(&recorder))),
+        )
+        .await
+        .map_err(|status| anyhow::anyhow!("cannot subscribe to watchdog events: {status:?}"))?;
     let poller = sovd.map(|tap| tokio::spawn(poll_sovd(recorder, tap)));
     Ok(Taps {
         _transport: transport,

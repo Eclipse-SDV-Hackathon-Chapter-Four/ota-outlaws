@@ -43,11 +43,18 @@ pub struct Guardian {
     thermal: ThermalState,
     monitoring: MonitoringStatus,
     last_fresh_sample: Option<SampleRef>,
+    /// Local arrival time of the last fresh sample (TS-24).
+    last_fresh_at: Option<Millis>,
+    /// `T_age`: maximum lateness of a sample relative to the last fresh one.
+    max_age_ms: u64,
     freshness: FreshnessMonitor,
     stuck: StuckDetector,
     trend: TrendDetector,
     /// Whether the last valid sample showed a rising trend (FSR-1.3).
     trend_active: bool,
+    /// While MITIGATING: start of the current observation window and the
+    /// maximum at its start (FSR-1.7).
+    mitigation_window: Option<(Millis, f32)>,
     /// Local times of recent rate-implausible samples, within `T_suspect`
     /// (FSR-3.5).
     recent_spikes: VecDeque<Millis>,
@@ -73,10 +80,13 @@ impl Guardian {
             thermal: ThermalState::Clear,
             monitoring: MonitoringStatus::Ok,
             last_fresh_sample: None,
+            last_fresh_at: None,
+            max_age_ms: config.freshness.max_age_ms,
             freshness: FreshnessMonitor::new(&config.freshness),
             stuck: StuckDetector::new(&config.stuck),
             trend: TrendDetector::new(&config.thermal),
             trend_active: false,
+            mitigation_window: None,
             recent_spikes: VecDeque::new(),
             suspect_recovery_samples: 0,
             active_faults: BTreeMap::new(),
@@ -122,63 +132,93 @@ impl Guardian {
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         self.started_at.get_or_insert(now);
-        if !self.is_fresh(&sample) {
+        if let Err(cause) = self.screen(&sample, now, &mut events) {
+            // Every sample that is not evaluated is reported as discarded,
+            // linked to the event that explains why (HARA TS-06, TS-19, TS-20).
+            self.emit(
+                cause,
+                now,
+                EventKind::MitigationRequested {
+                    mitigation: Mitigation::DiscardSample,
+                },
+                &mut events,
+            );
+            return events;
+        }
+        self.evaluate(&sample, now, &mut events);
+        events
+    }
+
+    /// Decides whether a sample may be evaluated. `Err` carries the event that
+    /// explains the rejection, if this sample caused one.
+    fn screen(
+        &mut self,
+        sample: &Sample,
+        now: Millis,
+        events: &mut Vec<Event>,
+    ) -> Result<(), Option<EventId>> {
+        if !self.is_fresh(sample, now) {
             self.reset_recovery();
-            match self.non_fresh_kind(&sample) {
+            let cause = match self.non_fresh_kind(sample, now) {
                 Some(NonFresh::Repeated) => match self.freshness.record_repeated_frame(now) {
-                    Repetition::Isolated => {}
-                    Repetition::Suspect => {
-                        self.set_suspect(now, &mut events);
-                    }
+                    Repetition::Isolated => None,
+                    Repetition::Suspect => self.set_suspect(now, events),
                     Repetition::Stuck => {
-                        self.report_fault(FaultCode::CounterStuck, now, &mut events)
+                        Some(self.report_fault(FaultCode::CounterStuck, now, events))
                     }
                 },
-                Some(NonFresh::OutOfOrder) => {
-                    self.set_suspect(now, &mut events);
-                }
-                None => {}
-            }
-            return events;
+                Some(NonFresh::OutOfOrder | NonFresh::Late) => self.set_suspect(now, events),
+                None => None,
+            };
+            return Err(cause);
         }
         // A long gap breaks recovery even when no tick ran during that gap.
         if self.freshness.is_stale(now) {
             self.reset_recovery();
         }
         self.last_fresh_sample = Some(sample.reference());
+        self.last_fresh_at = Some(now);
         self.freshness.record_fresh_sample(now);
 
         if sample.quality != Quality::Valid {
             self.reset_recovery();
-            self.report_fault(FaultCode::QualityInvalid, now, &mut events);
-            return events;
+            return Err(Some(self.report_fault(
+                FaultCode::QualityInvalid,
+                now,
+                events,
+            )));
         }
-        if let Some((fault, may_be_real_heat)) = self.implausibility(&sample) {
+        if let Some((fault, may_be_real_heat)) = self.implausibility(sample) {
             self.reset_recovery();
             let cause = if fault == FaultCode::RateImplausible && !self.record_spike(now) {
                 // FSR-3.5: an isolated spike is discarded and only debounced.
-                self.set_suspect(now, &mut events)
+                self.set_suspect(now, events)
             } else {
-                self.report_fault(fault, now, &mut events);
-                self.active_faults.get(&fault).copied()
+                Some(self.report_fault(fault, now, events))
             };
             if may_be_real_heat {
-                self.raise_to_warning(&sample, cause, now, &mut events);
+                self.raise_to_warning(sample, cause, now, events);
             }
-            return events;
+            return Err(cause);
         }
+        Ok(())
+    }
+
+    /// Evaluates a fresh, valid, plausible sample.
+    fn evaluate(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
+        let sample = *sample;
         self.last_valid = Some((sample.max_c, sample.source_timestamp_ms));
         self.trend_active = self.trend.observe(&sample);
         if self.stuck.observe(&sample, now) {
             self.reset_recovery();
             self.stuck_fault_max = Some(sample.max_c);
-            self.report_fault(FaultCode::SignalStuck, now, &mut events);
+            self.report_fault(FaultCode::SignalStuck, now, events);
         } else {
-            self.recover_faults(&sample, now, &mut events);
-            self.recover_suspect(now, &mut events);
+            self.recover_faults(&sample, now, events);
+            self.recover_suspect(now, events);
         }
-        self.evaluate_thermal(&sample, now, &mut events);
-        events
+        self.check_mitigation(&sample, now, events);
+        self.evaluate_thermal(&sample, now, events);
     }
 
     /// Checks time-based conditions. Call it at least every few tens of
@@ -255,17 +295,31 @@ impl Guardian {
         );
     }
 
-    fn is_fresh(&self, sample: &Sample) -> bool {
+    fn is_fresh(&self, sample: &Sample, now: Millis) -> bool {
         let advanced = self.last_fresh_sample.is_none_or(|last| {
             sample.source_timestamp_ms > last.source_timestamp_ms
                 && sample.alive_counter != last.alive_counter
         });
-        advanced && sample.has_finite_values()
+        advanced && sample.has_finite_values() && !self.is_late(sample, now)
+    }
+
+    /// TS-24 (F-2): the sample arrived more than `T_age` later than its source
+    /// timestamp implies, measured against the last fresh sample. This needs
+    /// no synchronized clocks, but it cannot see a delay that was already
+    /// present when that sample arrived (FSR-2.8).
+    fn is_late(&self, sample: &Sample, now: Millis) -> bool {
+        let (Some(last), Some(last_at)) = (self.last_fresh_sample, self.last_fresh_at) else {
+            return false;
+        };
+        let source_gap = sample
+            .source_timestamp_ms
+            .saturating_sub(last.source_timestamp_ms);
+        now.since(last_at).saturating_sub(source_gap) > self.max_age_ms
     }
 
     /// Classifies a sample that is not fresh. `None` for samples before the
     /// first fresh one and for non-finite values.
-    fn non_fresh_kind(&self, sample: &Sample) -> Option<NonFresh> {
+    fn non_fresh_kind(&self, sample: &Sample, now: Millis) -> Option<NonFresh> {
         let last = self.last_fresh_sample?;
         if !sample.has_finite_values() {
             return None;
@@ -276,6 +330,8 @@ impl Guardian {
             Some(NonFresh::Repeated)
         } else if sample.source_timestamp_ms <= last.source_timestamp_ms {
             Some(NonFresh::OutOfOrder)
+        } else if self.is_late(sample, now) {
+            Some(NonFresh::Late)
         } else {
             None
         }
@@ -295,7 +351,7 @@ impl Guardian {
     fn evaluate_thermal(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
         let mut assessed = if sample.max_c >= self.thermal_config.critical_c {
             ThermalState::Critical
-        } else if sample.max_c >= self.thermal_config.warn_c || self.trend_active {
+        } else if sample.max_c >= self.thermal_config.warn_c || self.warning_criterion(sample) {
             ThermalState::Warning
         } else {
             ThermalState::Monitoring
@@ -311,7 +367,7 @@ impl Guardian {
                     Some(ThermalState::Warning)
                 }
                 ThermalState::Warning
-                    if !self.trend_active
+                    if !self.warning_criterion(sample)
                         && sample.max_c
                             < self.thermal_config.warn_c - self.recovery.hysteresis_c =>
                 {
@@ -346,21 +402,86 @@ impl Guardian {
             events,
         );
         if assessed == ThermalState::Critical {
-            self.emit(
-                Some(change),
-                now,
-                EventKind::MitigationRequested {
-                    mitigation: Mitigation::DriverWarningOvertemp,
-                },
-                events,
-            );
+            self.request_overtemp_mitigation(sample, change, now, events);
+        } else {
+            self.mitigation_window = None;
         }
     }
 
-    /// Reports a fault once and enters DEGRADED (SG-2).
-    fn report_fault(&mut self, fault: FaultCode, now: Millis, events: &mut Vec<Event>) {
-        if self.active_faults.contains_key(&fault) {
+    /// FSR-1.3 and FSR-1.4: criteria that raise WARNING below `θ_warn`.
+    fn warning_criterion(&self, sample: &Sample) -> bool {
+        // FSR-1.4: a large spread is a real local hot spot, not a sensor fault.
+        let hot_spot = sample.max_c - sample.avg_c > self.thermal_config.hotspot_spread_c;
+        self.trend_active || hot_spot
+    }
+
+    /// FSR-1.2 and FSR-1.6: requests the overtemperature mitigation, caused by
+    /// `cause`, and moves from CRITICAL to MITIGATING.
+    fn request_overtemp_mitigation(
+        &mut self,
+        sample: &Sample,
+        cause: EventId,
+        now: Millis,
+        events: &mut Vec<Event>,
+    ) {
+        let request = self.emit(
+            Some(cause),
+            now,
+            EventKind::MitigationRequested {
+                mitigation: Mitigation::DriverWarningOvertemp,
+            },
+            events,
+        );
+        self.thermal = ThermalState::Mitigating;
+        self.mitigation_window = Some((now, sample.max_c));
+        self.emit(
+            Some(request),
+            now,
+            EventKind::ThermalStateChanged {
+                from: ThermalState::Critical,
+                to: ThermalState::Mitigating,
+                trigger: sample.reference(),
+            },
+            events,
+        );
+    }
+
+    /// FSR-1.7: if the maximum rose by more than one resolution step over
+    /// `T_mitigation` while MITIGATING, the mitigation failed: return to CRITICAL and request it
+    /// again. Otherwise a new observation window starts.
+    fn check_mitigation(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
+        if self.thermal != ThermalState::Mitigating {
             return;
+        }
+        let Some((since, start_max)) = self.mitigation_window else {
+            return;
+        };
+        if now.since(since) < self.thermal_config.mitigation_timeout_ms {
+            return;
+        }
+        // One resolution step is signal noise, not a rise.
+        if sample.max_c <= start_max + self.plausibility.resolution_c {
+            self.mitigation_window = Some((now, sample.max_c));
+            return;
+        }
+        self.thermal = ThermalState::Critical;
+        let failed = self.emit(
+            None,
+            now,
+            EventKind::ThermalStateChanged {
+                from: ThermalState::Mitigating,
+                to: ThermalState::Critical,
+                trigger: sample.reference(),
+            },
+            events,
+        );
+        self.request_overtemp_mitigation(sample, failed, now, events);
+    }
+
+    /// Reports a fault once and enters DEGRADED (SG-2).
+    fn report_fault(&mut self, fault: FaultCode, now: Millis, events: &mut Vec<Event>) -> EventId {
+        if let Some(&detected) = self.active_faults.get(&fault) {
+            return detected;
         }
         let detected = self.emit(
             None,
@@ -373,7 +494,7 @@ impl Guardian {
         );
         self.active_faults.insert(fault, detected);
         if self.monitoring == MonitoringStatus::Degraded {
-            return;
+            return detected;
         }
 
         let from = self.monitoring;
@@ -395,6 +516,7 @@ impl Guardian {
             },
             events,
         );
+        detected
     }
 
     /// Switches from OK to SUSPECT (FSR-2.3, FSR-3.5, TS-07, TS-08). SUSPECT
@@ -552,6 +674,8 @@ enum NonFresh {
     /// Source timestamp not newer than the last fresh sample: delivered out
     /// of order (TS-08).
     OutOfOrder,
+    /// Newer, but delivered more than `T_age` late (TS-24).
+    Late,
 }
 
 #[derive(Debug, Clone)]

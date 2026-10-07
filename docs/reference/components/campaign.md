@@ -170,7 +170,7 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
    events that arrived without delay. When the event reaches the tap much
    later, for example because the Guardian was cut off the network, the
    report says so. In that case the warning reached nobody either, which is
-   the gap the HARA's independent supervisor (DFR-5) closes.
+   the gap the Guardian watchdog (DFR-5) closes.
 
 A run directory holds the evidence:
 
@@ -178,11 +178,36 @@ A run directory holds the evidence:
 |------|---------|
 | `manifest.json` | run ID, scenario, stimulus, git revision, SHA-256 of the catalog, the parameters, and the trace |
 | `recording.jsonl` | every observation |
-| `report.json`, `report.md` | verdict, onset, evidence chain, result per requirement |
+| `report.json`, `report.md` | verdict, onset, checks, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, result per requirement, Guardian event timeline |
 | `services.log` | logs of all services |
 | `error.txt` | only if the run itself failed; the scenario is still judged |
 
-`campaign.md` in the campaign directory lists every scenario with its verdict.
+`campaign.md` in the campaign directory counts the verdicts, lists every
+scenario with its verdict and checks met, and, under *Not passed*, every check
+that failed or lacked evidence, with its reason.
+
+### Reading the results
+
+`report.md` leads with the verdict and a one-line summary, then the checks that
+decided it: failed checks first, each with what it expects in words, what was
+observed, and the time against its budget (✓ met, ✗ failed, ? evidence
+missing). The evidence chain and the raw Guardian events follow; events after
+the end of the trace are marked as not judged. A DTC whose failure OpenSOVD only
+shows in its history (passed, `testFailedSinceLastClear`), because no poll
+caught it failed, counts as evidence and is named as such.
+
+The console prints one line per scenario while the campaign runs. A scenario
+that did not pass gets its reason and each failed check below it:
+
+```text
+✓ PASS          guardian_hang  [TS-23]  4/4 checks met
+✗ FAIL          guardian_crash  [TS-22]  1/2 checks met
+                an expected reaction is missing or late
+                ✗ DFR-5: watchdog requests DRIVER_WARNING_MONITORING_UNAVAILABLE within T_hb + T_react — the watchdog never requested DRIVER_WARNING_MONITORING_UNAVAILABLE after the onset (budget 1.60 s)
+```
+
+After the last scenario, it prints the counts per verdict and the scenarios
+that did not pass.
 
 ## Verdicts
 
@@ -192,7 +217,59 @@ As defined in the [Safety Concept](../../reference/hara.md#scenario-verdicts):
 |---------|------|
 | PASS | Onset observed, every expectation met within its budget, nothing forbidden |
 | FAIL | An expectation missed or late, or a forbidden reaction |
+| INCONCLUSIVE | Onset not observed, or evidence missing (for example, OpenSOVD never answered), or nothing recorded at all because the run itself failed |
+
+## Evidence chain
+
+Every report shows the chain the challenge asks for, one link per row:
+
+| Link | Evidence | Linked to the link before by |
+|------|----------|------------------------------|
+| Hazard | HE-n of the scenario | the scenario catalog |
+| Safety goal | SG-n of the scenario | the scenario catalog |
+| Fault | injected fault, its class, and the onset t0 at the Guardian's input | the onset rule of the scenario |
+| Detection | `FaultDetected` events, and thermal states raised to WARNING or more, after t0 and within the judged window; latency after t0, the Guardian's time, the sample, and the recovery | the session; t0 |
+| Mitigation | `MitigationRequested` events with their cause chain, for example `#2 FaultDetected → #3 MonitoringStatusChanged OK → DEGRADED → #4 MitigationRequested DRIVER_WARNING_MONITORING_UNAVAILABLE` | `cause_event_id`, back to a detection |
+| DTC in OpenSOVD | the DTC's records: when it failed, severity, fault type, status bits, counters, environment data, and whether it passed again | session and event ID in the DFM environment data |
+| Verdict | PASS, FAIL, or INCONCLUSIVE with its reason | the checks |
+
+Each link is `present`, `missing` (the scenario expects it, but there is no
+evidence or no link), `not expected` (the scenario expects none and there is
+none, as in the nominal run), or `unexpected` (a detection in a scenario that
+expects none: a false alarm). The chain is **complete** when no link is
+missing. That says nothing about timing: a late detection still completes the
+chain, and the checks make the verdict FAIL. Which links a scenario expects
+follows from its expectations: `fault`, `degraded`, `sovd`, `recovery`,
+`startup_fault`, `overtemp_dtc`, `driver_warning_overtemp`, and `thermal` from
+WARNING up expect a detection; `degraded` and `driver_warning_overtemp` a
+mitigation; `sovd`, `recovery`, and `overtemp_dtc` a DTC.
+
+The recording keeps each event's sample reference (`sample`: sequence, source
+timestamp, alive counter), so the report shows which sample a detection or
+thermal change refers to. Recordings from before that have none.
 | INCONCLUSIVE | Onset not observed, onset before the Guardian was ready, or evidence missing (for example, OpenSOVD never answered) |
+
+## Combined fault: source loss during a diagnostics outage (TS-27)
+
+`source_loss_during_diagnostics_outage` replays
+[`source_loss.asc`](../../../campaign/traces/source_loss.asc) (8 s nominal,
+2 s without frames, 12 s nominal) and pauses `opensovd-dfm` and
+`opensovd-gateway` from 6 s to 13 s. The source loss and the Guardian's
+recovery both fall into the pause.
+
+The `diagnostics_outage` check judges the diagnostic side:
+
+- the fault is detected after the `pause` injection and monitoring returns to
+  `OK` before the `unpause` injection, so neither waited for DFM;
+- OpenSOVD shows nothing of the fault during the pause; if it does, the outage
+  was not effective and the result is INCONCLUSIVE;
+- after the resume, OpenSOVD shows the DTC passed with its history
+  (`testFailed` false, `testFailedSinceLastClear` true) and this run's session
+  and event ID, within `T_diag` **measured from the resume**.
+
+The `fault`, `degraded`, and `not_lowered` checks of the same scenario judge the
+safety reaction with their usual budgets: the monitoring-unavailable warning
+within `T_stale + T_react`, while diagnostics are paused.
 
 ## Hardware demo
 
@@ -210,8 +287,8 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 ## Traces
 
 All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
-`generate_asc_logs.py` generates the fault traces of the original fault list;
-`generate_traces.py` adds the ones the safety concept needs on top:
+`generate_traces.py` generates all of them: the fault traces of the original
+fault list and the ones the safety concept needs on top:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).
@@ -226,7 +303,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-26. Each scenario in the catalog names the ones it implements
+TS-01 to TS-27. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -234,45 +311,62 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-01 Baseline | `normal` | campaign |
 | TS-02 Thresholds | `heating` | campaign |
 | TS-03 No data after startup | `startup_without_source` | campaign |
-| TS-04 Source shut down | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
-| TS-05 Update delayed or withheld | `timeout` | campaign |
+| TS-04 Source shutdown | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
+| TS-05 Delayed or withheld update | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
-| TS-07 Duplicate message | `counter_stuck` (persistent repeats only) | campaign for the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
-| TS-08 Out-of-order message | — | Guardian core tests only: needs an injection point on the uProtocol channel |
+| TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign for the CAN-level duplicate and the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
+| TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`); Guardian core tests |
 | TS-09 Stuck maximum | `max_stuck` | campaign |
 | TS-10 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning` | campaign |
+| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning`, `invalid_during_critical` | campaign |
 | TS-12 High anomalous samples, mitigation gating | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign |
 | TS-13 Overtemperature warning | `heating` | campaign |
 | TS-14 Overtemperature critical | `heating` | campaign |
-| TS-15 Freshness lost | `timeout` | campaign |
-| TS-16 Quality invalid | `invalid_quality` | campaign |
-| TS-17 Out-of-range low | — | Guardian core tests only |
+| TS-15 Freshness lost | `timeout`, `transport_dropout` | campaign |
+| TS-16 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
+| TS-17 Out-of-range low | — | Guardian core tests only: a value below `min_c` = 0 cannot be sent, the CAN signals are unsigned |
 | TS-18 Out-of-range high | `out_of_range`, `implausible_jump` | campaign |
 | TS-19 Rate-implausible sample | `isolated_spike` | campaign |
 | TS-20 Isolated spike | `isolated_spike` | campaign |
 | TS-21 Repeated spikes | `spike` | campaign |
-| TS-22, TS-23 Guardian termination, hang | — | manual runs with the [watchdog](guardian-watchdog.md); no independent occupant warning yet (HARA DFR-5) |
-| TS-24 Late-arriving stale message | — | not implemented: needs synchronized clocks (FSR-2.8) |
+| TS-22 Guardian termination | `guardian_crash` | campaign, with the watchdog |
+| TS-23 Guardian hang | `guardian_hang` | campaign, with the watchdog |
+| TS-24 Late-arriving stale message | `late_message` | planned: needs a transport fault injector; Guardian core tests cover the late-sample check |
 | TS-25 Gradual drift | `drift` | campaign |
-| TS-26 Upper-scale saturation | — | Guardian core tests only |
+| TS-26 Upper-scale saturation | `saturation_255` | campaign |
+| TS-27 Source loss during a DFM/OpenSOVD outage | `source_loss_during_diagnostics_outage` | campaign |
+
+TS-22 and TS-23 start the Guardian watchdog next to the Guardian
+(`watchdog = true` in the stimulus). `supervisor_warning` checks that the
+watchdog requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own topic,
+caused by `GuardianLost`, within `T_hb + T_react` (HARA DFR-5);
+`supervisor_restored` checks that a returning Guardian withdraws it. With
+`sovd_fault` and `sovd_recovery`, they check that OpenSOVD reports
+`BTG_GuardianHeartbeatLoss` within `T_hb + T_diag`. The `input_quality` check
+compares the raw CAN quality byte with the quality the Guardian input shows
+(TS-11, TS-16).
+
+Scenarios without a HARA test: `hot_spot` (FSR-1.4), `high_delta` (a large
+spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
+`avg_gt_max`, `min_gt_max` (FSR-3.1).
 
 ## Not covered yet
 
-- **Transport faults** (delay, duplicate, reorder on the uProtocol channel):
-  needs an injection point between the VSS Publisher and the Guardian.
-- **Diagnostics outage**: still covered by
-  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
-  `pause` stimulus exists, but its OpenSOVD budget would have to count from the
-  resume.
+- **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
+  channel): needs an injection point between the VSS Publisher and the
+  Guardian. The scenarios exist as `external` and `planned`.
+- **Diagnostics outage alone**: still covered by
+  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). Combined
+  with a source loss, it is TS-27 (below).
 - **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
   behind the tap (`samples_continue`) exists; sequence diagnosis and delay
-  measurement do not. The Guardian heartbeat is missing too.
+  measurement do not.
 
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
-**Claude Opus 5.5** (`claude-opus-5-5`).
+**Claude Opus 5.5** (`claude-opus-5-5`) and **Claude Sonnet 5.5**
+(`claude-sonnet-5-5`).
 
 The OpenSOVD evidence interface was added with the assistance of **GitHub
 Copilot** using the model **GPT-6 Luna**.

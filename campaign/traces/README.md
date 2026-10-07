@@ -15,17 +15,15 @@ SPDX-License-Identifier: EPL-2.0
 
 The CAN traces the [campaign tool](../../docs/reference/components/campaign.md)
 replays. The scenarios that use them are in
-[`campaign/scenarios.toml`](../scenarios.toml). Two scripts generate them:
+[`campaign/scenarios.toml`](../scenarios.toml). One script generates all of
+them: `python3 campaign/generate_traces.py`.
 
-| Script | Traces |
-|--------|--------|
-| [`generate_asc_logs.py`](generate_asc_logs.py) | `normal`, `timeout`, `counter_error`, `counter_stuck`, `invalid_quality`, `min_gt_avg`, `avg_gt_max`, `min_gt_max`, `out_of_range`, `implausible_jump`, `high_delta`, `temp_stuck` |
-| [`generate_traces.py`](generate_traces.py) | `heating`, `max_stuck`, `spike`, `nominal`, `invalid_during_warning` |
+| Group | Traces |
+|-------|--------|
+| Fault logs (100 frames each) | `normal`, `timeout`, `counter_error`, `counter_stuck`, `invalid_quality`, `min_gt_avg`, `avg_gt_max`, `min_gt_max`, `out_of_range`, `implausible_jump`, `high_delta`, `temp_stuck` |
+| Campaign traces | `heating`, `max_stuck`, `spike`, `isolated_spike`, `drift`, `nominal`, `invalid_during_warning` (TS-11), `invalid_during_critical` (TS-11), `saturation_255` (TS-26), `quality_single` (TS-16), `duplicate_message` (TS-07), `hot_spot` (FSR-1.4), `source_loss` (TS-27) |
 
-Both write to this folder: `python3 campaign/traces/generate_asc_logs.py` and
-`python3 campaign/traces/generate_traces.py`.
-
-## Traces from `generate_asc_logs.py`
+## Fault logs
 
 ```text
 All ASC files use CAN ID 0x500, standard 11-bit CAN, Rx, DLC 8.
@@ -74,5 +72,5 @@ a timestamp signal to the CAN message definition.
 ## AI Assistance
 
 This document was revised with the assistance of **Claude Code** using the model
-**Claude Opus 5.5** (`claude-opus-5-5`): the section above is the former
+**Claude Opus 5.5** (`claude-opus-5-5`) and **Claude Sonnet 5.5** (`claude-sonnet-5-5`): the fault-log section above is the former
 `Fault_Injection_CAN_Logs/README.txt`, unchanged.

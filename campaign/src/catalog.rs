@@ -86,6 +86,10 @@ pub enum Stimulus {
         isolate: Option<String>,
         isolate_after_ms: Option<u64>,
         isolate_for_ms: Option<u64>,
+        /// Start the Guardian watchdog next to the Guardian. Only the scenarios
+        /// that supervise the Guardian itself (HARA TS-24, TS-25) need it.
+        #[serde(default)]
+        watchdog: bool,
     },
     /// Start the chain without any temperature source and record for
     /// `duration_ms`.
@@ -150,6 +154,40 @@ pub enum Expectation {
     SamplesContinue { requirement: String },
     /// The thermal state is never lowered after the onset.
     NotLowered { requirement: String },
+    /// OpenSOVD shows the DTC as failed within the budget after t0, whoever
+    /// reported it. For faults the Guardian cannot report itself, such as the
+    /// watchdog's heartbeat loss, which has no Guardian event to follow.
+    SovdFault {
+        dtc: String,
+        budget: String,
+        requirement: String,
+    },
+    /// OpenSOVD later shows that DTC as passed, with its history kept.
+    SovdRecovery { dtc: String, requirement: String },
+    /// HARA TS-27: the fault is detected and recovers while DFM and OpenSOVD
+    /// are paused (between the `pause` and `unpause` injections), OpenSOVD
+    /// shows nothing of it during the outage, and after the resume it shows
+    /// the DTC passed with its history and this run's provenance within the
+    /// budget, measured from the resume.
+    DiagnosticsOutage {
+        dtc: String,
+        budget: String,
+        requirement: String,
+    },
+    /// The watchdog requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its
+    /// own topic, caused by a `GuardianLost` event, within the budget after
+    /// t0 (HARA DFR-5).
+    SupervisorWarning { budget: String, requirement: String },
+    /// After that warning, the watchdog reports `GuardianRestored`, linked to
+    /// the same loss.
+    SupervisorRestored { requirement: String },
+    /// A sample with this quality (`VALID`, `INVALID`, `NOT_AVAILABLE`) reached
+    /// the Guardian's input after t0: the VSS Publisher mapped the raw CAN
+    /// quality byte as expected.
+    InputQuality {
+        quality: String,
+        requirement: String,
+    },
     /// The thermal state reaches `state` from valid data, and OpenSOVD shows
     /// `dtc` failed for that change within the budget, with the catalog's
     /// fault type and severity. If the state is lowered again, OpenSOVD
@@ -176,6 +214,12 @@ impl Expectation {
             | Expectation::StartupFault { requirement, .. }
             | Expectation::SamplesContinue { requirement }
             | Expectation::NotLowered { requirement }
+            | Expectation::SovdFault { requirement, .. }
+            | Expectation::SovdRecovery { requirement, .. }
+            | Expectation::DiagnosticsOutage { requirement, .. }
+            | Expectation::SupervisorWarning { requirement, .. }
+            | Expectation::SupervisorRestored { requirement }
+            | Expectation::InputQuality { requirement, .. }
             | Expectation::OvertempDtc { requirement, .. } => requirement,
         }
     }
@@ -188,12 +232,18 @@ impl Expectation {
             | Expectation::Sovd { dtc, .. }
             | Expectation::Recovery { dtc, .. }
             | Expectation::StartupFault { dtc, .. }
+            | Expectation::SovdFault { dtc, .. }
+            | Expectation::SovdRecovery { dtc, .. }
+            | Expectation::DiagnosticsOutage { dtc, .. }
             | Expectation::OvertempDtc { dtc, .. } => Some(dtc),
             Expectation::Thermal { .. }
             | Expectation::DriverWarningOvertemp { .. }
             | Expectation::NotThermal { .. }
             | Expectation::NoFault { .. }
             | Expectation::SamplesContinue { .. }
+            | Expectation::InputQuality { .. }
+            | Expectation::SupervisorWarning { .. }
+            | Expectation::SupervisorRestored { .. }
             | Expectation::NotLowered { .. } => None,
         }
     }

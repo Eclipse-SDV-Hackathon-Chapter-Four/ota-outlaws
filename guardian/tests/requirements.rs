@@ -164,14 +164,35 @@ impl Run {
         )
     }
 
+    /// Driver warnings requested; `DiscardSample` is counted by
+    /// [`Run::discarded`].
     fn mitigations(&self) -> Vec<Mitigation> {
         self.events
             .iter()
             .filter_map(|e| match e.kind {
-                EventKind::MitigationRequested { mitigation } => Some(mitigation),
+                EventKind::MitigationRequested { mitigation }
+                    if mitigation != Mitigation::DiscardSample =>
+                {
+                    Some(mitigation)
+                }
                 _ => None,
             })
             .collect()
+    }
+
+    /// Number of samples reported as discarded.
+    fn discarded(&self) -> usize {
+        self.events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    EventKind::MitigationRequested {
+                        mitigation: Mitigation::DiscardSample
+                    }
+                )
+            })
+            .count()
     }
 
     fn active_fault_count(&self) -> usize {
@@ -248,7 +269,8 @@ fn fsr_1_2_reaching_critical_threshold_raises_critical_and_requests_mitigation()
         .expect("CRITICAL raised");
 
     assert!(reacted - t0 <= T_REACT_MS);
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
     assert_eq!(run.mitigations(), vec![Mitigation::DriverWarningOvertemp]);
 }
 
@@ -607,7 +629,8 @@ fn fsr_2_5_degraded_during_critical_keeps_critical() {
     run.advance(1_000);
     run.samples(8, 30.0, 28.0, 26.0);
 
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
 }
 
@@ -622,7 +645,8 @@ fn fsr_2_5_valid_sample_still_raises_thermal_state_while_degraded() {
     // 11 °C in 1.1 s is a plausible rise (FSR-3.3).
     run.sample(56.0, 45.0, 40.0);
 
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
     assert!(run
         .mitigations()
         .contains(&Mitigation::DriverWarningOvertemp));
@@ -1236,6 +1260,283 @@ fn fsr_3_3_larger_rise_within_jitter_is_a_spike() {
     assert_eq!(run.monitoring(), MonitoringStatus::Suspect);
 }
 
+// --- FSR-1.4: hot spot -------------------------------------------------------------
+
+#[test]
+fn fsr_1_4_hot_spot_below_warn_raises_warning_within_t_react() {
+    let spread = config().thermal.hotspot_spread_c;
+    let mut run = Run::new();
+    // Spread just below Δ_hotspot, so the next step is a plausible rise.
+    run.samples(10, 30.0 + spread - 1.0, 30.0, 24.0);
+    let t0 = run.now + CYCLE_MS;
+
+    // The maximum rises plausibly while the average stays: a local hot spot.
+    run.sample(30.0 + spread + 1.0, 30.0, 24.0);
+
+    let warning = run
+        .thermal_change_time(ThermalState::Warning)
+        .expect("warning from hot spot");
+    assert!(warning - t0 <= T_REACT_MS);
+    assert_eq!(run.active_fault_count(), 0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert!(run.mitigations().is_empty());
+}
+
+#[test]
+fn fsr_1_4_spread_of_exactly_delta_hotspot_is_no_hot_spot() {
+    let spread = config().thermal.hotspot_spread_c;
+    let mut run = Run::new();
+
+    run.samples(20, 30.0 + spread, 30.0, 24.0);
+
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+#[test]
+fn fsr_1_4_hot_spot_warning_holds_while_the_spread_persists() {
+    let recover = config().recovery.valid_samples as usize;
+    let mut run = Run::new();
+    run.samples(10, 36.0, 30.0, 24.0);
+    run.sample(42.0, 30.0, 24.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+
+    run.samples(30, 42.0, 30.0, 24.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+
+    // Spread back below Δ_hotspot and below θ_warn − hysteresis.
+    run.samples(recover + 1, 36.0, 30.0, 24.0);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+}
+
+// --- FSR-1.6, FSR-1.7: MITIGATING and failed mitigation -----------------------------
+
+/// Heats plausibly from 47 °C to `to` at 1 °C per cycle, spread 8 °C.
+fn heat_to(run: &mut Run, to: f32) {
+    run.samples(10, 47.0, 39.0, 31.0);
+    let mut max = 47.0;
+    while max < to {
+        max += 1.0;
+        run.sample(max, max - 8.0, max - 16.0);
+    }
+}
+
+fn event_of(run: &Run, matches: impl Fn(&EventKind) -> bool) -> &Event {
+    run.events.iter().find(|e| matches(&e.kind)).expect("event")
+}
+
+#[test]
+fn fsr_1_6_critical_moves_to_mitigating_after_the_request() {
+    let mut run = Run::new();
+
+    heat_to(&mut run, 55.0);
+
+    let critical = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::ThermalStateChanged {
+                to: ThermalState::Critical,
+                ..
+            }
+        )
+    });
+    let request = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::MitigationRequested {
+                mitigation: Mitigation::DriverWarningOvertemp
+            }
+        )
+    });
+    let mitigating = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::ThermalStateChanged {
+                from: ThermalState::Critical,
+                to: ThermalState::Mitigating,
+                ..
+            }
+        )
+    });
+    assert_eq!(request.cause, Some(critical.id));
+    assert_eq!(mitigating.cause, Some(request.id));
+    assert_eq!(mitigating.at, critical.at);
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
+}
+
+#[test]
+fn fsr_1_6_mitigating_is_lowered_with_hysteresis() {
+    let recover = config().recovery.valid_samples as usize;
+    let mut run = Run::new();
+    heat_to(&mut run, 55.0);
+
+    run.samples(recover + 1, 52.0, 44.0, 36.0);
+
+    assert_eq!(run.thermal(), ThermalState::Warning);
+}
+
+#[test]
+fn fsr_1_7_still_rising_after_t_mitigation_repeats_the_request() {
+    let timeout = config().thermal.mitigation_timeout_ms;
+    let mut run = Run::new();
+    heat_to(&mut run, 55.0);
+    let requested = run.now;
+
+    // Keeps rising slowly, 1 °C per second, for longer than T_mitigation.
+    let mut max = 55.0;
+    while run.now - requested < timeout + 1_000 {
+        max += 0.1;
+        run.sample(max, max - 8.0, max - 16.0);
+    }
+
+    let overtemp = run
+        .mitigations()
+        .into_iter()
+        .filter(|m| *m == Mitigation::DriverWarningOvertemp)
+        .count();
+    assert_eq!(overtemp, 2);
+    let failed = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::ThermalStateChanged {
+                from: ThermalState::Mitigating,
+                to: ThermalState::Critical,
+                ..
+            }
+        )
+    });
+    assert!(failed.at.0 - requested >= timeout);
+    assert!(failed.at.0 - requested <= timeout + T_REACT_MS);
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
+}
+
+#[test]
+fn fsr_1_7_steady_temperature_while_mitigating_is_no_failure() {
+    let timeout = config().thermal.mitigation_timeout_ms;
+    let mut run = Run::new();
+    heat_to(&mut run, 56.0);
+
+    run.samples((3 * timeout / CYCLE_MS) as usize, 56.0, 48.0, 40.0);
+
+    assert_eq!(run.mitigations(), vec![Mitigation::DriverWarningOvertemp]);
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
+}
+
+// --- DiscardSample (HARA TS-06, TS-19, TS-20) ---------------------------------------
+
+#[test]
+fn discard_sample_is_reported_for_each_sample_not_evaluated() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    assert_eq!(run.discarded(), 0);
+
+    duplicate_last(&mut run, 1);
+    assert_eq!(run.discarded(), 1);
+
+    run.frame(run.alive_counter.wrapping_add(1), Quality::Invalid, 30.0);
+    assert_eq!(run.discarded(), 2);
+
+    run.sample(70.0, 90.0, 20.0);
+    assert_eq!(run.discarded(), 3);
+}
+
+#[test]
+fn discard_sample_is_caused_by_the_fault_it_triggered() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    run.frame(run.alive_counter.wrapping_add(1), Quality::Invalid, 30.0);
+
+    let fault = event_of(&run, |k| matches!(k, EventKind::FaultDetected { .. }));
+    let discard = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::MitigationRequested {
+                mitigation: Mitigation::DiscardSample
+            }
+        )
+    });
+    assert_eq!(discard.cause, Some(fault.id));
+}
+
+#[test]
+fn discard_sample_of_isolated_spike_is_caused_by_suspect() {
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+
+    run.sample(70.0, 62.0, 54.0);
+
+    let suspect = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::MonitoringStatusChanged {
+                to: MonitoringStatus::Suspect,
+                ..
+            }
+        )
+    });
+    let discard = event_of(&run, |k| {
+        matches!(
+            k,
+            EventKind::MitigationRequested {
+                mitigation: Mitigation::DiscardSample
+            }
+        )
+    });
+    assert_eq!(discard.cause, Some(suspect.id));
+}
+
+// --- HARA TS-24: late-arriving stale message ----------------------------------------
+
+#[test]
+fn ts_24_late_sample_is_not_fresh_and_does_not_update_the_assessment() {
+    let max_age = config().freshness.max_age_ms;
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let last_source = run.now + SOURCE_CLOCK_OFFSET_MS;
+
+    // The next sample is held back for longer than T_age, nothing else arrives.
+    run.advance(max_age + 500);
+    assert!(run.fault_time(FaultCode::FreshnessLost).is_some());
+    let discarded = run.discarded();
+    run.deliver(last_source + CYCLE_MS, 50.0, 42.0, 34.0);
+
+    assert_eq!(run.discarded(), discarded + 1);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+
+    // Fresh samples resume and monitoring recovers.
+    let recover = config().recovery.valid_samples as usize;
+    run.samples(recover + 1, 40.0, 32.0, 24.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+}
+
+#[test]
+fn ts_24_delay_below_t_age_is_accepted() {
+    let max_age = config().freshness.max_age_ms;
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let last_source = run.now + SOURCE_CLOCK_OFFSET_MS;
+
+    run.advance(max_age - 200);
+    run.deliver(last_source + CYCLE_MS, 40.0, 32.0, 24.0);
+
+    assert_eq!(run.discarded(), 0);
+}
+
+#[test]
+fn ts_24_source_outage_is_not_a_late_sample() {
+    // The source itself paused: its timestamps advance with the gap.
+    let max_age = config().freshness.max_age_ms;
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+
+    run.advance(max_age * 3);
+    run.samples(20, 40.0, 32.0, 24.0);
+
+    assert_eq!(run.discarded(), 0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+}
+
 // --- HARA TS-26: upper-scale saturation -----------------------------------------
 
 #[test]
@@ -1351,7 +1652,8 @@ fn fsr_3_3_sustained_high_value_becomes_valid_and_escalates() {
     run.samples(50, 100.0, 92.0, 84.0);
 
     assert!(run.fault_time(FaultCode::RateImplausible).is_some());
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
     assert!(overtemp_requested(&run));
 }
 
@@ -1379,7 +1681,10 @@ fn fsr_3_6_invalid_input_never_raises_critical_or_mitigation() {
 
         run.sample(max, avg, min);
 
-        assert_ne!(run.thermal(), ThermalState::Critical, "{max}/{avg}/{min}");
+        assert!(
+            run.thermal().severity() < ThermalState::Critical.severity(),
+            "{max}/{avg}/{min}"
+        );
         assert!(!overtemp_requested(&run), "{max}/{avg}/{min}");
     }
 }
@@ -1391,7 +1696,8 @@ fn fsr_3_6_valid_critical_sample_still_requests_mitigation() {
 
     ramp_to(&mut run, 56.0);
 
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
     assert!(overtemp_requested(&run));
     assert_eq!(run.active_fault_count(), 0);
 }
@@ -1546,6 +1852,19 @@ fn config_rejects_zero_trend_parameters() {
 }
 
 #[test]
+fn config_rejects_zero_hotspot_mitigation_and_age_parameters() {
+    for (from, to) in [
+        ("hotspot_spread_c = 10.0", "hotspot_spread_c = 0.0"),
+        ("mitigation_timeout_ms = 10000", "mitigation_timeout_ms = 0"),
+        ("max_age_ms = 1000", "max_age_ms = 0"),
+    ] {
+        let text = SHIPPED_CONFIG.replace(from, to);
+
+        assert!(GuardianConfig::from_toml_str(&text).is_err(), "{to}");
+    }
+}
+
+#[test]
 fn config_rejects_unknown_parameters() {
     let text = format!("{SHIPPED_CONFIG}\n[unknown]\nvalue = 1\n");
 
@@ -1556,24 +1875,28 @@ fn config_rejects_unknown_parameters() {
 fn recovery_thermal_requires_hysteresis_and_sustained_valid_data() {
     let mut run = Run::new();
     run.sample(60.0, 40.0, 30.0);
-    run.samples(30, 53.0, 40.0, 30.0); // Boundary is not below hysteresis.
-    assert_eq!(run.thermal(), ThermalState::Critical);
-    run.samples(10, 52.0, 40.0, 30.0);
-    assert_eq!(run.thermal(), ThermalState::Critical);
-    run.sample(52.0, 40.0, 30.0);
+    // Boundary is not below hysteresis. FSR-1.6: CRITICAL moves on to
+    // MITIGATING once the mitigation is requested.
+    run.samples(30, 53.0, 45.0, 40.0);
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
+    run.samples(10, 52.0, 45.0, 40.0);
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
+    run.sample(52.0, 45.0, 40.0);
     assert_eq!(run.thermal(), ThermalState::Warning);
-    run.samples(30, 43.0, 30.0, 25.0);
+    // Spreads stay below Δ_hotspot, so only the threshold criterion applies.
+    run.samples(30, 43.0, 35.0, 30.0);
     assert_eq!(run.thermal(), ThermalState::Warning);
-    run.samples(11, 42.0, 30.0, 25.0);
+    run.samples(11, 42.0, 35.0, 30.0);
     assert_eq!(run.thermal(), ThermalState::Monitoring);
     // Escalation remains immediate: heat plausibly to just below θ_crit, then
     // the first sample at θ_crit raises CRITICAL.
     for max in 43..55 {
-        run.sample(max as f32, 30.0, 25.0);
+        run.sample(max as f32, max as f32 - 8.0, max as f32 - 16.0);
     }
     assert_eq!(run.thermal(), ThermalState::Warning);
-    run.sample(55.0, 30.0, 25.0);
-    assert_eq!(run.thermal(), ThermalState::Critical);
+    run.sample(55.0, 47.0, 39.0);
+    // FSR-1.6: CRITICAL moves on to MITIGATING once the mitigation is requested.
+    assert_eq!(run.thermal(), ThermalState::Mitigating);
 }
 
 #[test]

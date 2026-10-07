@@ -79,6 +79,43 @@ message Heartbeat {
   uint64 guardian_time_ms = 3;
 }
 
+// Published by the Guardian watchdog, independently of the Guardian (HARA
+// DFR-5). Event IDs are scoped to the watchdog session and link loss,
+// occupant-warning request, and recovery.
+message SupervisorEvent {
+  // Fresh UUID per watchdog start.
+  string session_id = 1;
+  // Increases by one per event, starting at 1.
+  uint64 event_id = 2;
+  // The event that caused this one; 0 if none.
+  uint64 cause_event_id = 3;
+  // Watchdog's local monotonic time in milliseconds since it started.
+  uint64 watchdog_time_ms = 4;
+
+  oneof kind {
+    GuardianLost guardian_lost = 10;
+    MitigationRequested mitigation_requested = 11;
+    GuardianRestored guardian_restored = 12;
+  }
+}
+
+// No heartbeat for longer than T_hb: the Guardian crashed, hung, or never
+// started.
+message GuardianLost {
+  // Last heartbeat seen, if any; empty and 0 if the Guardian never reported.
+  string last_guardian_session_id = 1;
+  uint64 last_heartbeat_sequence = 2;
+  // How long no heartbeat arrived when the loss was detected.
+  uint64 silence_ms = 3;
+}
+
+// The first heartbeat after a loss. cause_event_id names the GuardianLost
+// event; the occupant warning it requested no longer applies.
+message GuardianRestored {
+  string guardian_session_id = 1;
+  uint64 heartbeat_sequence = 2;
+}
+
 message ThermalStateChanged {
   ThermalState previous = 1;
   ThermalState current = 2;
@@ -145,4 +182,8 @@ enum Mitigation {
   MITIGATION_UNSPECIFIED = 0;
   MITIGATION_DRIVER_WARNING_OVERTEMP = 1;
   MITIGATION_DRIVER_WARNING_MONITORING_UNAVAILABLE = 2;
+  // The Guardian did not evaluate a received sample (HARA TS-06, TS-19,
+  // TS-20). cause_event_id names the fault or status change that explains
+  // why, if this sample caused one.
+  MITIGATION_DISCARD_SAMPLE = 3;
 }

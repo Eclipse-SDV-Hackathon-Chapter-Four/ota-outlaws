@@ -26,6 +26,14 @@ critical_c = 55.0
 # over T_trend raises WARNING even below θ_warn (FSR-1.3, HARA F-7, TS-25).
 trend_rise_c_per_s = 1.0
 trend_duration_ms = 5000
+# Δ_hotspot: a valid maximum more than this above the average is a local hot
+# spot and raises WARNING (FSR-1.4, DFR-1). Treated as real, never as a sensor
+# fault.
+hotspot_spread_c = 10.0
+# T_mitigation: if the maximum is still higher after this long while
+# MITIGATING, the mitigation failed: back to CRITICAL and request it again
+# (FSR-1.6, FSR-1.7, DFR-1).
+mitigation_timeout_ms = 10000
 
 [freshness]
 # T_stale: no fresh sample for longer than this leads to DEGRADED (FSR-2.2,
@@ -43,6 +51,12 @@ suspect_repeated_frames = 1
 # N_stuck: repeated frames that lead to DEGRADED with a counter stuck fault
 # (FSR-2.3, HARA DFR-7, SG-2). Nine repeats make ten messages.
 stuck_repeated_frames = 9
+# T_age: a sample that arrives more than this later than its source timestamp
+# implies, measured against the last fresh sample, is not fresh and sets
+# SUSPECT (TS-24, F-2). Needs no synchronized clocks, but cannot see a delay
+# that was already present at the last fresh sample. Above T_stale, so that
+# arrival jitter never rejects a sample.
+max_age_ms = 1000
 
 [stuck]
 # T_stuck: maximum time the maximum may stay frozen while other signals change

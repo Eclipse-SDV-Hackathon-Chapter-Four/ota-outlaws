@@ -30,6 +30,7 @@ the same `.proto` file.
 | Battery temperature | `//battery-vss/9001/1/9001` | VSS Publisher (`vss-publisher`) | `BatteryTemperature` |
 | Guardian events | `//guardian/9002/1/8001` | Battery Thermal Guardian (`guardian-service`) | `GuardianEvent` |
 | Guardian heartbeat | `//guardian/9002/1/8002` | Battery Thermal Guardian (`guardian-service`) | `Heartbeat` |
+| Supervisor events | `//guardian-watchdog/9003/1/8001` | Guardian watchdog (`watchdog`) | `SupervisorEvent` |
 
 ## BatteryTemperature
 
@@ -106,6 +107,19 @@ crashed or hung" (FSR-2.7). `session_id` is the same as in the Guardian's
 sent from the same loop that runs the Guardian core, so it stops when the core
 hangs, not only when the process ends.
 
+## SupervisorEvent
+
+Published by the [watchdog](../watchdog/README.md) on its own uEntity, so the
+occupant warning for a failed Guardian depends neither on the Guardian nor on
+the Evidence Collector (HARA DFR-5). `session_id` is the watchdog's session;
+`event_id` and `cause_event_id` link the events as in `GuardianEvent`.
+
+| Kind | When | Cause |
+|------|------|-------|
+| `GuardianLost` | No heartbeat for longer than `T_hb`, once per outage. Carries the last seen Guardian session and heartbeat sequence (empty and 0 if none) and `silence_ms` | — |
+| `MitigationRequested` | With every `GuardianLost`: `MITIGATION_DRIVER_WARNING_MONITORING_UNAVAILABLE` | `GuardianLost` |
+| `GuardianRestored` | First heartbeat after a loss: the Guardian's own warnings apply again | `GuardianLost` |
+
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
@@ -116,3 +130,6 @@ The GuardianEvent session field was added with assistance from **Codex** using
 
 The Heartbeat topic and payload were added with the assistance of **Claude Code**
 using the model **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The SupervisorEvent topic and payload were added with the assistance of
+**Claude Code** using the model **Claude Opus 5.5** (`claude-opus-5-5`).

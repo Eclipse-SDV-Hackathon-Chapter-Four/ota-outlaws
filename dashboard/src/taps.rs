@@ -17,7 +17,8 @@
 //!
 //! - KUKSA: a gRPC subscription to the battery signals in the Data Broker.
 //! - uProtocol: listeners on the `BatteryTemperature` and `GuardianEvent`
-//!   topics, decoded with the campaign's recording types.
+//!   topics, decoded with the campaign's recording types, and on the
+//!   watchdog's `SupervisorEvent` topic (HARA DFR-5).
 //! - OpenSOVD: polls the fault list and logs every change of a fault.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -30,7 +31,7 @@ use futures_util::StreamExt as _;
 use prost::Message as _;
 use serde::Serialize;
 use thermal_contract::transport::{self, uri, ZenohEndpoints};
-use thermal_contract::{v1 as pb, BATTERY_TEMPERATURE, GUARDIAN_EVENTS};
+use thermal_contract::{v1 as pb, BATTERY_TEMPERATURE, GUARDIAN_EVENTS, SUPERVISOR_EVENTS};
 use up_rust::{UListener, UMessage};
 
 use crate::sovd::Sovd;
@@ -79,6 +80,7 @@ pub enum TapId {
     Vss,
     BatteryTemperature,
     GuardianEvents,
+    SupervisorEvents,
     SovdFaults,
 }
 
@@ -88,6 +90,7 @@ impl TapId {
             TapId::Vss => "KUKSA Data Broker: battery signals (gRPC subscription)",
             TapId::BatteryTemperature => "uProtocol: BatteryTemperature //battery-vss/9001/1/9001",
             TapId::GuardianEvents => "uProtocol: GuardianEvent //guardian/9002/1/8001",
+            TapId::SupervisorEvents => "uProtocol: SupervisorEvent //guardian-watchdog/9003/1/8001",
             TapId::SovdFaults => "OpenSOVD: fault status changes (polled every second)",
         }
     }
@@ -97,6 +100,7 @@ impl TapId {
             TapId::Vss => "vss",
             TapId::BatteryTemperature => "BatteryTemperature",
             TapId::GuardianEvents => "GuardianEvent",
+            TapId::SupervisorEvents => "SupervisorEvent",
             TapId::SovdFaults => "sovd",
         }
     }
@@ -168,23 +172,29 @@ pub fn now_ms() -> u64 {
 
 // --- uProtocol -------------------------------------------------------------
 
+const UPROTOCOL_TAPS: [TapId; 3] = [
+    TapId::BatteryTemperature,
+    TapId::GuardianEvents,
+    TapId::SupervisorEvents,
+];
+
 pub fn spawn_uprotocol(taps: Arc<Taps>, endpoints: ZenohEndpoints) {
     tokio::spawn(async move {
-        for tap in [TapId::BatteryTemperature, TapId::GuardianEvents] {
+        for tap in UPROTOCOL_TAPS {
             taps.set_status(tap, "connecting to Zenoh");
         }
         let transport = loop {
             match transport::open("dashboard", &endpoints).await {
                 Ok(transport) => break transport,
                 Err(error) => {
-                    for tap in [TapId::BatteryTemperature, TapId::GuardianEvents] {
+                    for tap in UPROTOCOL_TAPS {
                         taps.set_status(tap, format!("Zenoh unavailable: {error:#}"));
                     }
                     tokio::time::sleep(RETRY).await;
                 }
             }
         };
-        let listeners: [(TapId, Arc<dyn UListener>); 2] = [
+        let listeners: [(TapId, Arc<dyn UListener>); 3] = [
             (
                 TapId::BatteryTemperature,
                 Arc::new(TemperatureListener(Arc::clone(&taps))),
@@ -193,10 +203,15 @@ pub fn spawn_uprotocol(taps: Arc<Taps>, endpoints: ZenohEndpoints) {
                 TapId::GuardianEvents,
                 Arc::new(EventListener(Arc::clone(&taps))),
             ),
+            (
+                TapId::SupervisorEvents,
+                Arc::new(SupervisorListener(Arc::clone(&taps))),
+            ),
         ];
         for (tap, listener) in listeners {
             let topic = match tap {
                 TapId::BatteryTemperature => BATTERY_TEMPERATURE,
+                TapId::SupervisorEvents => SUPERVISOR_EVENTS,
                 _ => GUARDIAN_EVENTS,
             };
             match transport
@@ -239,6 +254,61 @@ impl UListener for EventListener {
         };
         self.0.push(TapId::GuardianEvents, text);
     }
+}
+
+struct SupervisorListener(Arc<Taps>);
+
+#[async_trait]
+impl UListener for SupervisorListener {
+    async fn on_receive(&self, message: UMessage) {
+        let text = match message.payload.map(pb::SupervisorEvent::decode) {
+            Some(Ok(decoded)) => describe_supervisor_event(&decoded),
+            Some(Err(error)) => format!("undecodable payload: {error}"),
+            None => "message without payload".to_owned(),
+        };
+        self.0.push(TapId::SupervisorEvents, text);
+    }
+}
+
+pub fn describe_supervisor_event(event: &pb::SupervisorEvent) -> String {
+    use pb::supervisor_event::Kind;
+    let short = |session: &str| session.chars().take(8).collect::<String>();
+    let kind = match &event.kind {
+        Some(Kind::GuardianLost(lost)) if lost.last_guardian_session_id.is_empty() => {
+            format!(
+                "GuardianLost, never reported ({} ms silent)",
+                lost.silence_ms
+            )
+        }
+        Some(Kind::GuardianLost(lost)) => format!(
+            "GuardianLost after heartbeat {} of session {}… ({} ms silent)",
+            lost.last_heartbeat_sequence,
+            short(&lost.last_guardian_session_id),
+            lost.silence_ms
+        ),
+        Some(Kind::MitigationRequested(request)) => format!(
+            "MitigationRequested {}",
+            pb::Mitigation::try_from(request.mitigation)
+                .map(|m| m.as_str_name().trim_start_matches("MITIGATION_").to_owned())
+                .unwrap_or_else(|_| request.mitigation.to_string())
+        ),
+        Some(Kind::GuardianRestored(restored)) => format!(
+            "GuardianRestored, heartbeat {} of session {}…",
+            restored.heartbeat_sequence,
+            short(&restored.guardian_session_id)
+        ),
+        None => "unknown event".to_owned(),
+    };
+    let cause = match event.cause_event_id {
+        0 => String::new(),
+        id => format!(", cause #{id}"),
+    };
+    format!(
+        "#{} {kind}{cause} (watchdog {}…, t={} ms)",
+        event.event_id,
+        short(&event.session_id),
+        event.watchdog_time_ms
+    )
 }
 
 pub fn describe_temperature(t: &Temperature) -> String {
@@ -471,10 +541,30 @@ mod tests {
             kind: EventKind::MitigationRequested {
                 mitigation: "DRIVER_WARNING_OVERTEMP".into(),
             },
+            sample: None,
         };
         assert_eq!(
             describe_event(&event),
             "#7 MitigationRequested DRIVER_WARNING_OVERTEMP, cause #6 (session 01234567…, t=1200 ms)"
+        );
+    }
+
+    #[test]
+    fn describes_the_watchdog_warning_with_its_cause() {
+        let event = pb::SupervisorEvent {
+            session_id: "fedcba9876543210".into(),
+            event_id: 2,
+            cause_event_id: 1,
+            watchdog_time_ms: 4100,
+            kind: Some(pb::supervisor_event::Kind::MitigationRequested(
+                pb::MitigationRequested {
+                    mitigation: pb::Mitigation::DriverWarningMonitoringUnavailable as i32,
+                },
+            )),
+        };
+        assert_eq!(
+            describe_supervisor_event(&event),
+            "#2 MitigationRequested DRIVER_WARNING_MONITORING_UNAVAILABLE, cause #1 (watchdog fedcba98…, t=4100 ms)"
         );
     }
 

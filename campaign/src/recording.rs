@@ -36,6 +36,8 @@ pub enum Tap {
     BatteryTemperature(Temperature),
     /// A `GuardianEvent` message on the Guardian's event topic.
     GuardianEvent(GuardianEvent),
+    /// A `SupervisorEvent` message on the watchdog's topic (HARA DFR-5).
+    SupervisorEvent(SupervisorEvent),
     /// A change of one fault in OpenSOVD, or a failed poll (`body` is null).
     SovdFault {
         code: String,
@@ -65,6 +67,56 @@ pub struct GuardianEvent {
     pub cause_event_id: u64,
     pub guardian_time_ms: u64,
     pub kind: EventKind,
+    /// The sample the event refers to: the trigger of a thermal change, a
+    /// recovery, or a passed test; the last fresh sample before a detected
+    /// fault. Recordings from before this field have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample: Option<SampleRef>,
+}
+
+/// Identifies a `BatteryTemperature` message, as the contract's `SampleRef`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SampleRef {
+    pub sequence: u64,
+    pub source_timestamp_ms: u64,
+    pub alive_counter: u32,
+}
+
+impl From<&pb::SampleRef> for SampleRef {
+    fn from(sample: &pb::SampleRef) -> Self {
+        SampleRef {
+            sequence: sample.sequence,
+            source_timestamp_ms: sample.source_timestamp_ms,
+            alive_counter: sample.alive_counter,
+        }
+    }
+}
+
+impl EventKind {
+    /// One line for reports, for example `FaultDetected BTG_TempCounterStuck (FSR-2.3)`.
+    pub fn describe(&self) -> String {
+        match self {
+            EventKind::ThermalStateChanged { previous, current } => {
+                format!("ThermalStateChanged {previous} → {current}")
+            }
+            EventKind::MonitoringStatusChanged { previous, current } => {
+                format!("MonitoringStatusChanged {previous} → {current}")
+            }
+            EventKind::FaultDetected { dtc, requirement } => {
+                format!("FaultDetected {dtc} ({requirement})")
+            }
+            EventKind::FaultRecovered { dtc, requirement } => {
+                format!("FaultRecovered {dtc} ({requirement})")
+            }
+            EventKind::FaultTestPassed { dtc, requirement } => {
+                format!("FaultTestPassed {dtc} ({requirement})")
+            }
+            EventKind::MitigationRequested { mitigation } => {
+                format!("MitigationRequested {mitigation}")
+            }
+            EventKind::Unknown => "unknown event".to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +129,58 @@ pub enum EventKind {
     FaultTestPassed { dtc: String, requirement: String },
     MitigationRequested { mitigation: String },
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SupervisorEvent {
+    pub session_id: String,
+    pub event_id: u64,
+    /// 0 if the event has no cause.
+    pub cause_event_id: u64,
+    pub watchdog_time_ms: u64,
+    pub kind: SupervisorKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SupervisorKind {
+    GuardianLost {
+        last_guardian_session_id: String,
+        silence_ms: u64,
+    },
+    MitigationRequested {
+        mitigation: String,
+    },
+    GuardianRestored {
+        guardian_session_id: String,
+    },
+    Unknown,
+}
+
+impl From<&pb::SupervisorEvent> for SupervisorEvent {
+    fn from(message: &pb::SupervisorEvent) -> Self {
+        use pb::supervisor_event::Kind;
+        let kind = match &message.kind {
+            Some(Kind::GuardianLost(lost)) => SupervisorKind::GuardianLost {
+                last_guardian_session_id: lost.last_guardian_session_id.clone(),
+                silence_ms: lost.silence_ms,
+            },
+            Some(Kind::MitigationRequested(request)) => SupervisorKind::MitigationRequested {
+                mitigation: mitigation_name(request.mitigation),
+            },
+            Some(Kind::GuardianRestored(restored)) => SupervisorKind::GuardianRestored {
+                guardian_session_id: restored.guardian_session_id.clone(),
+            },
+            None => SupervisorKind::Unknown,
+        };
+        SupervisorEvent {
+            session_id: message.session_id.clone(),
+            event_id: message.event_id,
+            cause_event_id: message.cause_event_id,
+            watchdog_time_ms: message.watchdog_time_ms,
+            kind,
+        }
+    }
 }
 
 impl From<&pb::BatteryTemperature> for Temperature {
@@ -108,6 +212,14 @@ impl From<&pb::GuardianEvent> for GuardianEvent {
                 .unwrap_or("UNKNOWN");
             short_name(name, "MONITORING_STATUS_")
         };
+        let sample = match &message.kind {
+            Some(Kind::ThermalStateChanged(change)) => change.trigger.as_ref(),
+            Some(Kind::FaultDetected(fault)) => fault.last_sample.as_ref(),
+            Some(Kind::FaultRecovered(fault)) => fault.trigger.as_ref(),
+            Some(Kind::FaultTestPassed(fault)) => fault.trigger.as_ref(),
+            _ => None,
+        }
+        .map(SampleRef::from);
         let kind = match &message.kind {
             Some(Kind::ThermalStateChanged(change)) => EventKind::ThermalStateChanged {
                 previous: thermal(change.previous),
@@ -130,12 +242,7 @@ impl From<&pb::GuardianEvent> for GuardianEvent {
                 requirement: fault.requirement.clone(),
             },
             Some(Kind::MitigationRequested(request)) => EventKind::MitigationRequested {
-                mitigation: short_name(
-                    pb::Mitigation::try_from(request.mitigation)
-                        .map(|m| m.as_str_name())
-                        .unwrap_or("UNKNOWN"),
-                    "MITIGATION_",
-                ),
+                mitigation: mitigation_name(request.mitigation),
             },
             None => EventKind::Unknown,
         };
@@ -145,8 +252,18 @@ impl From<&pb::GuardianEvent> for GuardianEvent {
             cause_event_id: message.cause_event_id,
             guardian_time_ms: message.guardian_time_ms,
             kind,
+            sample,
         }
     }
+}
+
+fn mitigation_name(raw: i32) -> String {
+    short_name(
+        pb::Mitigation::try_from(raw)
+            .map(|m| m.as_str_name())
+            .unwrap_or("UNKNOWN"),
+        "MITIGATION_",
+    )
 }
 
 fn short_name(name: &str, prefix: &str) -> String {

@@ -16,6 +16,7 @@ CAMPAIGN_RESULT = re.compile(
     r"^([A-Za-z0-9_-]+):\s+(Pass|Fail|Inconclusive)\s+[—-]"
 )
 MAX_REQUEST_ID = 0xFFFFFFFF
+LINE_WIDTH = 21  # characters of one display line (assumption for the 128x64 OLED)
 VERDICTS = {
     "Pass": "PASS",
     "Fail": "FAIL",
@@ -46,6 +47,49 @@ def parse_campaign_result(line):
     return match.group(1), VERDICTS[match.group(2)]
 
 
+def load_hara_map():
+    """Scenario -> HARA test ID, title and short name (hara_map.json next to this file)."""
+    try:
+        data = json.loads(Path(__file__).with_name("hara_map.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return {key: value for key, value in data.items() if not key.startswith("_")}
+
+
+def display_fields(hara_map, scenario, verdict):
+    """ts, short name, title and a ready display line such as 'TS-05 LateData   PASS'."""
+    entry = hara_map.get(scenario, {})
+    ts = entry.get("ts", "")
+    short = entry.get("short") or scenario[:10]
+    result = {"PASS": "PASS", "FAIL": "FAIL"}.get(verdict, "INCO")
+    width = LINE_WIDTH - len(result) - 1
+    line = f"{(ts or '--').ljust(5)} {short}".ljust(width)[:width] + " " + result
+    return {"ts": ts, "name": short, "title": entry.get("title", scenario), "line": line}
+
+
+def remove_leftover_projects():
+    """Remove Docker Compose projects of interrupted campaign runs.
+
+    The campaign tool names its project campaign-<scenario>. A project left over
+    from an interrupted run would be reused by the next run and mix old and new
+    containers, which gives wrong verdicts.
+    """
+    try:
+        listing = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=^campaign-", "--format",
+             '{{.Label "com.docker.compose.project"}}'],
+            capture_output=True, text=True, timeout=60,
+        )
+        for project in sorted({p.strip() for p in listing.stdout.splitlines() if p.strip()}):
+            logging.info("Removing leftover Docker project %s", project)
+            subprocess.run(
+                ["docker", "compose", "-p", project, "down", "-v", "--remove-orphans"],
+                capture_output=True, text=True, timeout=180,
+            )
+    except (OSError, subprocess.SubprocessError):
+        logging.warning("Could not remove leftover campaign containers")
+
+
 def send_message(sock, address, message):
     payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
     sock.sendto(payload, address)
@@ -69,6 +113,8 @@ def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock
     ]
 
     try:
+        remove_leftover_projects()
+        hara_map = load_hara_map()
         logging.info("Starting full campaign for request %d", request_id)
         process = subprocess.Popen(
             command,
@@ -96,6 +142,7 @@ def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock
                     "id": request_id,
                     "scenario": scenario,
                     "verdict": verdict,
+                    **display_fields(hara_map, scenario, verdict),
                 },
             )
             result_count += 1

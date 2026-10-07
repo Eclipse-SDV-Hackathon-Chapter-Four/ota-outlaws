@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from campaign_bridge import (
     decode_campaign_request,
+    display_fields,
+    load_hara_map,
     parse_campaign_result,
     run_campaign,
 )
@@ -40,6 +42,26 @@ class CampaignBridgeTests(unittest.TestCase):
             None,
         )
 
+    def test_display_line_has_test_id_name_and_result(self):
+        hara_map = {"timeout": {"ts": "TS-05", "short": "LateData", "title": "Delayed update"}}
+        fields = display_fields(hara_map, "timeout", "PASS")
+        self.assertEqual(fields["ts"], "TS-05")
+        self.assertEqual(fields["line"], "TS-05 LateData   PASS")
+        self.assertLessEqual(len(fields["line"]), 21)
+        self.assertTrue(display_fields(hara_map, "timeout", "INCONCLUSIVE")["line"].endswith("INCO"))
+
+    def test_unknown_scenario_still_gets_a_line(self):
+        fields = display_fields({}, "something_new", "FAIL")
+        self.assertEqual(fields["ts"], "")
+        self.assertTrue(fields["line"].startswith("--"))
+
+    def test_every_catalog_scenario_is_in_the_hara_map(self):
+        import re
+        catalog = (Path(__file__).resolve().parents[3] / "campaign" / "scenarios.toml").read_text()
+        ids = re.findall(r'^id = "([^"]+)"', catalog, flags=re.MULTILINE)
+        missing = [i for i in ids if i not in load_hara_map()]
+        self.assertEqual(missing, [])
+
     def test_sends_campaign_result_before_process_finishes(self):
         class FakeProcess:
             returncode = 1
@@ -68,7 +90,7 @@ class CampaignBridgeTests(unittest.TestCase):
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
                 lock = threading.Lock()
                 lock.acquire()
-                with patch(
+                with patch("campaign_bridge.remove_leftover_projects"), patch(
                     "campaign_bridge.subprocess.Popen",
                     side_effect=start_fake_campaign,
                 ):

@@ -87,6 +87,12 @@ pub struct ThermalConfig {
     pub trend_rise_c_per_s: f32,
     /// `T_trend` in milliseconds: how long the rise must be sustained.
     pub trend_duration_ms: u64,
+    /// `Δ_hotspot` in °C: a maximum this far above the average raises
+    /// WARNING (FSR-1.4).
+    pub hotspot_spread_c: f32,
+    /// `T_mitigation` in milliseconds: a maximum still rising after this long
+    /// while MITIGATING means the mitigation failed (FSR-1.7).
+    pub mitigation_timeout_ms: u64,
 }
 
 /// Freshness monitoring (FSR-2.2) and repeated frames (FSR-2.3).
@@ -99,6 +105,10 @@ pub struct FreshnessConfig {
     pub suspect_repeated_frames: u32,
     /// `N_stuck`: repeated frames that lead to DEGRADED (counter stuck).
     pub stuck_repeated_frames: u32,
+    /// `T_age` in milliseconds: a sample that arrives this much later than its
+    /// source timestamp implies, relative to the last fresh sample, is not
+    /// fresh (TS-24).
+    pub max_age_ms: u64,
 }
 
 /// Stuck value detection (FSR-2.4).
@@ -142,6 +152,15 @@ impl GuardianConfig {
         }
         if self.thermal.trend_duration_ms == 0 {
             return invalid("thermal.trend_duration_ms must be greater than zero");
+        }
+        if !(self.thermal.hotspot_spread_c.is_finite() && self.thermal.hotspot_spread_c > 0.0) {
+            return invalid("thermal.hotspot_spread_c must be greater than zero");
+        }
+        if self.thermal.mitigation_timeout_ms == 0 {
+            return invalid("thermal.mitigation_timeout_ms must be greater than zero");
+        }
+        if self.freshness.max_age_ms == 0 {
+            return invalid("freshness.max_age_ms must be greater than zero");
         }
         if self.freshness.stale_timeout_ms == 0 {
             return invalid("freshness.stale_timeout_ms must be greater than zero");

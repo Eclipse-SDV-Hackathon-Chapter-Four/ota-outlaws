@@ -17,9 +17,11 @@
 use std::path::Path;
 
 use campaign::catalog::{Expectation, Scenario, ScenarioStatus, Stimulus};
-use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
+use campaign::evaluate::{evaluate, Evaluation, LinkState, Outcome, Verdict};
 use campaign::onset::Onset;
-use campaign::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
+use campaign::recording::{
+    EventKind, GuardianEvent, Observation, SupervisorEvent, SupervisorKind, Tap, Temperature,
+};
 use campaign::Context;
 
 fn repo() -> &'static Path {
@@ -82,6 +84,7 @@ impl Recording {
                 cause_event_id: cause,
                 guardian_time_ms: t_ms,
                 kind,
+                sample: None,
             }),
         });
         self.next_event
@@ -1082,4 +1085,748 @@ fn input_fault_without_classification_is_fail() {
 
     assert_eq!(evaluation.verdict, Verdict::Fail);
     assert_eq!(evaluation.requirements["FSR-D.2"], Verdict::Fail);
+}
+
+// --- Evidence chain -------------------------------------------------------------
+
+fn link_state(evaluation: &Evaluation, link: &str) -> LinkState {
+    evaluation
+        .chain
+        .links
+        .iter()
+        .find(|l| l.link == link)
+        .unwrap_or_else(|| panic!("no link {link}"))
+        .state
+}
+
+#[test]
+fn full_reaction_gives_a_complete_chain_linked_by_ids() {
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+
+    let evaluation = r.judge(&context, "timeout");
+    let chain = &evaluation.chain;
+
+    assert!(chain.complete, "{:#?}", chain.links);
+    for link in [
+        "Hazard",
+        "Safety goal",
+        "Fault",
+        "Detection",
+        "Mitigation",
+        "DTC in OpenSOVD",
+        "Verdict",
+    ] {
+        assert_eq!(link_state(&evaluation, link), LinkState::Present, "{link}");
+    }
+    let detection = &chain.detections[0];
+    assert_eq!(detection.dtc.as_deref(), Some("BTG_TempFreshnessLost"));
+    assert_eq!(detection.latency_ms, Some(300));
+    assert_eq!(detection.recovered_event_id, Some(4));
+    let mitigation = &chain.mitigations[0];
+    assert_eq!(
+        mitigation.mitigation,
+        "DRIVER_WARNING_MONITORING_UNAVAILABLE"
+    );
+    assert_eq!(mitigation.detection_event_id, Some(detection.event_id));
+    // FaultDetected → MonitoringStatusChanged → MitigationRequested.
+    assert_eq!(mitigation.cause_chain.len(), 3);
+    let dtc = &chain.diagnostics[0];
+    assert_eq!(dtc.latency_ms, Some(400));
+    assert!(dtc.passed_later);
+    assert_eq!(
+        dtc.fault_type.as_deref(),
+        Some(context.classes["BTG_TempFreshnessLost"].0.as_str())
+    );
+    assert_eq!(evaluation.timeline.len(), 5);
+}
+
+#[test]
+fn a_fault_without_warning_or_dtc_leaves_those_links_missing() {
+    let context = context();
+    let mut r = timeout_run();
+    let fault = r.event(
+        2300,
+        0,
+        EventKind::FaultDetected {
+            dtc: "BTG_TempFreshnessLost".into(),
+            requirement: "FSR-2.2".into(),
+        },
+    );
+    r.event(
+        2300,
+        fault,
+        EventKind::MonitoringStatusChanged {
+            previous: "OK".into(),
+            current: "DEGRADED".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert!(!evaluation.chain.complete);
+    assert_eq!(link_state(&evaluation, "Detection"), LinkState::Present);
+    assert_eq!(link_state(&evaluation, "Mitigation"), LinkState::Missing);
+    assert_eq!(
+        link_state(&evaluation, "DTC in OpenSOVD"),
+        LinkState::Missing
+    );
+    assert!(evaluation.chain.diagnostics[0].failed_ms.is_none());
+}
+
+#[test]
+fn a_mitigation_not_caused_by_the_detection_is_not_linked() {
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+    // The warning (event 3) loses its cause.
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(event) = &mut observation.tap {
+            if event.event_id == 3 {
+                event.cause_event_id = 0;
+            }
+        }
+    }
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(link_state(&evaluation, "Mitigation"), LinkState::Missing);
+    assert_eq!(evaluation.chain.mitigations[0].detection_event_id, None);
+}
+
+#[test]
+fn a_nominal_run_expects_no_detection_mitigation_or_dtc() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.event(
+        10,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CLEAR".into(),
+            current: "MONITORING".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "normal");
+
+    assert!(evaluation.chain.complete, "{:#?}", evaluation.chain.links);
+    for link in ["Detection", "Mitigation", "DTC in OpenSOVD"] {
+        assert_eq!(
+            link_state(&evaluation, link),
+            LinkState::NotExpected,
+            "{link}"
+        );
+    }
+}
+
+#[test]
+fn a_false_alarm_is_an_unexpected_detection() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.event(
+        2000,
+        0,
+        EventKind::FaultDetected {
+            dtc: "BTG_TempSignalStuck".into(),
+            requirement: "FSR-2.4".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "normal");
+
+    assert_eq!(link_state(&evaluation, "Detection"), LinkState::Unexpected);
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn a_run_that_recorded_nothing_is_inconclusive_not_fail() {
+    let context = context();
+
+    // The stack did not start: not a single observation.
+    let evaluation = Recording::default().judge(&context, "startup_without_source");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+    assert!(evaluation.reason.contains("nothing was recorded"));
+    assert!(evaluation
+        .requirements
+        .values()
+        .all(|v| *v == Verdict::Inconclusive));
+    assert!(!evaluation.chain.complete);
+}
+
+// --- Guardian supervision (TS-24, TS-25) and the raw input quality ----------------
+
+impl Recording {
+    /// An OpenSOVD record of a fault without a Guardian event, as the
+    /// watchdog's heartbeat loss is.
+    fn sovd_without_event(&mut self, t_ms: u64, code: &str, failed: bool, since_clear: bool) {
+        self.observations.push(Observation {
+            t_ms,
+            tap: Tap::SovdFault {
+                code: code.to_owned(),
+                http_status: Some(200),
+                body: serde_json::json!({
+                    "status": {"testFailed": failed, "testFailedSinceLastClear": since_clear},
+                }),
+            },
+        });
+    }
+}
+
+const HEARTBEAT_LOSS: &str = "BTG_GuardianHeartbeatLoss";
+const WATCHDOG: &str = "watchdog-1";
+
+impl Recording {
+    fn supervisor(&mut self, t_ms: u64, cause_event_id: u64, kind: SupervisorKind) -> u64 {
+        let event_id = 1 + self
+            .observations
+            .iter()
+            .filter(|o| matches!(o.tap, Tap::SupervisorEvent(_)))
+            .count() as u64;
+        self.observations.push(Observation {
+            t_ms,
+            tap: Tap::SupervisorEvent(SupervisorEvent {
+                session_id: WATCHDOG.into(),
+                event_id,
+                cause_event_id,
+                watchdog_time_ms: t_ms,
+                kind,
+            }),
+        });
+        event_id
+    }
+
+    /// The watchdog's loss and the warning it causes (HARA DFR-5). Returns
+    /// the loss event's ID.
+    fn watchdog_warning(&mut self, t_ms: u64) -> u64 {
+        let lost = self.supervisor(
+            t_ms,
+            0,
+            SupervisorKind::GuardianLost {
+                last_guardian_session_id: SESSION.into(),
+                silence_ms: 1550,
+            },
+        );
+        self.supervisor(
+            t_ms,
+            lost,
+            SupervisorKind::MitigationRequested {
+                mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+            },
+        );
+        lost
+    }
+
+    fn watchdog_restored(&mut self, t_ms: u64, lost: u64) {
+        self.supervisor(
+            t_ms,
+            lost,
+            SupervisorKind::GuardianRestored {
+                guardian_session_id: SESSION.into(),
+            },
+        );
+    }
+}
+
+/// A `guardian_crash` run: nominal samples, the Guardian is stopped at 6 s.
+fn guardian_stopped_run() -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 20000);
+    r.injection(6000, "stop");
+    r
+}
+
+fn sovd_check_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::SovdFault { .. }))
+        .expect("the scenario has a sovd_fault check")
+        .outcome
+}
+
+#[test]
+fn ts_24_heartbeat_loss_in_opensovd_within_budget_is_pass() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    // T_hb (1500 ms) plus T_diag (2000 ms) after the stop is the budget.
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.watchdog_warning(6000 + 1550);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+    assert!(matches!(
+        sovd_check_outcome(&evaluation),
+        Outcome::Met { .. }
+    ));
+}
+
+#[test]
+fn ts_24_heartbeat_loss_after_the_budget_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 3600, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("late")));
+}
+
+#[test]
+fn ts_24_no_heartbeat_loss_in_opensovd_is_fail() {
+    let context = context();
+    let r = {
+        let mut r = guardian_stopped_run();
+        // A record that never failed does not count.
+        r.sovd_without_event(7000, HEARTBEAT_LOSS, false, false);
+        r
+    };
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("never failed")));
+}
+
+#[test]
+fn ts_24_heartbeat_loss_before_the_stop_is_not_counted() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(2000, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn ts_24_unreachable_opensovd_is_inconclusive() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.watchdog_warning(6000 + 1550);
+    r.observations.push(Observation {
+        t_ms: 0,
+        tap: Tap::SovdFault {
+            code: HEARTBEAT_LOSS.into(),
+            http_status: None,
+            body: serde_json::Value::Null,
+        },
+    });
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+}
+
+/// A `guardian_hang` run: the Guardian is paused at 6 s for 4 s.
+fn guardian_paused_run() -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 20000);
+    r.injection(6000, "pause");
+    r.injection(10000, "unpause");
+    r
+}
+
+#[test]
+fn ts_25_loss_and_recovery_in_opensovd_is_pass() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, true);
+    let lost = r.watchdog_warning(6000 + 1550);
+    r.watchdog_restored(10000 + 100, lost);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+}
+
+#[test]
+fn ts_25_loss_without_recovery_is_fail() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("never showed as passed")));
+}
+
+#[test]
+fn ts_25_passed_without_history_is_not_a_recovery() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, false);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+/// A `quality_single_invalid` run: nominal samples with one frame whose
+/// quality is `quality`.
+fn quality_run(quality: &str) -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.counter += 1;
+    r.sample_at(5000, r.counter, quality, 40.0, 32.0, 24.0);
+    r.nominal(5100, 10000);
+    r
+}
+
+fn quality_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::InputQuality { .. }))
+        .expect("the scenario has an input_quality check")
+        .outcome
+}
+
+#[test]
+fn input_quality_seen_at_the_input_is_met() {
+    let context = context();
+    let r = quality_run("NOT_AVAILABLE");
+
+    let evaluation = r.judge(&context, "quality_single_invalid");
+
+    assert!(matches!(quality_outcome(&evaluation), Outcome::Met { .. }));
+}
+
+#[test]
+fn input_quality_mapped_to_the_wrong_value_is_fail() {
+    let context = context();
+    // The raw byte was 0xFF (NOT_AVAILABLE), but the publisher mapped it to INVALID.
+    let r = quality_run("INVALID");
+
+    let evaluation = r.judge(&context, "quality_single_invalid");
+
+    assert!(matches!(
+        quality_outcome(&evaluation),
+        Outcome::Failed { .. }
+    ));
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("NOT_AVAILABLE")));
+}
+
+// --- HARA DFR-5: the watchdog's occupant warning ---------------------------------
+
+fn supervisor_failures(evaluation: &Evaluation) -> Vec<String> {
+    evaluation
+        .checks
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.expectation,
+                Expectation::SupervisorWarning { .. } | Expectation::SupervisorRestored { .. }
+            )
+        })
+        .filter_map(|c| match &c.outcome {
+            Outcome::Failed { detail } => Some(detail.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn dfr_5_crash_without_watchdog_warning_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("never requested"));
+}
+
+#[test]
+fn dfr_5_late_watchdog_warning_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    // Budget T_hb + T_react = 1600 ms after the stop.
+    r.watchdog_warning(6000 + 1700);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("late"));
+}
+
+#[test]
+fn dfr_5_warning_without_a_loss_as_cause_does_not_count() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.supervisor(
+        6000 + 1550,
+        0,
+        SupervisorKind::MitigationRequested {
+            mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn dfr_5_warning_before_the_stop_is_not_counted() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.watchdog_warning(2000);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn dfr_5_hang_without_restoration_is_fail() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, true);
+    r.watchdog_warning(6000 + 1550);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("GuardianRestored"));
+}
+
+// --- HARA TS-27: source loss during a DFM/OpenSOVD outage --------------------------
+
+const FRESHNESS_LOST: &str = "BTG_TempFreshnessLost";
+const OUTAGE: &str = "source_loss_during_diagnostics_outage";
+
+/// Diagnostics paused at 6 s and resumed at 13 s; the source is lost from 8 s
+/// to 10 s. The Guardian detects at 8.3 s and recovers at `recovered_at`.
+/// Returns the run and the fault event's ID.
+fn outage_run(recovered_at: u64) -> (Recording, u64) {
+    let mut r = Recording::default();
+    r.nominal(0, 8000);
+    r.nominal(10000, 22000);
+    r.injection(6000, "pause");
+    r.injection(13000, "unpause");
+    let fault = r.event(
+        8300,
+        0,
+        EventKind::FaultDetected {
+            dtc: FRESHNESS_LOST.into(),
+            requirement: "FSR-2.2".into(),
+        },
+    );
+    let degraded = r.event(
+        8300,
+        fault,
+        EventKind::MonitoringStatusChanged {
+            previous: "OK".into(),
+            current: "DEGRADED".into(),
+        },
+    );
+    r.event(
+        8300,
+        degraded,
+        EventKind::MitigationRequested {
+            mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+        },
+    );
+    let recovered = r.event(
+        recovered_at,
+        fault,
+        EventKind::FaultRecovered {
+            dtc: FRESHNESS_LOST.into(),
+            requirement: "FSR-2.6".into(),
+        },
+    );
+    r.event(
+        recovered_at,
+        recovered,
+        EventKind::MonitoringStatusChanged {
+            previous: "DEGRADED".into(),
+            current: "OK".into(),
+        },
+    );
+    (r, fault)
+}
+
+fn outage_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::DiagnosticsOutage { .. }))
+        .expect("the scenario has a diagnostics_outage check")
+        .outcome
+}
+
+#[test]
+fn ts_27_reaction_during_outage_and_lifecycle_after_resume_is_pass() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13000 + 600, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+    let check = evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::DiagnosticsOutage { .. }))
+        .unwrap();
+    // Measured from the resume, not from the onset.
+    assert_eq!(check.latency_ms, Some(600));
+}
+
+#[test]
+fn ts_27_recovery_only_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(13500);
+    r.sovd(14000, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("after diagnostics resumed"))
+    );
+}
+
+#[test]
+fn ts_27_lifecycle_visible_too_late_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    // T_diag (2000 ms) after the resume is the budget.
+    r.sovd(13000 + 2500, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("late"))
+    );
+}
+
+#[test]
+fn ts_27_passed_without_history_after_the_resume_is_fail() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, false);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(
+        matches!(outage_outcome(&evaluation), Outcome::Failed { detail } if detail.contains("passed with its history"))
+    );
+}
+
+#[test]
+fn ts_27_opensovd_answering_during_the_pause_is_inconclusive() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(8700, FRESHNESS_LOST, fault, true, true);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, true);
+
+    let evaluation = r.judge(&context, OUTAGE);
+
+    assert!(matches!(
+        outage_outcome(&evaluation),
+        Outcome::Unobservable { detail } if detail.contains("not effective")
+    ));
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+}
+
+// --- Readable pass/fail output ----------------------------------------------------
+
+#[test]
+fn console_shows_a_pass_on_one_line() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, true);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.starts_with("✓ PASS"));
+    assert!(text.contains("[TS-27]") && text.contains("4/4 checks met"));
+}
+
+#[test]
+fn console_lists_each_failed_check_with_its_reason() {
+    let context = context();
+    let (r, _) = outage_run(13500);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert!(text.starts_with("✗ FAIL"), "{text}");
+    let failed: Vec<&str> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with('✗'))
+        .collect();
+    assert_eq!(failed.len(), 2, "{text}");
+    assert!(failed[1].contains("DFR-6") && failed[1].contains("after diagnostics resumed"));
+}
+
+#[test]
+fn campaign_summary_counts_verdicts_and_explains_failures() {
+    let context = context();
+    let (mut passing, fault) = outage_run(11100);
+    passing.sovd(13600, FRESHNESS_LOST, fault, false, true);
+    let pass = passing.judge(&context, OUTAGE);
+    let fail = outage_run(13500).0.judge(&context, OUTAGE);
+    let summaries = [
+        campaign::report::Summary {
+            run_dir: "a".into(),
+            evaluation: &pass,
+        },
+        campaign::report::Summary {
+            run_dir: "b".into(),
+            evaluation: &fail,
+        },
+    ];
+
+    let markdown = campaign::report::campaign_markdown("c1", &summaries);
+    let console = campaign::report::console_summary("c1", &[&pass, &fail]);
+
+    assert!(markdown.contains("2 scenario(s): 1 PASS, 1 FAIL, 0 INCONCLUSIVE"));
+    assert!(markdown.contains("## Not passed"));
+    assert!(markdown.contains("after diagnostics resumed"));
+    assert!(console.contains("1 PASS, 1 FAIL"));
+    assert_eq!(
+        console.lines().filter(|l| l.starts_with("✗ FAIL")).count(),
+        1
+    );
 }

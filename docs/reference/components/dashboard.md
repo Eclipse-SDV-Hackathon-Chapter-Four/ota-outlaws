@@ -146,7 +146,7 @@ FAIL, and INCONCLUSIVE, a progress bar, and one card per scenario.
 
 | Scenario state | Card |
 |----------------|------|
-| Judged | Verdict, reason, hazard → safety goal, onset, Guardian session, evidence chain (requirement, expectation, observation, latency, budget, result), forbidden reactions, result per requirement |
+| Judged | Verdict, reason, hazard → safety goal, onset, Guardian session, the [evidence chain](campaign.md#evidence-chain) with its links, detections, mitigations (with their cause chain), and DTCs (severity, fault type, status, environment data), the checks (requirement, expectation, observation, latency, budget, result), forbidden reactions, result per requirement, and the Guardian event timeline |
 | Running | Number of observations recorded so far |
 | To come | Listed from the campaign's plan |
 | Not judged | The campaign tool stopped during the scenario |
@@ -182,6 +182,11 @@ with Compose and Buildx, as a separate `campaign-runner` container:
 | Host network | `127.0.0.1` is the Docker host, where the scenario's ports are published |
 | The Docker socket | The campaign tool runs `docker compose` |
 | The repository owner's user ID, if not root | The evidence in `runs/` belongs to the user |
+
+The runner gets the diagnostics image of the running stack as
+`DIAGNOSTICS_IMAGE`: it has no registry login, and the image the stack runs is
+there locally. Without a running DFM it uses the Compose default from GHCR,
+which needs a login (see [Build and Run the Whole Stack](../../how-to/run-the-stack.md)).
 
 The campaign tool runs exactly as from a shell on the host and writes its
 evidence to `runs/`. **Stop campaign** stops the runner and removes the
