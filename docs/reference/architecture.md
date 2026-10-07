@@ -291,7 +291,7 @@ boundaries, and the target deployment remain open.
 | Guardian health | Guardian publishes a heartbeat every 500 ms; watchdog reports loss after the configured 1500 ms timeout | Watchdog publishes a monitoring-unavailable `SupervisorEvent` and reports a DTC; it does not restart a hung Guardian. The event does not prove an HMI displayed the warning; see [HARA DFR-5](hara.md#derived-functional-requirements) |
 | Monitoring degradation | Guardian publishes monitoring status and a `DRIVER_WARNING_MONITORING_UNAVAILABLE` request | This is an event/request, not proof of a physical warning; see [HARA SG-2](hara.md#risk-classification-and-safety-goals) and [DFR-2](hara.md#derived-functional-requirements) |
 | Diagnostics | Guardian and watchdog report lifecycle records to DFM; OpenSOVD exposes them | Campaign tool polls visibility; delivery is asynchronous; see [Campaign Tool](components/campaign.md#evidence-collector-to-opensovd) |
-| Campaign execution | Rust campaign tool runs catalog scenarios including TS-27; Python smoke test covers a separate diagnostics integration suite | See [Campaign Tool](components/campaign.md) and [run tests](../how-to/run-tests.md) |
+| Campaign execution | Rust campaign tool runs catalog scenarios including TS-27 | See [Campaign Tool](components/campaign.md) and [run tests](../how-to/run-tests.md) |
 | Evidence and failed runs | Campaign reports preserve PASS, FAIL, and INCONCLUSIVE results and logs | Output locations and retention are described in [Campaign Tool](components/campaign.md#a-run) |
 | Recovery | Guardian recovers on valid input; Docker restarts a crashed process; watchdog detects a hang | No hung-process restart or HMI display is implemented |
 
