@@ -59,6 +59,8 @@ impl Context {
         budgets.insert("T_stale".into(), config.freshness.stale_timeout_ms);
         budgets.insert("T_stuck".into(), config.stuck.timeout_ms);
         budgets.insert("T_recover".into(), config.recovery.min_duration_ms);
+        budgets.insert("T_suspect".into(), config.plausibility.suspect_window_ms);
+        budgets.insert("T_trend".into(), config.thermal.trend_duration_ms);
         let cycle_ms = *budgets
             .get("cycle")
             .context("the catalog's [budgets] needs 'cycle'")?;

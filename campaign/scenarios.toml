@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 # Scenario catalog: one test case per scenario, with its stimulus, the fault
 # onset the campaign tool looks for at the Guardian's input, and the expected
@@ -22,14 +22,14 @@
 #          and is reported, and fails until the requirement is implemented.
 
 # Budget parameters in milliseconds that are not in
-# config/guardian/safety-params.toml. T_stale, T_stuck, and T_recover come
-# from there; T_counter_stuck is N_stuck repeated frames times the cycle.
+# config/guardian/safety-params.toml. T_stale, T_stuck, T_recover, T_suspect,
+# and T_trend come from there; T_counter_stuck is N_stuck repeated frames
+# times the cycle.
 [budgets]
 cycle = 100
 T_react = 100  # HARA DFR-1
 T_diag = 2000
 T_hb = 1500    # Guardian heartbeat timeout of the watchdog
-T_trend = 20000  # ASSUMPTION: FSR-1.3 (trend criterion) is planned and does not define T_trend yet
 
 # --- Nominal ------------------------------------------------------------------
 
@@ -65,7 +65,7 @@ description = "Heating through 45 degC and 55 degC, hold, cool down"
 fault_class = "Thermal"
 hazard = "HE-1"
 safety_goal = "SG-1"
-hara_tests = ["TS-02", "TS-15", "TS-16"]
+hara_tests = ["TS-02", "TS-13", "TS-14"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/heating.asc" }
 onset = "max_at_least:45"
@@ -115,7 +115,7 @@ description = "A 1.8 s gap without frames between normal sections"
 fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-05", "TS-17"]
+hara_tests = ["TS-05", "TS-15"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/timeout.asc" }
 onset = "gap"
@@ -183,7 +183,7 @@ description = "Quality alternates between invalid (0x00) and not available (0xFF
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-18"]
+hara_tests = ["TS-11", "TS-16"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/invalid_quality.asc" }
 onset = "quality_not_valid"
@@ -323,7 +323,7 @@ description = "The Guardian is cut off the network for 2 s while source and publ
 fault_class = "Transport"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-06", "TS-17"]
+hara_tests = ["TS-06"]
 status = "implemented"
 note = "The dropout lies behind the tap, so the tap cannot observe it; t0 is the tool's injection time. The tap still receiving samples places the loss between the publisher and the Guardian."
 stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", isolate = "guardian", isolate_after_ms = 6000, isolate_for_ms = 2000 }
@@ -361,7 +361,7 @@ description = "In WARNING, 1 s of low readings marked INVALID, then valid WARNIN
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-4"
-hara_tests = ["TS-13"]
+hara_tests = ["TS-11"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/invalid_during_warning.asc" }
 onset = "quality_not_valid"
@@ -376,7 +376,7 @@ requirement = "FSR-1.1"
 [[scenario.expect]]
 kind = "input_quality"
 quality = "INVALID"
-requirement = "TS-13 (quality byte 0x00 is mapped to INVALID)"
+requirement = "TS-11 (quality byte 0x00 is mapped to INVALID)"
 
 [[scenario.expect]]
 kind = "fault"
@@ -401,7 +401,7 @@ description = "CellTempMax 250 degC, beyond the plausible range"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-14", "TS-20"]
+hara_tests = ["TS-12", "TS-18"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/out_of_range.asc" }
 onset = "max_at_least:126"
@@ -445,7 +445,7 @@ description = "All temperatures jump from about 40 degC to 160 degC"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-21"]
+hara_tests = ["TS-12", "TS-18"]
 status = "implemented"
 note = "160 degC is above the plausible range, so FSR-3.2 rejects it before the rise rate is checked. spike tests FSR-3.3."
 stimulus = { type = "can_trace", trace = "campaign/traces/implausible_jump.asc" }
@@ -490,16 +490,17 @@ description = "In-range spike from 40 degC to 100 degC for 1 s"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
-hara_tests = ["TS-22"]
+hara_tests = ["TS-12", "TS-21"]
 status = "implemented"
+note = "Every frame at 100 degC is a spike against the last valid 40 degC, so N_suspect spikes arrive within T_suspect (HARA F-13)."
 stimulus = { type = "can_trace", trace = "campaign/traces/spike.asc" }
 onset = "max_at_least:100"
 
 [[scenario.expect]]
 kind = "fault"
 dtc = "BTG_TempRateImplausible"
-budget = "T_react"
-requirement = "FSR-3.3"
+budget = "T_suspect + T_react"
+requirement = "FSR-3.5"
 
 [[scenario.expect]]
 kind = "degraded"
@@ -527,6 +528,59 @@ requirement = "FSR-D.2"
 kind = "recovery"
 dtc = "BTG_TempRateImplausible"
 requirement = "FSR-2.6"
+
+[[scenario]]
+id = "isolated_spike"
+description = "One frame spiking from 40 degC to 70 degC, then nominal data"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-19", "TS-20"]
+status = "implemented"
+note = "An isolated spike only sets SUSPECT (FSR-3.5): no fault and no monitoring-unavailable warning, but WARNING because a real runaway cannot be excluded."
+stimulus = { type = "can_trace", trace = "campaign/traces/isolated_spike.asc" }
+onset = "max_at_least:70"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "FSR-3.5"
+
+[[scenario]]
+id = "drift"
+description = "Sustained rise of about 1.7 degC/s from 30 degC to 42 degC, below the WARNING threshold"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+hara_tests = ["TS-25"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/drift.asc" }
+onset = "max_at_least:31"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_trend + T_react"
+requirement = "FSR-1.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
 
 [[scenario]]
 id = "min_gt_avg"
@@ -710,8 +764,7 @@ kind = "recovery"
 dtc = "BTG_TempFreshnessLost"
 requirement = "FSR-2.6"
 
-
-# --- Invalid quality from CRITICAL; raw quality byte 0xFF (HARA TS-13) ---
+# --- Guardian supervision by the watchdog (HARA TS-22, TS-23) ---
 
 [[scenario]]
 id = "invalid_during_critical"
@@ -719,7 +772,7 @@ description = "In CRITICAL, 1 s of low readings marked ERROR_NOT_AVAILABLE (0xFF
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-4"
-hara_tests = ["TS-13"]
+hara_tests = ["TS-11"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/invalid_during_critical.asc" }
 onset = "quality_not_valid"
@@ -734,7 +787,7 @@ requirement = "FSR-1.1"
 [[scenario.expect]]
 kind = "input_quality"
 quality = "NOT_AVAILABLE"
-requirement = "TS-13 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
+requirement = "TS-11 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
 
 [[scenario.expect]]
 kind = "fault"
@@ -751,43 +804,7 @@ kind = "recovery"
 dtc = "BTG_TempQualityInvalid"
 requirement = "FSR-2.6"
 
-# --- Low out-of-range input (HARA TS-11, TS-12, TS-19) ---
-# Planned: the HARA says "below 10 degC", but the Guardian's plausibility minimum
 # is min_c = 0.0, so a value of 8 degC is plausible and no fault is raised.
-
-[[scenario]]
-id = "out_of_range_low_warning"
-description = "In WARNING, one frame with all values below 10 degC, then valid WARNING-level data"
-fault_class = "Signal"
-hazard = "HE-1"
-safety_goal = "SG-4"
-hara_tests = ["TS-11"]
-status = "planned"
-note = "Fails until the plausibility minimum matches the HARA limit of 10 degC."
-stimulus = { type = "can_trace", trace = "campaign/traces/low_during_warning.asc" }
-onset = "none"
-
-[[scenario.expect]]
-kind = "not_lowered"
-requirement = "FSR-3.6"
-
-[[scenario]]
-id = "out_of_range_low_critical"
-description = "In CRITICAL, one frame with all values below 10 degC, then valid CRITICAL-level data"
-fault_class = "Signal"
-hazard = "HE-1"
-safety_goal = "SG-4"
-hara_tests = ["TS-12"]
-status = "planned"
-note = "Fails until the plausibility minimum matches the HARA limit of 10 degC."
-stimulus = { type = "can_trace", trace = "campaign/traces/low_during_critical.asc" }
-onset = "none"
-
-[[scenario.expect]]
-kind = "not_lowered"
-requirement = "FSR-3.6"
-
-# --- Guardian supervision by the watchdog (HARA TS-24, TS-25) ---
 
 [[scenario]]
 id = "guardian_crash"
@@ -795,7 +812,7 @@ description = "The Guardian process is terminated once while valid input keeps a
 fault_class = "Guardian"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-24"]
+hara_tests = ["TS-22"]
 status = "implemented"
 note = "The watchdog must report the lost heartbeat. Restart is the runtime's job and not checked; no occupant warning exists."
 stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", watchdog = true, stop = ["guardian"], stop_after_ms = 6000 }
@@ -813,7 +830,7 @@ description = "The Guardian is frozen for 4 s while its process stays alive"
 fault_class = "Guardian"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-25"]
+hara_tests = ["TS-23"]
 status = "implemented"
 note = "Pause stops the evaluation loop and the heartbeat; the watchdog reports the loss and the recovery after the unpause."
 stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", watchdog = true, pause = ["guardian"], pause_after_ms = 6000, pause_for_ms = 4000 }
@@ -830,7 +847,10 @@ kind = "sovd_recovery"
 dtc = "BTG_GuardianHeartbeatLoss"
 requirement = "F-10"
 
-# --- Further HARA tests (HARA TS-07, TS-08, TS-18, TS-19, TS-23, TS-26 to TS-28) ---
+# TS-17 (out-of-range low value) has no scenario: the plausibility minimum is 0 degC and the CAN
+# signals are unsigned (UINT16, offset 0), so a value below it cannot be sent.
+
+# --- Further HARA tests (HARA TS-07, TS-08, TS-16, TS-24, TS-26) ---
 
 [[scenario]]
 id = "duplicate_message"
@@ -840,7 +860,7 @@ hazard = "HE-1"
 safety_goal = "SG-2"
 hara_tests = ["TS-07"]
 status = "implemented"
-note = "A single duplicate must not cause a freshness fault. More than two repeats (SUSPECT) and ten repeats (DEGRADED) are covered by counter_stuck."
+note = "One duplicate (two messages with the same counter) sets SUSPECT but must not cause a fault or a freshness timeout. Ten messages with the same counter (DEGRADED) are covered by counter_stuck."
 stimulus = { type = "can_trace", trace = "campaign/traces/duplicate_message.asc" }
 onset = "alive_counter_repeats"
 
@@ -878,7 +898,7 @@ description = "One fresh frame with quality ERROR_NOT_AVAILABLE (0xFF), then val
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-18"]
+hara_tests = ["TS-16"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/quality_single.asc" }
 onset = "quality_not_valid"
@@ -886,7 +906,7 @@ onset = "quality_not_valid"
 [[scenario.expect]]
 kind = "input_quality"
 quality = "NOT_AVAILABLE"
-requirement = "TS-18 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
+requirement = "TS-16 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
 
 [[scenario.expect]]
 kind = "fault"
@@ -909,28 +929,12 @@ dtc = "BTG_TempQualityInvalid"
 requirement = "FSR-2.6"
 
 [[scenario]]
-id = "out_of_range_low_min_warning"
-description = "In WARNING, one frame with only CellTempMin below 10 degC, then valid WARNING-level data"
-fault_class = "Signal"
-hazard = "HE-1"
-safety_goal = "SG-2"
-hara_tests = ["TS-19"]
-status = "planned"
-note = "Fails until the plausibility minimum matches the HARA limit of 10 degC."
-stimulus = { type = "can_trace", trace = "campaign/traces/low_min_during_warning.asc" }
-onset = "none"
-
-[[scenario.expect]]
-kind = "not_lowered"
-requirement = "FSR-3.6"
-
-[[scenario]]
 id = "saturation_255"
 description = "One frame with CellTempMax at the representable maximum of 255 degC"
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-3"
-hara_tests = ["TS-28"]
+hara_tests = ["TS-26"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/saturation_255.asc" }
 onset = "max_at_least:255"
@@ -975,45 +979,12 @@ dtc = "BTG_TempOutOfRange"
 requirement = "FSR-2.6"
 
 [[scenario]]
-id = "repeated_spikes"
-description = "Three one-frame spikes to 100 degC within 1 s"
-fault_class = "Signal"
-hazard = "HE-4"
-safety_goal = "SG-3"
-hara_tests = ["TS-23"]
-status = "planned"
-note = "Blocked in the HARA until FSR-3.3 (immediate DEGRADED) and FSR-3.5 (SUSPECT debounce) are reconciled."
-stimulus = { type = "can_trace", trace = "campaign/traces/repeated_spikes.asc" }
-onset = "max_at_least:100"
-
-[[scenario.expect]]
-kind = "fault"
-dtc = "BTG_TempRateImplausible"
-budget = "T_react"
-requirement = "FSR-3.5"
-
-[[scenario.expect]]
-kind = "degraded"
-dtc = "BTG_TempRateImplausible"
-requirement = "FSR-3.5"
-
-[[scenario.expect]]
-kind = "not_thermal"
-state = "CRITICAL"
-requirement = "FSR-3.6"
-
-[[scenario.expect]]
-kind = "recovery"
-dtc = "BTG_TempRateImplausible"
-requirement = "FSR-2.6"
-
-[[scenario]]
 id = "late_message"
 description = "One sample is held back until it is older than T_age, other fresh samples are withheld"
 fault_class = "Transport"
 hazard = "HE-1"
 safety_goal = "SG-2"
-hara_tests = ["TS-26"]
+hara_tests = ["TS-24"]
 status = "planned"
 note = "Needs FSR-2.8 (T_age with synchronised clocks), which is planned. Needs a transport fault injector (fault_send on branch feature/transport-fault-injection) that delays one message while the campaign observes."
 stimulus = { type = "external" }
@@ -1034,26 +1005,3 @@ requirement = "FSR-2.8"
 kind = "recovery"
 dtc = "BTG_TempFreshnessLost"
 requirement = "FSR-2.6"
-
-[[scenario]]
-id = "gradual_drift"
-description = "A steady rise of 1 degC per 2 s up to 44 degC, just below the warning threshold"
-fault_class = "Signal"
-hazard = "HE-1"
-safety_goal = "SG-1"
-hara_tests = ["TS-27"]
-status = "planned"
-note = "FSR-1.3 (trend criterion) is planned; T_trend in [budgets] is an assumption until it is specified."
-stimulus = { type = "can_trace", trace = "campaign/traces/gradual_drift.asc" }
-onset = "max_at_least:32"
-
-[[scenario.expect]]
-kind = "thermal"
-state = "WARNING"
-budget = "T_trend + T_react"
-requirement = "FSR-1.3"
-
-[[scenario.expect]]
-kind = "not_thermal"
-state = "CRITICAL"
-requirement = "FSR-1.3"

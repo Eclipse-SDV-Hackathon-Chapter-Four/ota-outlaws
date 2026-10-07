@@ -21,7 +21,7 @@ them: `python3 campaign/generate_traces.py`.
 | Group | Traces |
 |-------|--------|
 | Fault logs (100 frames each) | `normal`, `timeout`, `counter_error`, `counter_stuck`, `invalid_quality`, `min_gt_avg`, `avg_gt_max`, `min_gt_max`, `out_of_range`, `implausible_jump`, `high_delta`, `temp_stuck` |
-| Campaign traces | `heating`, `max_stuck`, `spike`, `nominal`, `invalid_during_warning` (TS-13), `invalid_during_critical` (TS-13), `low_during_warning` (TS-11), `low_during_critical` (TS-12), `low_min_during_warning` (TS-19), `saturation_255` (TS-28), `quality_single` (TS-18), `repeated_spikes` (TS-23), `gradual_drift` (TS-27), `duplicate_message` (TS-07) |
+| Campaign traces | `heating`, `max_stuck`, `spike`, `isolated_spike`, `drift`, `nominal`, `invalid_during_warning` (TS-11), `invalid_during_critical` (TS-11), `saturation_255` (TS-26), `quality_single` (TS-16), `duplicate_message` (TS-07) |
 
 ## Fault logs
 

@@ -173,8 +173,8 @@ reading `/sovd/v1/apps/battery_guardian/faults/BTG_GuardianHeartbeatLoss`:
 | `docker pause guardian` (hang) | 1.8 s after the pause (1524 ms of silence) | `Passed` 0.4 s after `docker unpause`, same session |
 
 No campaign scenario automates these runs yet, so FSR-2.7 has the status
-**implemented**, not **tested**. The HARA scenarios TS-12 and TS-13 record the
-coverage in detail.
+**implemented**, not **tested**. The HARA scenarios TS-22 (termination) and TS-23
+(hang) record the coverage in detail.
 
 ## Limits
 

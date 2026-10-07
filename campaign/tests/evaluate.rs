@@ -392,13 +392,14 @@ fn late_detection_is_fail() {
 fn counter_stuck_at_n_stuck_repeated_frames_is_in_budget() {
     let context = context();
     let mut r = counter_stuck_run();
-    // The 10th repeated frame arrives at 2900. Budget T_counter_stuck + T_react
-    // = 10 × 100 + 100 ms after t0 = 2000.
-    r.full_reaction("BTG_TempCounterStuck", 2900, 6000);
+    // The 9th repeated frame, the 10th message with that counter (HARA DFR-7),
+    // arrives at 2800. Budget T_counter_stuck + T_react = 9 × 100 + 100 ms
+    // after t0 = 2000.
+    r.full_reaction("BTG_TempCounterStuck", 2800, 6000);
 
     let evaluation = r.judge(&context, "counter_stuck");
 
-    assert_eq!(context.budgets["T_counter_stuck"], 1000);
+    assert_eq!(context.budgets["T_counter_stuck"], 900);
     assert_eq!(evaluation.requirements["FSR-2.3"], Verdict::Pass);
 }
 

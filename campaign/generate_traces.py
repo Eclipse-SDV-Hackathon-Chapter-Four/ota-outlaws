@@ -30,14 +30,11 @@ Campaign traces:
 - nominal.asc:   20 s of nominal data, for faults the campaign injects itself
                  (source shutdown, transport dropout).
 - invalid_during_warning.asc: heats to WARNING, then 1 s of low readings with
-                 quality INVALID, then valid WARNING-level data again (HARA TS-13).
+                 quality INVALID, then valid WARNING-level data again (HARA TS-11).
 - invalid_during_critical.asc: the same from CRITICAL, with quality 0xFF
-                 (ERROR_NOT_AVAILABLE) (HARA TS-13).
-- low_min_during_warning.asc: only CellTempMin below 10 degC (HARA TS-19).
-- saturation_255.asc (TS-28), quality_single.asc (TS-18), repeated_spikes.asc
-                 (TS-23), gradual_drift.asc (TS-27), duplicate_message.asc (TS-07).
-- low_during_warning.asc / low_during_critical.asc: one frame below 10 degC
-                 during WARNING / CRITICAL (HARA TS-11, TS-12, TS-19).
+                 (ERROR_NOT_AVAILABLE) (HARA TS-11).
+- saturation_255.asc (TS-26), quality_single.asc (TS-16),
+                 duplicate_message.asc (TS-07).
 - spike.asc:     an in-range spike from 40 degC to 100 degC for 1 s, then back
                  (FSR-3.3). implausible_jump.asc
                  jumps beyond the plausible range, so it tests FSR-3.2.
@@ -167,6 +164,22 @@ def invalid_during_warning():
     frames += [((20, 10, 15), INVALID)] * 10
     frames += [((47, 31, 39), VALID)] * 50
     return frames
+
+
+def isolated_spike():
+    """4 s at 40 degC, one frame at 70 degC (30 degC within 100 ms), then 6 s
+    at 40 degC (FSR-3.5, HARA TS-20)."""
+    nominal = (40, 24, 32)
+    return [nominal] * 40 + [(70, 54, 62)] + [nominal] * 60
+
+
+def drift():
+    """5 s at 30 degC, then +1 degC per 600 ms to 42 degC, below the WARNING
+    threshold, then 5 s hold (FSR-1.3, HARA F-7, TS-25)."""
+    profile = [30] * 50
+    profile += [t for t in range(31, 43) for _ in range(6)]
+    profile += [42] * 50
+    return [(m, m - 16, m - 8) for m in profile]
 
 
 def nominal():
@@ -399,7 +412,7 @@ def write_fault_logs(output_dir):
 def invalid_during_critical():
     """5 s at 30 degC, heat to 58 degC (CRITICAL) at 1 degC per 100 ms, hold 2 s, then 1 s of
     low readings marked ERROR_NOT_AVAILABLE (0xFF), then 5 s at 58 degC again
-    (HARA TS-13 from CRITICAL; the raw byte 0xFF must reach the Guardian as NOT_AVAILABLE)."""
+    (HARA TS-11 from CRITICAL; the raw byte 0xFF must reach the Guardian as NOT_AVAILABLE)."""
     frames = [((30, 14, 22), VALID)] * 50
     frames += [((m, m - 16, m - 8), VALID) for m in range(30, 59)]
     frames += [((58, 42, 50), VALID)] * 20
@@ -408,71 +421,18 @@ def invalid_during_critical():
     return frames
 
 
-def low_during_warning():
-    """5 s at 30 degC, heat to 47 degC (WARNING), hold 2 s, ONE frame with all
-    values below 10 degC (valid quality), then 5 s at 47 degC again (HARA TS-11, TS-19)."""
-    frames = [((30, 14, 22), VALID)] * 50
-    frames += [((m, m - 16, m - 8), VALID) for m in range(30, 48)]
-    frames += [((47, 31, 39), VALID)] * 20
-    frames += [((8, 5, 6), VALID)]
-    frames += [((47, 31, 39), VALID)] * 50
-    return frames
-
-
-def low_during_critical():
-    """Like low_during_warning, but from CRITICAL at 58 degC (HARA TS-12)."""
-    frames = [((30, 14, 22), VALID)] * 50
-    frames += [((m, m - 16, m - 8), VALID) for m in range(30, 59)]
-    frames += [((58, 42, 50), VALID)] * 20
-    frames += [((8, 5, 6), VALID)]
-    frames += [((58, 42, 50), VALID)] * 50
-    return frames
-
-
-def low_min_during_warning():
-    """Like low_during_warning, but only CellTempMin drops below 10 degC (HARA TS-19)."""
-    frames = [((30, 14, 22), VALID)] * 50
-    frames += [((m, m - 16, m - 8), VALID) for m in range(30, 48)]
-    frames += [((47, 31, 39), VALID)] * 20
-    frames += [((47, 8, 39), VALID)]
-    frames += [((47, 31, 39), VALID)] * 50
-    return frames
-
-
 def saturation_255():
     """5 s at 40 degC, ONE frame with CellTempMax at the representable maximum
-    255 degC (0x00FF), then 5 s at 40 degC (HARA TS-28)."""
+    255 degC (0x00FF), then 5 s at 40 degC (HARA TS-26)."""
     nominal = (40, 24, 32)
     return [nominal] * 50 + [(255, 24, 32)] + [nominal] * 50
 
 
 def quality_single():
     """5 s at 40 degC, ONE frame with quality ERROR_NOT_AVAILABLE (0xFF), then 5 s
-    at 40 degC (HARA TS-18)."""
+    at 40 degC (HARA TS-16)."""
     nominal = ((40, 24, 32), VALID)
     return [nominal] * 50 + [((40, 24, 32), NOT_AVAILABLE)] + [nominal] * 50
-
-
-def repeated_spikes():
-    """4 s at 40 degC, then three one-frame spikes to 100 degC 500 ms apart, then
-    5 s at 40 degC (HARA TS-23)."""
-    nominal = (40, 24, 32)
-    spike_frame = (100, 84, 92)
-    frames = [nominal] * 40
-    for _ in range(3):
-        frames += [spike_frame] + [nominal] * 4
-    frames += [nominal] * 50
-    return frames
-
-
-def gradual_drift():
-    """5 s at 30 degC, then a steady rise of 1 degC per 2 s up to 44 degC (just below
-    the warning threshold of 45 degC), hold 5 s (HARA TS-27)."""
-    frames = [(30, 14, 22)] * 50
-    for m in range(31, 45):
-        frames += [(m, m - 16, m - 8)] * 20
-    frames += [(44, 28, 36)] * 50
-    return frames
 
 
 def duplicate_message():
@@ -503,33 +463,18 @@ def main():
         "CRITICAL, then low readings marked ERROR_NOT_AVAILABLE, then CRITICAL again.",
         invalid_during_critical(),
     )
-    write_with_quality(
-        here / "low_during_warning.asc",
-        "WARNING, one frame below 10 degC, then WARNING again.",
-        low_during_warning(),
-    )
-    write_with_quality(
-        here / "low_min_during_warning.asc",
-        "WARNING, one frame with CellTempMin below 10 degC, then WARNING again.",
-        low_min_during_warning(),
-    )
     write(here / "saturation_255.asc", "One frame with CellTempMax 255 degC.", saturation_255())
     write_with_quality(
         here / "quality_single.asc",
         "One frame with quality ERROR_NOT_AVAILABLE.",
         quality_single(),
     )
-    write(here / "repeated_spikes.asc", "Three spikes within 1 s.", repeated_spikes())
-    write(here / "gradual_drift.asc", "Slow rise to just below the warning threshold.", gradual_drift())
+    write(here / "isolated_spike.asc", "One frame spiking from 40 to 70 degC.", isolated_spike())
+    write(here / "drift.asc", "Sustained rise below the WARNING threshold.", drift())
     write_counted(
         here / "duplicate_message.asc",
         "One frame delivered twice with the same AliveCounter.",
         duplicate_message(),
-    )
-    write_with_quality(
-        here / "low_during_critical.asc",
-        "CRITICAL, one frame below 10 degC, then CRITICAL again.",
-        low_during_critical(),
     )
 
 

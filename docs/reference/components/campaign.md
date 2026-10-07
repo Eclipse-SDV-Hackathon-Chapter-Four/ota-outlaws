@@ -226,7 +226,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-28. Each scenario in the catalog names the ones it implements
+TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -237,34 +237,37 @@ TS-01 to TS-28. Each scenario in the catalog names the ones it implements
 | TS-04 Source shutdown | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
 | TS-05 Delayed or withheld update | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
-| TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign |
-| TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`) |
+| TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign for the CAN-level duplicate and the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
+| TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`); Guardian core tests |
 | TS-09 Stuck maximum | `max_stuck` | campaign |
 | TS-10 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-11, TS-12, TS-19 Low out of range | `out_of_range_low_warning`, `out_of_range_low_critical`, `out_of_range_low_min_warning` | planned: the Guardian's `min_c` is 0, the HARA says 10 °C |
-| TS-13 Invalid source quality | `invalid_during_warning`, `invalid_during_critical` | campaign |
-| TS-14, TS-20 High out of range | `out_of_range`, `implausible_jump` | campaign |
-| TS-15, TS-16 Overtemperature | `heating` | campaign |
-| TS-17 Freshness lost | `timeout`, `transport_dropout` | campaign |
-| TS-18 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
-| TS-21 Rate-implausible sample | `implausible_jump` | campaign |
-| TS-22 Isolated spike | `spike` | campaign |
-| TS-23 Repeated spikes | `repeated_spikes` | planned: blocked in the HARA (FSR-3.3 against FSR-3.5) |
-| TS-24 Guardian termination | `guardian_crash` | campaign, with the watchdog |
-| TS-25 Guardian hang | `guardian_hang` | campaign, with the watchdog |
-| TS-26 Late-arriving message | `late_message` | planned: needs FSR-2.8 and a transport fault injector |
-| TS-27 Gradual drift | `gradual_drift` | planned: needs FSR-1.3 |
-| TS-28 Saturation at 255 °C | `saturation_255` | campaign |
+| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning`, `invalid_during_critical` | campaign |
+| TS-12 High anomalous samples, mitigation gating | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign |
+| TS-13 Overtemperature warning | `heating` | campaign |
+| TS-14 Overtemperature critical | `heating` | campaign |
+| TS-15 Freshness lost | `timeout`, `transport_dropout` | campaign |
+| TS-16 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
+| TS-17 Out-of-range low | — | Guardian core tests only: a value below `min_c` = 0 cannot be sent, the CAN signals are unsigned |
+| TS-18 Out-of-range high | `out_of_range`, `implausible_jump` | campaign |
+| TS-19 Rate-implausible sample | `isolated_spike` | campaign |
+| TS-20 Isolated spike | `isolated_spike` | campaign |
+| TS-21 Repeated spikes | `spike` | campaign |
+| TS-22 Guardian termination | `guardian_crash` | campaign, with the watchdog |
+| TS-23 Guardian hang | `guardian_hang` | campaign, with the watchdog |
+| TS-24 Late-arriving stale message | `late_message` | planned: needs synchronized clocks (FSR-2.8) and a transport fault injector |
+| TS-25 Gradual drift | `drift` | campaign |
+| TS-26 Upper-scale saturation | `saturation_255` | campaign |
 
-TS-24 and TS-25 start the Guardian watchdog next to the Guardian
+TS-22 and TS-23 start the Guardian watchdog next to the Guardian
 (`watchdog = true` in the stimulus) and check, with `sovd_fault` and
 `sovd_recovery`, that OpenSOVD reports `BTG_GuardianHeartbeatLoss` within
 `T_hb + T_diag`. The `input_quality` check compares the raw CAN quality byte
-with the quality the Guardian input shows (TS-13, TS-18).
+with the quality the Guardian input shows (TS-11, TS-16). No independent
+occupant warning exists yet (HARA DFR-5).
 
 ## Not covered yet
 
-- **Transport faults** (TS-08, TS-26: delay and reorder on the uProtocol
+- **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
 - **Diagnostics outage**: still covered by
