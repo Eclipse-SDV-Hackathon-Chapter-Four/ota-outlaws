@@ -15,7 +15,7 @@
 //!
 //! The values live in `config/guardian/safety-params.toml`. The meaning of each
 //! parameter is explained in the "Parameters" section of
-//! `docs/explanation/safety-concept.md`.
+//! `docs/reference/hara.md`.
 
 use serde::Deserialize;
 use thiserror::Error;

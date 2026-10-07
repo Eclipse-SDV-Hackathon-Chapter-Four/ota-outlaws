@@ -89,7 +89,7 @@ pub enum Quality {
 
 /// How dangerous the battery temperature is.
 ///
-/// See "Guardian output model" in `docs/explanation/safety-concept.md`.
+/// See "Guardian output model" in `docs/reference/hara.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThermalState {
     /// Initial state: no valid data has been received yet. Not "all clear".
