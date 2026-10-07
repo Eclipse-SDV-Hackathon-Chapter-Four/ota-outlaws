@@ -119,6 +119,9 @@ struct Run<'a> {
 /// before it cannot have reached the Guardian and are not judged.
 pub const GUARDIAN_START: &str = "start_guardian";
 
+/// A delivery this much later than the detection is shown in the report.
+const DELIVERY_DELAY_NOTICE_MS: u64 = 50;
+
 impl<'a> Run<'a> {
     fn new(observations: &'a [Observation], cycle_ms: u64) -> Self {
         let mut samples = Vec::new();
@@ -151,6 +154,25 @@ impl<'a> Run<'a> {
             injections,
             session_id,
             window_end,
+        }
+    }
+
+    /// Maps the Guardian's own time of an event onto the tool's clock. The
+    /// offset is the smallest difference between arrival and Guardian time
+    /// over all events: the events that arrived without delay.
+    fn detection_time(&self, arrival: u64, event: &GuardianEvent) -> u64 {
+        let offset = self
+            .events
+            .iter()
+            .filter(|(_, e)| e.session_id == event.session_id)
+            .map(|(t, e)| *t as i64 - e.guardian_time_ms as i64)
+            .min();
+        match offset {
+            Some(offset) => {
+                let mapped = (event.guardian_time_ms as i64 + offset).max(0) as u64;
+                mapped.min(arrival)
+            }
+            None => arrival,
         }
     }
 
@@ -316,14 +338,25 @@ fn check(
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);
             result.outcome = match run.first_fault(dtc, t0) {
-                Some((t, event)) => {
-                    result.t_ms = Some(t);
-                    result.latency_ms = Some(t - t0);
-                    let text = format!("event #{} {dtc}", event.event_id);
-                    if t - t0 <= budget {
+                Some((arrival, event)) => {
+                    // When the Guardian detected the fault, on the tool's
+                    // clock. Its event may reach the tap much later, for
+                    // example when the Guardian is cut off the network.
+                    let detected = run.detection_time(arrival, event);
+                    result.t_ms = Some(detected);
+                    let latency = detected.saturating_sub(t0);
+                    result.latency_ms = Some(latency);
+                    let mut text = format!("event #{} {dtc}", event.event_id);
+                    if arrival > detected + DELIVERY_DELAY_NOTICE_MS {
+                        text += &format!(
+                            ", delivered to the tap {:.2} s after detection",
+                            (arrival - detected) as f64 / 1000.0
+                        );
+                    }
+                    if latency <= budget {
                         Outcome::Met { detail: text }
                     } else {
-                        failed(format!("{text} late"))
+                        failed(format!("{text}, late"))
                     }
                 }
                 None => missing_fault(dtc),

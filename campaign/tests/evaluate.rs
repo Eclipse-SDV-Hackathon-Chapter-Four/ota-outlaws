@@ -785,3 +785,44 @@ fn samples_before_the_guardian_started_are_not_judged() {
     assert_eq!(evaluation.verdict, Verdict::Inconclusive);
     assert!(evaluation.reason.contains("never showed"));
 }
+
+#[test]
+fn detection_time_comes_from_the_guardian_when_delivery_is_delayed() {
+    // TS-06 on the real chain: cut off the network, the Guardian detects the
+    // fault in time, but its event reaches the tap only after reconnecting.
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 12000);
+    r.injection(6000, "isolate");
+    r.injection(8500, "reconnect");
+    // An early event on time: Guardian clock = tool clock - 3000.
+    r.event(
+        3100,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CLEAR".into(),
+            current: "MONITORING".into(),
+        },
+    );
+    r.full_reaction("BTG_TempFreshnessLost", 8600, 10000);
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(event) = &mut observation.tap {
+            event.guardian_time_ms = if event.event_id == 2 {
+                // The fault: detected at tool time 6350, delivered at 8600.
+                3350
+            } else {
+                observation.t_ms - 3000
+            };
+        }
+    }
+
+    let evaluation = r.judge(&context, "transport_dropout");
+
+    let fault = &evaluation.checks[0];
+    assert_eq!(fault.latency_ms, Some(350), "{fault:#?}");
+    assert_eq!(evaluation.requirements["FSR-2.2"], Verdict::Pass);
+    match &fault.outcome {
+        Outcome::Met { detail } => assert!(detail.contains("delivered"), "{detail}"),
+        other => panic!("{other:?}"),
+    }
+}

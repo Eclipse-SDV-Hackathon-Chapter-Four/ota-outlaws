@@ -128,7 +128,12 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
    sample plus one cycle: the loss of data after the replay ends is not judged.
    Latencies use the tool's arrival times; the order of cause and effect uses
    the Guardian's event IDs, because events can arrive a few milliseconds
-   swapped over the network.
+   swapped over the network. A detection is timed when the Guardian detected
+   it: its own clock, mapped onto the tool's clock with the offset of the
+   events that arrived without delay. When the event reaches the tap much
+   later, for example because the Guardian was cut off the network, the
+   report says so. In that case the warning reached nobody either, which is
+   the gap the HARA's independent supervisor (DFR-5) closes.
 
 A run directory holds the evidence:
 
