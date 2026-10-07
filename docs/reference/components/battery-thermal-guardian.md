@@ -120,12 +120,44 @@ carry event and cause IDs for diagnostic correlation. `DEGRADED` requests
 the overtemperature mitigation `DRIVER_WARNING_OVERTEMP`. Per HARA DFR-4,
 invalid data must never cause the latter or lower an active thermal state.
 
-The thermal state (`CLEAR`, `MONITORING`, `WARNING`, `CRITICAL`, `MITIGATING`)
-and monitoring status (`OK`, `SUSPECT`, `DEGRADED`) are independent. `SUSPECT`
-means isolated rate-implausible samples have been discarded; `DEGRADED` means
-input is lost or persistently invalid. HARA-required debounce for repeated
-spikes is not yet implemented, so the current immediate-degradation behavior
-must not be presented as satisfying the HARA's isolated/repeated distinction.
+## State and transition events
+
+Thermal state describes battery danger; monitoring status describes input
+trustworthiness. They are independent, so a monitoring fault does not erase an
+existing thermal warning or critical state. Their transitions are published as
+different event kinds.
+
+### Monitoring status
+
+`MonitoringStatusChanged` carries the previous and current status. A transition
+to `DEGRADED` also reports the detected fault and requests the monitoring-
+unavailable warning.
+
+| Status | Meaning and transition condition | Event / response | Implementation status |
+|---|---|---|---|
+| `OK` | Input is fresh, in order, and plausible. | Published as the `current` status when monitoring returns to healthy operation. | Implemented. |
+| `SUSPECT` | An isolated invalid sample has been discarded; debounce has not reached the degraded threshold. | `MonitoringStatusChanged`; no monitoring-unavailable mitigation for an isolated spike. | Required by HARA F-8/FSR-3.5; not currently reachable because FSR-3.5 is planned and FSR-3.3 currently degrades immediately. |
+| `DEGRADED` | Fresh data is lost or input is invalid/persistently faulty, so temperature cannot be assessed reliably. | `FaultDetected` and `MonitoringStatusChanged`; request `DRIVER_WARNING_MONITORING_UNAVAILABLE`. | Implemented for current freshness, quality, range, stuck-signal, and rate checks. Independent Guardian supervision remains missing (HARA DFR-5). |
+
+### Thermal state
+
+`ThermalStateChanged` carries the previous and current state and the sample that
+caused the transition. `CRITICAL` and `MITIGATING` have equal severity; the
+latter records that a mitigation request has been made.
+
+| State | Meaning and transition condition | Event / response | Implementation status |
+|---|---|---|---|
+| `CLEAR` | Initial state before a valid temperature stream has established monitoring. It does not mean the battery is proven safe. | Initial state; no mitigation. | Implemented. |
+| `MONITORING` | Valid input is available and no thermal warning or critical criterion is met. | `ThermalStateChanged`; no mitigation. | Implemented. |
+| `WARNING` | A warning threshold, trend, or hot-spot criterion is met, or invalid high input could indicate real danger. | `ThermalStateChanged`; no overtemperature mitigation is currently requested at this level. | Threshold behavior implemented; trend/hot-spot behavior planned. |
+| `CRITICAL` | A valid critical criterion is met. Invalid input alone must not cause this state. | `ThermalStateChanged`; request `DRIVER_WARNING_OVERTEMP`. | Implemented for the critical temperature threshold. |
+| `MITIGATING` | The overtemperature mitigation request has been published; severity remains equal to `CRITICAL`. | `ThermalStateChanged`; no distinct mitigation value beyond the critical request. | Defined by HARA/Safety Concept FSR-1.6; not currently reachable because FSR-1.6 is planned. |
+
+The HARA requires isolated rate-implausible spikes to leave thermal assessment
+conservative without allowing invalid data to cause `CRITICAL` or
+`DRIVER_WARNING_OVERTEMP`. Repeated spikes must escalate monitoring to
+`DEGRADED`; until FSR-3.3 and FSR-3.5 are reconciled, the current implementation
+must not be presented as satisfying that isolated/repeated distinction.
 
 ## HARA fault allocation
 
