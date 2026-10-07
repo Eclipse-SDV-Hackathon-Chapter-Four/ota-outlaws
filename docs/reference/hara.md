@@ -166,10 +166,21 @@ unless a scenario explicitly tests recovery. Record the active configuration and
 observe the same input stream the Guardian receives. Timing parameters refer to
 the approved Safety Concept configuration.
 
-Scenarios that depend on a DFR marked **Missing** or **Partial** are requirement
-gap checks, not evidence that the requirement is satisfied. Until the requirement
-is approved and implemented, record the result as blocked or failed against the
-safety objective; do not convert missing behavior into a passing test.
+| HARA fault | Expected mitigation from test specifications | Covering test cases |
+|---|---|---|
+| F-1: Temperature value remains frozen while messages continue | No detection is demonstrated. TS-10 lists `DriverWarningMonitoringUnavailable` but explicitly treats the all-values-frozen case as a limitation probe. | TS-10 (limitation probe only) |
+| F-2: Message arrives after its allowed age/deadline | `DriverWarningMonitoringUnavailable` when the stale stream causes `DEGRADED`. | TS-05 covers a prolonged update gap, but not explicit rejection of a late-arriving message; proposed TS-27. |
+| F-3: Same message is delivered more than once | No mitigation for one duplicate; `DriverWarningMonitoringUnavailable` if repeated counters escalate monitoring to `DEGRADED`. | TS-07 |
+| F-4: Expected update is dropped before reaching the Guardian | `DriverWarningMonitoringUnavailable`; TS-06 also lists `DiscardSample`. | TS-05, TS-06, TS-18 |
+| F-5: Messages arrive out-of-order | `DriverWarningMonitoringUnavailable` if monitoring degrades; the stale sample must not update thermal assessment. | TS-08 |
+| F-6: One isolated temperature sample is outside the configured interval | No overtemperature mitigation from invalid input alone; preserve an active thermal warning and report `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`. | TS-11, TS-12, TS-14, TS-20, TS-21 |
+| F-7: Temperature drifts over time | No dedicated drift mitigation is specified by an existing test. Proposed TS-28 expects a `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | No dedicated fault test; TS-02 tests threshold heating, not drift detection. Proposed TS-28. |
+| F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-14, TS-22, TS-23 |
+| F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-18 |
+| F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-25 (termination), TS-26 (hang) |
+| F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-13, TS-19 |
+| F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | No explicit 255 °C test. TS-14 only tests a generic high out-of-range sample; proposed TS-29. |
+| F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-24 (blocked pending FSR-3.3/FSR-3.5 reconciliation). |
 
 ### Test Template
 
@@ -500,29 +511,6 @@ values, configured limits, rise rate, thermal-state transitions, warning and
 mitigation events, fault record, and reaction latency. Do not classify the
 expected `WARNING` as a false positive solely because the injected sample was
 anomalous.
-
-
-| HARA fault | Expected mitigation from test specifications | Covering test cases |
-|---|---|---|
-| F-1: Temperature value remains frozen while messages continue | No detection is demonstrated. TS-10 lists `DriverWarningMonitoringUnavailable` but explicitly treats the all-values-frozen case as a limitation probe. | TS-10 (limitation probe only) |
-| F-2: Message arrives after its allowed age/deadline | `DriverWarningMonitoringUnavailable` when the stale stream causes `DEGRADED`. | TS-05 covers a prolonged update gap, but not explicit rejection of a late-arriving message; proposed TS-27. |
-| F-3: Same message is delivered more than once | No mitigation for one duplicate; `DriverWarningMonitoringUnavailable` if repeated counters escalate monitoring to `DEGRADED`. | TS-07 |
-| F-4: Expected update is dropped before reaching the Guardian | `DriverWarningMonitoringUnavailable`; TS-06 also lists `DiscardSample`. | TS-05, TS-06, TS-18 |
-| F-5: Messages arrive out-of-order | `DriverWarningMonitoringUnavailable` if monitoring degrades; the stale sample must not update thermal assessment. | TS-08 |
-| F-6: One isolated temperature sample is outside the configured interval | No overtemperature mitigation from invalid input alone; preserve an active thermal warning and report `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`. | TS-11, TS-12, TS-14, TS-20, TS-21 |
-| F-7: Temperature drifts over time | No dedicated drift mitigation is specified by an existing test. Proposed TS-28 expects a `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | No dedicated fault test; TS-02 tests threshold heating, not drift detection. Proposed TS-28. |
-| F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-14, TS-22, TS-23 |
-| F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-18 |
-| F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-25 (termination), TS-26 (hang) |
-| F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-13, TS-19 |
-| F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | No explicit 255 °C test. TS-14 only tests a generic high out-of-range sample; proposed TS-29. |
-| F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-24 (blocked pending FSR-3.3/FSR-3.5 reconciliation). |
-
-The table includes every candidate fault F-1 through F-13. F-1 has a limitation
-probe but no demonstrated detection. F-2, F-7, and F-12 lack a dedicated test
-oracle and have proposed cases below. F-13 has a test specification, but it
-cannot pass until the conflicting isolated/repeated-spike requirements are
-resolved.
 
 ### TS-15 Overtemperature Warning
 
