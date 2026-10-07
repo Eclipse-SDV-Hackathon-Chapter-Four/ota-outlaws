@@ -178,37 +178,42 @@ safety objective; do not convert missing behavior into a passing test.
 
 **Expected Result:**
 
+**Expected Mitigations:**
+
 **Evidence and Verdict Focus:**
 
 ### TS-01 Baseline
 
 **HARA trace:** DRF-1 - DRF-4
 
-**Preconditions:** Start the system
+**Preconditions:** Start the system, subscribe to the mitigation topic
 
 **Stimulus:** Publish valid, in-range, steadily updated temperatures below warning thresholds with valid quality (0x80) and monotonic increasing counter.
 
 **Expected Result:** Initial thermal state is `CLEAR`. Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted.
 
-**Evidence and Verdict Focus**: Capture input/output stream, fail on unexpected fault or warning
+**Expected Mitigations:** None
+
+**Evidence and Verdict Focus**: Capture input/output stream, fail on unexpected fault, warning or emitted mitigation.
 
 ### TS-02
 
 **HARA trace:** HE-1 to HE-3; SG-1; DFR-1.
 
 **Preconditions:** Start the Guardian with a valid temperature stream and
-establish `MONITORING` below `θ_warn`.
+establish `MONITORING` below `θ_warn`. Subscribe to the mitigation topic.
 
 **Stimulus:** Replay a valid rising-temperature profile through `θ_warn` and
 then `θ_crit`.
 
-**Expected Result:** The Guardian enters `WARNING` at `θ_warn`, then enters
-`CRITICAL` and emits `DRIVER_WARNING_OVERTEMP` at `θ_crit`. Each response meets
+**Expected Result:** The Guardian enters state `WARNING` at `θ_warn`, then enters
+state `CRITICAL` and emits `DriverWarningOvertemp` mitigation at `θ_crit`. Each response meets
 the configured `T_react` budget.
 
+**Expected Mitigations:** `DriverWarningOvertemp`
+
 **Evidence and Verdict Focus:** Record the threshold-crossing samples, state
-transitions, warning event, and input-to-output latency. This verifies threshold
-response.
+transitions, warning event, and input-to-output latency. This verifies threshold response and mitigations.
 
 ### TS-03
 
@@ -221,7 +226,9 @@ temperature source.
 expire.
 
 **Expected Result:** The Guardian enters `DEGRADED` and reports the corresponding
-startup/connection-loss fault within the configured timeout `T_stale` and reaction budget `T_react`.
+startup/connection-loss fault within the configured timeout `T_stale` and reaction budget `T_react`. Reports mitigation `DriverWarningMonitoringUnavailable`
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable`
 
 **Evidence and Verdict Focus:** Record Guardian startup time, confirm no samples
 reached its input, and capture the status transition, fault event, DFM record,
@@ -240,6 +247,8 @@ steadily updated data for at least `3 sec`.
 enters `DEGRADED` and reports the corresponding freshness fault within the
 configured reaction budget.
 
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` 
+
 **Evidence and Verdict Focus:** Record the last valid sample, source shutdown,
 Guardian-input timeout, Guardian status/fault event, DFM record, and measured
 latency.
@@ -256,9 +265,9 @@ publisher output and reaches the Guardian.
 Guardian for longer than `T_stale`.
 
 **Expected Result:** The Guardian enters `DEGRADED` and reports a freshness fault
-within the configured reaction budget. A constant delay with regularly arriving
-samples is not expected to be detected unless synchronized-clock age checking is
-enabled.
+within the configured reaction budget.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable`
 
 **Evidence and Verdict Focus:** Record source timestamps and arrival times, the
 Guardian-input gap, `T_stale`, status/fault event, DFM record, and latency.
@@ -277,6 +286,8 @@ the Guardian input while keeping the source and publisher output active.
 
 **Expected Result:** The Guardian enters `DEGRADED` and reports a freshness fault
 after `T_stale`, within the configured reaction budget.
+
+**Expected Mitigations:** `DiscardSample`, `DriverWarningMonitoringUnavailable`
 
 **Evidence and Verdict Focus:** Compare source, publisher-output, and
 Guardian-input observations. Capture the Guardian event and DFM record; use the
