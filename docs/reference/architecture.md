@@ -34,6 +34,8 @@ Guardian.
 | KUKSA CAN Provider | Converts CAN frames to VSS signals |
 | KUKSA Data Broker | Stores decoded VSS values |
 | OpenSOVD Server | Makes diagnostic records visible |
+| Ankaios | Manage lifetime of container under test |
+| Docker Compose | Manage lifetime of container under test |
 
 ## 2. Functional Overview
 
