@@ -114,67 +114,83 @@ requirements belong in the functional safety concept and technical design.
 | SG-4 | HE-6, HE-1 | The vehicle shall prevent an invalid temperature sample from causing an unsafe driver or vehicle response, while preserving timely warnings when the sample may indicate a real thermal danger. |
 
 
-## Derived implementation requirements
+## Derived Functional Requirements
 
-This crosswalk links the HARA goals to implementation behavior and verification.
-The detailed Guardian FSRs, priorities, status, and parameters are maintained in
-the [Safety Concept](../explanation/safety-concept.md#functional-safety-requirements),
-which remains the detailed requirement source. Approve parameter values against
-the vehicle/system safety concept before using them as a safety baseline.
+The following candidate requirements are derived from SG-1 to SG-4. They refine
+the HARA goals for traceability; the referenced Safety Concept remains the source
+for existing Guardian FSR wording, parameter values, priority, and status. Items
+marked **Missing** or **Partial** are not satisfied merely by appearing in this
+HARA; reconcile them into the Safety Concept before claiming requirement coverage.
 
-| Requirement ID | HARA trace | Requirement and allocation | Verification |
-|---|---|---|---|
-| FSR-1.1, FSR-1.2 | SG-1; HE-1 to HE-3 | On valid data meeting `θ_warn`, the Guardian shall enter WARNING or a more severe state within `T_react`. On valid data meeting `θ_crit`, it shall enter CRITICAL and publish `DRIVER_WARNING_OVERTEMP` within `T_react`. | Replay heating profiles through both thresholds; assert state, event, and latency. |
-| FSR-1.3, FSR-1.4 | SG-1; HE-1 to HE-3 | When valid samples meet the configured rise-rate criterion for `T_trend`, or the maximum-to-average difference exceeds `Δ_hotspot`, the Guardian shall enter WARNING or a more severe state within the specified reaction budget. | Replay a sustained fast-rise profile below `θ_warn` and a localized hot-spot profile; assert state and latency. |
-| FSR-2.1 to FSR-2.4 | SG-2; HE-1 to HE-3 | The Guardian shall detect startup timeout, stale input, stopped source counters, and a frozen maximum signal according to the specified timing and value criteria; it shall report the corresponding monitoring status and fault. | Test no-source startup, outage, source dropout, repeated counter, and frozen-maximum cases, including slow nominal heating as a negative test. |
-| FSR-2.7 | SG-2; HE-1 to HE-3; F-10 | The Guardian shall publish a progress heartbeat after each completed safety-evaluation cycle. The Evidence Collector records missing heartbeats for campaigns; runtime restart is recovery behavior, not the occupant safety response. | Terminate the process and hang the evaluation loop in separate runs; verify progress heartbeat stops and collect the external monitor/runtime response. |
-| VSR-2.1 (proposed) | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect a missing Guardian progress heartbeat within `T_hb` and request `DRIVER_WARNING_MONITORING_UNAVAILABLE` over a path independent of the Guardian and Evidence Collector. Owner: vehicle supervisor/HMI; not currently implemented. | Kill and hang the Guardian while temperature input is active; verify warning request within the approved response budget and separately verify runtime restart of a terminated process. |
-| FSR-2.5, FSR-2.6 | SG-2 and SG-4; HE-1 to HE-3 | While monitoring is DEGRADED, the Guardian shall not lower the thermal state. Monitoring shall return to OK only after `N_recover` consecutive valid samples, after which thermal state is reassessed from fresh data. | Raise a warning, inject a monitoring fault and a low invalid sample, and verify the state is retained; restore valid samples and verify specified recovery behavior. |
-| FSR-1.5, FSR-3.6 | SG-4; HE-1 | The Guardian shall not lower an active thermal state in response to invalid input. It shall lower the state only after the triggering criterion is undercut by `θ_hyst` for `N_recover` consecutive valid samples and monitoring is not DEGRADED. | Start in WARNING and CRITICAL; inject one low out-of-range, invalid-quality, or implausible sample and verify no state decrease. Then provide the required valid recovery sequence and verify de-escalation. |
-| FSR-3.2, FSR-3.3, FSR-3.6 | SG-1, SG-3; HE-1, HE-4, HE-5, HE-6 | Invalid high readings shall not alone raise the thermal state to CRITICAL, but high out-of-range values or implausibly fast rises shall still raise at least WARNING because they may indicate real danger. Invalid input shall not lower the state. | Inject high/low out-of-range values and spikes at multiple states; verify WARNING behavior for potentially dangerous high values, no invalid-only CRITICAL/mitigation, and no lowering from invalid input. |
-| FSR-1.2, FSR-3.2, FSR-3.3, FSR-3.6 | SG-3; HE-4, HE-5 | Mitigation publication shall be gated by the defined CRITICAL condition; invalid input alone shall not cause CRITICAL. This mapping assumes the Guardian publishes mitigation only on entering CRITICAL; confirm that contract in the implementation. | Inject duplicate, high out-of-range, and spike samples below CRITICAL; verify none alone causes a mitigation request. Verify valid critical input still causes the specified request. |
-| VSR-HMI-01 (proposed) | SG-4; HE-6 | The vehicle warning function shall communicate possible thermal danger and the approved driver action for uncertain high-temperature input without prompting an unsafe abrupt response. Owner: vehicle warning/HMI, outside the Guardian unless the item boundary is expanded. | Define acceptance criteria with the safety/HMI owner and validate the warning in OS-1 using an approved human-factors method. |
-| FSR-D.1, FSR-D.2 | Diagnostic goal; all faulted events | Every Guardian-reported fault shall be written to DFM with a code identifying the detecting requirement. A delayed or failed write shall not delay the safety reaction. Expected records shall become visible through OpenSOVD within `T_diag`. | Correlate Guardian events and DFM records; inject delayed writes and missing OpenSOVD visibility. |
-| EC-1 to EC-3 | Campaign evidence; F-2 to F-5, F-9 | The Evidence Collector shall attribute source/publisher/transport loss, identify duplicate, reordered, and missing samples by sequence number, and measure transport delay where observable. These are evidence requirements, not Guardian safety reactions. | Inject source, publisher, transport, duplicate, reorder, drop, and constant-delay scenarios; compare collector output with observed tap points. |
+| ID | HARA trace | Derived functional requirement | Safety Concept mapping | Coverage assessment |
+|---|---|---|---|---|
+| DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and request the corresponding occupant warning and mitigation response within its approved reaction budget. The vehicle system shall define the required warning lead time before the condition becomes dangerous. | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. | **Partial / Missing:** detection and reaction are specified, but `T_react` is not the required warning lead time. The Safety Concept has no approved thermal-event lead-time requirement or validated thermal profile. |
+| DFR-2 | SG-2; HE-1 to HE-3 | The Guardian shall classify input freshness and validity, enter DEGRADED and report a fault when monitoring is lost or persistently invalid, and shall not treat unavailable data as evidence of a safe battery. | FSR-2.1 to FSR-2.6, FSR-2.8, FSR-3.4, FSR-3.5, and FSR-3.7. | **Partial:** input-side loss/invalidity behavior is covered. Guardian termination/hang is not occupant-protected by these FSRs; see DFR-5. |
+| DFR-3 | SG-2, SG-4; HE-1 to HE-3 | Invalid or degraded input shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined hysteresis and recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. | **Covered at Guardian behavior level**, subject to testing the stated valid-sample and recovery conditions. |
+| DFR-4 | SG-3; HE-4, HE-5 | An invalid, stale, duplicated, or out-of-order sample shall not by itself cause CRITICAL state or a mitigation request. High anomalous values may still cause WARNING when they could represent real danger. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** these FSRs limit invalid-input state escalation, but no FSR explicitly states the output invariant that mitigation is issued only for a valid critical condition. Add that invariant to the Safety Concept and test it. |
+| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Contradiction / Missing:** SG-2 requires independent in-vehicle detection and a warning/degraded response, but FSR-2.7 provides test evidence and runtime recovery only. It does not protect occupants; a hang response is also unspecified. A vehicle-level supervisor requirement, owner, timing budget, and test are missing. |
+| DFR-6 | SG-4; HE-6 and HE-1 | The vehicle warning function shall communicate uncertain high-temperature conditions and the approved driver action in a way that avoids an unsafe response, while retaining warnings for possible real thermal danger. | FSR-3.2, FSR-3.3, and FSR-3.6 define Guardian thermal-state behavior; no HMI/driver-response FSR is present. | **Partial / Missing:** Guardian behavior supports cautious WARNING, but the Safety Concept lacks the vehicle/HMI requirement and human-factors acceptance criteria needed to address HE-6. |
+| DFR-7 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
 
-**Gaps and conflicts to resolve:**
+### Safety Concept contradictions and missing requirements
 
-- SG-4 is new to this HARA; the linked Safety Concept has only three safety
-	goals. Reconcile SG-4 and its hazardous-event mapping there before treating
-	these documents as one approved baseline.
-- The Safety Concept intentionally raises WARNING for high out-of-range values
-	and implausibly fast rises. Do not interpret every such warning as a false
-	positive or suppress it; the input may represent a real thermal event. HE-6
-	needs an independently justified driver-harm path, and its mitigation belongs
-	to the vehicle warning/HMI function, not automatically to the Guardian.
-- The current in-vehicle design has no independent Guardian monitor: the Evidence
-	Collector is test infrastructure and runtime restart alone does not warn
-	occupants. VSR-2.1 is proposed and remains an open safety dependency until an
-	owner, independent warning path, timing budget, and verification are approved.
-- F-4 is now defined as an upstream publisher/transport omission. A sample lost
-	inside Guardian processing is a separate application failure and must not be
-	mislabeled as transport loss.
+- **Guardian failure response (DFR-5):** HARA SG-2 requires an independent
+	in-vehicle response. Safety Concept FSR-2.7 only records a missing heartbeat
+	in the Evidence Collector and restarts a terminated process. These are
+	observability/recovery actions, not occupant protection; the safety response
+	and hang detection are missing.
+- **Mitigation gating (DFR-4):** FSR-3.2 and FSR-3.3 intentionally permit
+	WARNING for high out-of-range or implausibly fast samples, since they may
+	indicate a real thermal event. This is not a contradiction if WARNING is
+	distinct from CRITICAL/mitigation. The missing requirement is an explicit
+	rule that invalid data alone cannot trigger CRITICAL or mitigation.
+- **False-warning response (DFR-6):** the Safety Concept's fail-toward-warning
+	principle and FSR-3.2/3.3 are appropriate for uncertain high readings, but
+	they do not satisfy an HMI/driver-response goal. Do not suppress those warnings
+	to eliminate HE-6; define and verify the vehicle-level communication/action.
+- **Warning lead time (DFR-1):** FSR reaction budgets measure response after a
+	criterion is observable. They do not establish that occupants are warned a
+	defined time before a real battery event becomes dangerous. That requirement
+	and its thermal validation basis are missing.
+- **Goal-set mismatch:** this HARA defines SG-4, while the Safety Concept defines
+	only SG-1 to SG-3. The mappings above are provisional until SG-4 and its
+	allocation are reconciled there.
+- **ASIL input inconsistency:** the hazardous-event table currently assigns
+	ASIL-D while E and C are shown as `-`. ASIL cannot be derived from S alone;
+	record justified E/C values and the applicable classification basis before
+	treating those ASIL-D entries as assessed ratings.
 
 ## HARA-derived test scenarios
 
-Run each fault variant independently from a fresh Guardian instance unless a scenario explicitly tests recovery. Begin with valid nominal input, record the active configuration and signal profile, and observe the same input stream the
-Guardian receives. `T_react`, `T_stale`, thresholds, and other parameters refer to the approved Safety Concept configuration. The vehicle situations provide HARA context; a software replay alone does not demonstrate driver or occupant behavior in that situation.
+The scenarios below verify DFR-1 through DFR-7 and their mapped Safety Concept
+requirements. Run each fault variant independently from a fresh Guardian instance
+unless a scenario explicitly tests recovery. Record the active configuration and
+observe the same input stream the Guardian receives. Timing parameters refer to
+the approved Safety Concept configuration. A replay provides software evidence;
+it does not by itself demonstrate driver or occupant behavior in a vehicle.
+
+Scenarios that depend on a DFR marked **Missing** or **Partial** are requirement
+gap checks, not evidence that the requirement is satisfied. Until the requirement
+is approved and implemented, record the result as blocked or failed against the
+safety objective; do not convert missing behavior into a passing test.
 
 | ID | HARA trace | Preconditions and stimulus | Expected result | Evidence and verdict focus |
 |---|---|---|---|---|
-| TS-01 | Baseline; SG-1 to SG-3 | Start a fresh Guardian and publish valid, in-range, steadily updated temperatures below warning thresholds. | Monitoring becomes OK and thermal state becomes MONITORING; no warning, mitigation, or fault is emitted. | Capture input/output stream and heartbeat. Fail on unexpected fault or warning. |
-| TS-02 | HE-1 to HE-3; SG-1; FSR-1.1, FSR-1.2 | Replay a valid rising-temperature profile through `θ_warn` and then `θ_crit`. | Reach WARNING at `θ_warn`; reach CRITICAL and emit `DRIVER_WARNING_OVERTEMP` at `θ_crit`, each within its configured reaction budget. | Measure input-to-state/event latency at the Evidence Collector. This verifies threshold response, not real-pack warning lead time; that needs an approved thermal-event profile and deadline. |
-| TS-03 | HE-1 to HE-3; SG-2; FSR-2.1, FSR-2.2 | In separate runs, start with no source, stop updates, delay updates beyond `T_stale`, or inject a source/publisher dropout at the Guardian input. | Enter DEGRADED and report the corresponding startup/freshness fault within the specified budget. Do not lower an existing thermal state. | Record exact tap-point fault onset, Guardian status/event, DFM record, and source-versus-transport attribution. Resolve F-4 ownership before using an omission variant. |
-| TS-04 | HE-1 to HE-3; SG-2; FSR-2.2, FSR-3.7, EC-2 | In separate runs, inject a duplicate sample and an out-of-order sample; optionally continue each fault until freshness timeout. | Non-fresh samples are ignored and do not advance the thermal assessment. Persistent loss of fresh samples causes DEGRADED as specified. The collector identifies sequence anomalies. | Capture source timestamps, alive counter, publisher sequence, Guardian input, state changes, and collector attribution. |
-| TS-05 | HE-1 to HE-3; SG-2; FSR-2.4 | Hold the maximum-temperature value constant while average or minimum changes by at least `Δ_stuck`; repeat with fast and slow heating profiles. | After both stuck criteria hold, enter DEGRADED and report a signal-stuck fault within the specified hidden-error bound. | Record all three signals and calculate detection error against `Δ_stuck` plus one CAN step. Include slow nominal heating as a negative test. |
-| TS-06 | HE-1 to HE-3; SG-2; F-1 limitation probe | Keep all temperature values constant while timestamps and source alive counter continue to advance. | Characterize whether the current design can distinguish a genuinely constant battery from a fully frozen signal. Do not claim detection unless an independent plausibility mechanism detects it. | Record as a limitation/coverage result, not a passing FSR-2.4 test; the current stuck-maximum requirement needs another temperature channel to move. |
-| TS-07 | HE-1 to HE-3; SG-4; FSR-1.5, FSR-2.5, FSR-3.2, FSR-3.4, FSR-3.6 | First reach WARNING (repeat at CRITICAL). In separate runs, inject one low out-of-range sample and one sample with invalid quality. Then restore valid samples. | The invalid sample is rejected and shall not lower or clear the active thermal state. Any transition out of DEGRADED or reduction in thermal state follows the specified valid-sample, hysteresis, and recovery rules. | Capture sample validity, state before/after injection, monitoring status, and recovery count. Verify a single invalid sample cannot clear an alert. |
-| TS-08 | HE-1, HE-4, HE-5; SG-1, SG-3; FSR-3.2, FSR-3.3, FSR-3.6 | In separate runs, inject a high out-of-range sample and a one-sample rise exceeding `r_max`, while below CRITICAL. | Raise at least WARNING because the sample may indicate real danger, but do not enter CRITICAL or request mitigation from the invalid sample alone. | Verify state, warning event, absence of mitigation, fault record, and reaction latency. Do not label the expected warning a false positive solely because the injected sample was invalid. |
-| TS-09 | HE-4, HE-5; SG-3 | While below CRITICAL, inject duplicate, high out-of-range, and high-spike variants individually. Separately provide valid critical input as a positive control. | Invalid/repeated input alone does not cause unintended mitigation. Valid critical input produces the defined critical/mitigation behavior. | Capture input validity, state transitions, and mitigation events. Run in OS-1/OS-2 test setups only if the mitigation consumer and vehicle-response interface are available. |
-| TS-10 | HE-6; SG-4; proposed VSR-HMI-01 | Present the approved warning for an uncertain high-temperature condition in an OS-1 driving simulator or other safety-approved human-factors setup. Include a credible thermal-warning positive control. | The warning communicates the approved action without inducing the defined unsafe driver response, while the credible thermal warning remains salient and actionable. | Requires owner-approved human-factors acceptance criteria and a representative HMI. A Guardian unit/replay test cannot establish this result. |
-| TS-11 | Diagnostic goal; FSR-D.1, FSR-D.2 | Run a fault scenario that causes a Guardian diagnostic; separately delay the DFM write or suppress OpenSOVD visibility. | Safety reaction is not delayed by diagnostics. The collector reports the matching DFM/OpenSOVD record or flags its lateness/absence. | Correlate run ID, fault code, detecting requirement, event time, DFM record, OpenSOVD visibility, and collector verdict. |
-| TS-12 | HE-1 to HE-3; SG-1, SG-2; F-10; FSR-2.7, VSR-2.1 | With valid temperature input active, terminate the Guardian process. | The independent vehicle supervisor requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` after the heartbeat timeout; runtime restarts the terminated process according to its configured restart policy. The Evidence Collector records both actions but is not the safety response. | Measure heartbeat loss to warning-request latency and process recovery time; verify the warning path does not depend on Guardian or collector. |
-| TS-13 | HE-1 to HE-3; SG-1, SG-2; F-10; FSR-2.7, VSR-2.1 | With valid temperature input active, block or pause the Guardian's safety-evaluation loop while leaving the process alive. | A progress heartbeat stops; the independent vehicle supervisor requests `DRIVER_WARNING_MONITORING_UNAVAILABLE`. Recovery behavior for a hung process must be separately defined and verified. | Confirm heartbeat is coupled to evaluation progress, not merely process existence. If the monitor cannot detect the hang, mark the scenario FAIL or INCONCLUSIVE per its approved verdict rule, not PASS based only on collector logs. |
+| TS-01 | Baseline; DFR-1 to DFR-4 | Start a fresh Guardian and publish valid, in-range, steadily updated temperatures below warning thresholds. | Monitoring becomes OK and thermal state becomes MONITORING; no warning, mitigation, or fault is emitted. | Capture input/output stream and heartbeat. Fail on unexpected fault or warning. |
+| TS-02 | HE-1 to HE-3; SG-1; DFR-1; FSR-1.1, FSR-1.2 | Replay a valid rising-temperature profile through `θ_warn` and then `θ_crit`. | Reach WARNING at `θ_warn`; reach CRITICAL and emit `DRIVER_WARNING_OVERTEMP` at `θ_crit`, each within its configured reaction budget. | Measure input-to-state/event latency. This verifies threshold response only, not warning lead time before danger; see TS-14. |
+| TS-03 | HE-1 to HE-3; SG-2; DFR-2; FSR-2.1, FSR-2.2 | In separate runs, start with no source, stop updates, delay updates beyond `T_stale`, or inject an upstream publisher/transport dropout at the Guardian input. | Enter DEGRADED and report the corresponding startup/freshness fault within budget. Do not lower an existing thermal state. | Record tap-point fault onset, Guardian status/event, DFM record, and source-versus-transport attribution. |
+| TS-04 | HE-1 to HE-3; SG-2; DFR-2, DFR-7; FSR-2.2, FSR-3.7, EC-2 | In separate runs, inject a duplicate sample and an out-of-order sample; optionally continue each fault until freshness timeout. | Non-fresh samples are ignored and do not advance thermal assessment. Persistent loss of fresh samples causes DEGRADED. The collector identifies sequence anomalies. | Capture timestamps, alive counter, publisher sequence, Guardian input/state, diagnostic trace, and collector attribution. |
+| TS-05 | HE-1 to HE-3; SG-2; DFR-2, DFR-7; FSR-2.4 | Hold the maximum-temperature value constant while average or minimum changes by at least `Δ_stuck`; repeat with fast and slow heating profiles. | After both stuck criteria hold, enter DEGRADED and report a signal-stuck fault within the specified hidden-error bound. | Record all three signals, detection error, and diagnostic trace. Include slow nominal heating as a negative test. |
+| TS-06 | HE-1 to HE-3; SG-2; DFR-2; F-1 limitation probe | Keep all temperature values constant while timestamps and source alive counter continue to advance. | Characterize whether the current design can distinguish a genuinely constant battery from a fully frozen signal. Do not claim detection unless an implemented mechanism detects it. | Record as a limitation/coverage result, not a passing FSR-2.4 test; the current stuck-maximum check requires another temperature channel to move. |
+| TS-07 | HE-1 to HE-3; SG-2, SG-4; DFR-3; FSR-1.5, FSR-2.5, FSR-2.6, FSR-3.6 | First reach WARNING (repeat at CRITICAL). Inject a low out-of-range or invalid-quality sample, then restore valid samples. | Invalid input does not lower or clear the active thermal state. Lowering/recovery occurs only under valid-sample, hysteresis, and recovery conditions. | Capture validity, state before/after injection, monitoring status, recovery count, and de-escalation point. |
+| TS-08 | HE-1, HE-4, HE-5; SG-1, SG-3; DFR-1, DFR-4; FSR-3.2, FSR-3.3, FSR-3.6 | Separately inject a high out-of-range sample and a one-sample rise exceeding `r_max` while below CRITICAL. | Raise at least WARNING because the sample may indicate real danger; do not enter CRITICAL or request mitigation from the invalid sample alone. | Verify state, warning event, absence of mitigation, fault record, and latency. Do not label the expected WARNING a false positive solely because input was anomalous. |
+| TS-09 | HE-4, HE-5; SG-3; DFR-4 | While below CRITICAL, inject duplicate, high out-of-range, and high-spike variants separately; then provide valid critical input as a positive control. | Invalid/repeated input alone causes no mitigation. Valid critical input produces the defined mitigation request. | This directly tests DFR-4, for which no explicit FSR exists. Record as a requirement gap until the mitigation-gating invariant is added to the Safety Concept. |
+| TS-10 | HE-6; SG-4; DFR-6 | Present the approved warning for uncertain high-temperature data in an OS-1 driving simulator/human-factors setup, with a credible thermal-warning positive control. | Communicate uncertainty and approved driver action without suppressing a potentially valid thermal warning or inducing the defined unsafe response. | Blocked until HMI acceptance criteria, warning design, and owner are approved. A Guardian replay cannot verify driver response. |
+| TS-11 | Diagnostic goal; DFR-7; FSR-D.1 to FSR-D.4, EC-1 to EC-3 | Run a fault scenario that causes a Guardian diagnostic; separately delay the DFM write or suppress OpenSOVD visibility. | Safety behavior is not delayed by diagnostics. The collector correlates records or flags missing/late evidence. | Correlate run ID, fault code, detecting requirement, event time, DFM/OpenSOVD record, and verdict. Diagnostics from a future independent supervisor remain uncovered. |
+| TS-12 | HE-1 to HE-3; SG-1, SG-2; F-10; DFR-5 | With valid temperature input active, terminate the Guardian process. | Proposed independent supervisor requests `DRIVER_WARNING_MONITORING_UNAVAILABLE`; runtime may restart the process. The collector log is not the occupant response. | Warning behavior is **not implemented**: mark blocked or failed against the safety objective, never PASS from heartbeat evidence alone. Measure warning/recovery latency after implementation. |
+| TS-13 | HE-1 to HE-3; SG-1, SG-2; F-10; DFR-5 | With valid input active, pause the Guardian evaluation loop while leaving its process alive. | Progress-aware monitor detects the missing evaluation progress and requests monitoring-unavailable warning; hang recovery is separately defined. | **Missing:** current FSR-2.7 does not require heartbeat to prove evaluation progress or specify hang recovery. Until defined and implemented, record the gap. |
+| TS-14 | HE-1 to HE-3; SG-1; DFR-1 | Replay or simulate an approved battery thermal profile from warning trigger through the defined dangerous condition. | Occupants receive warning at least the approved lead time before the dangerous condition. | **Blocked/missing:** no approved lead-time value, reference condition, or validated thermal profile exists. `T_react` alone cannot pass this test. |
+| TS-15 | SG-2; DFR-5, DFR-7 | After an independent supervisor is implemented, terminate or hang the Guardian and observe the supervisor's diagnostic output. | The supervisor's fault is traceable through diagnostics to the campaign verdict without delaying its warning response. | **Missing allocation:** no Safety Concept FSR/EC currently defines supervisor diagnostics. Add and approve that allocation before claiming coverage. |
 
 For each run, record the operational situation, fault variant and injection
 parameters, run/correlation IDs, input and output timestamps, expected and
@@ -186,6 +202,10 @@ interface/evidence was unavailable. Retain failed runs in the report.
 
 These scenarios verify the stated software and evidence behaviors; they do not
 establish vehicle-level S/E/C ratings or prove occupant safety by themselves.
+Mark a scenario PASS only when its requirement is approved, the stimulus reaches
+the intended boundary, all specified reactions occur within budget, no forbidden
+reaction occurs, and required evidence is complete. Keep blocked and failed
+scenarios visible in the report.
 
 ## AI Assistance
 
