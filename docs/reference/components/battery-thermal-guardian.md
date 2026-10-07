@@ -263,9 +263,6 @@ and response latency for each applicable run.
 | Proposed TS-27 to TS-29 | Late timestamp, gradual trend, explicit upper-scale saturation | Proposed requirement-gap tests; not evidence of implemented behavior. |
 | Diagnostic campaigns | DFM writes and OpenSOVD visibility | FSR-D.1/.2 are tested; diagnostic-path failures must not delay Guardian safety responses. |
 
-TS-17 (undertemperature) is blocked in the HARA because no lower operating limit,
-responsible vehicle component, or charging-control interface has been allocated.
-
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model

@@ -542,27 +542,6 @@ budget and reports the overtemperature-critical DTC.
 **Evidence and Verdict Focus:** Capture the valid sample, threshold, state
 transition, DTC/DFM record, mitigation event, and latency.
 
-### TS-17: Undertemperature
-
-**HARA trace:** No matching HARA fault ID or safety goal is currently defined;
-catalog fault: Undertemperature.
-
-**Preconditions:** Blocked until the safe charging/operating lower limit,
-responsible vehicle component, and charging-control interface are specified.
-
-**Stimulus:** Once specified, inject one valid temperature below the approved
-lower limit without any other invalid input.
-
-**Expected Result:** Apply the approved cold-temperature operating response.
-The limit and Guardian/vehicle behavior are currently undefined, so no
-pass/fail oracle can yet be assigned.
-
-**Expected Mitigations:** `BlockCharging` is catalog-proposed and not an
-existing Guardian mitigation.
-
-**Evidence and Verdict Focus:** **Blocked:** record the approved limit, owner,
-requirement, and interface before executing this case as a pass/fail test.
-
 ### TS-18: Freshness lost
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-4/F-9; catalog fault: FreshnessLost.
