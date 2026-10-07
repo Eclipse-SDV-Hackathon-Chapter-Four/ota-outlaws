@@ -19,9 +19,12 @@
 #define GUARDIAN_DISPLAY_INTERVAL_TICKS TX_TIMER_TICKS_PER_SECOND
 #define GUARDIAN_POLL_INTERVAL_TICKS   ((TX_TIMER_TICKS_PER_SECOND + 9U) / 10U)
 #define GUARDIAN_BUTTON_STATUS_TICKS   (TX_TIMER_TICKS_PER_SECOND * 3U)
+#define GUARDIAN_CAMPAIGN_ACK_TICKS    (TX_TIMER_TICKS_PER_SECOND * 10U)
 #define GUARDIAN_BUTTON_DEBOUNCE_POLLS 3U
 #define GUARDIAN_BAD_TEMPERATURE_C     120U
-#define GUARDIAN_DATAGRAM_MAX_LENGTH   128U
+#define GUARDIAN_DATAGRAM_MAX_LENGTH   160U
+#define GUARDIAN_SCENARIO_MAX_LENGTH   23U
+#define GUARDIAN_VERDICT_MAX_LENGTH    15U
 
 typedef struct
 {
@@ -123,23 +126,30 @@ static UINT send_sample(uint32_t sequence, float temperature_celsius)
     return send_json(message, (UINT)message_length);
 }
 
-static UINT send_button_event(const CHAR* type, uint32_t sequence)
+static UINT send_campaign_request(uint32_t request_id)
 {
     CHAR message[GUARDIAN_DATAGRAM_MAX_LENGTH];
     int message_length;
 
-    if (strcmp(type, "can_fault") == 0)
+    message_length = snprintf(message, sizeof(message),
+                              "{\"type\":\"campaign\",\"id\":%lu}",
+                              (unsigned long)request_id);
+
+    if (message_length < 0 || (UINT)message_length >= sizeof(message))
     {
-        message_length = snprintf(message, sizeof(message),
-                                  "{\"type\":\"can_fault\",\"scenario\":\"all\"}");
+        printf("ERROR: Guardian campaign request did not fit UDP message buffer\r\n");
+        return NX_SIZE_ERROR;
     }
-    else
-    {
-        message_length = snprintf(message, sizeof(message),
-                                  "{\"type\":\"bad_sample\",\"seq\":%lu,\"temperature_c\":%u}",
-                                  (unsigned long)sequence,
-                                  (unsigned)GUARDIAN_BAD_TEMPERATURE_C);
-    }
+
+    return send_json(message, (UINT)message_length);
+}
+
+static UINT send_bad_sample(uint32_t sequence)
+{
+    CHAR message[GUARDIAN_DATAGRAM_MAX_LENGTH];
+    int message_length = snprintf(message, sizeof(message),
+                                  "{\"type\":\"bad_sample\",\"seq\":%lu}",
+                                  (unsigned long)sequence);
 
     if (message_length < 0 || (UINT)message_length >= sizeof(message))
     {
@@ -150,14 +160,163 @@ static UINT send_button_event(const CHAR* type, uint32_t sequence)
     return send_json(message, (UINT)message_length);
 }
 
+static UINT json_string_field(const CHAR* message, const CHAR* name,
+                              CHAR* value, size_t value_size)
+{
+    CHAR key[32];
+    const CHAR* cursor;
+    size_t length = 0U;
+    int key_length = snprintf(key, sizeof(key), "\"%s\"", name);
+
+    if (key_length < 0 || (size_t)key_length >= sizeof(key))
+    {
+        return 0U;
+    }
+
+    cursor = strstr(message, key);
+    if (cursor == NX_NULL)
+    {
+        return 0U;
+    }
+    cursor += key_length;
+    while (*cursor == ' ' || *cursor == '\t')
+    {
+        cursor++;
+    }
+    if (*cursor++ != ':')
+    {
+        return 0U;
+    }
+    while (*cursor == ' ' || *cursor == '\t')
+    {
+        cursor++;
+    }
+    if (*cursor++ != '"')
+    {
+        return 0U;
+    }
+
+    while (*cursor != '\0' && *cursor != '"')
+    {
+        CHAR character = *cursor++;
+        if (!((character >= 'a' && character <= 'z') ||
+              (character >= 'A' && character <= 'Z') ||
+              (character >= '0' && character <= '9') ||
+              character == '_' || character == '-'))
+        {
+            return 0U;
+        }
+        if (length + 1U >= value_size)
+        {
+            return 0U;
+        }
+        value[length++] = character;
+    }
+
+    if (*cursor != '"' || length == 0U)
+    {
+        return 0U;
+    }
+    value[length] = '\0';
+    return 1U;
+}
+
+static UINT receive_campaign_result(uint32_t expected_request_id,
+                                    CHAR scenario[GUARDIAN_SCENARIO_MAX_LENGTH + 1U],
+                                    CHAR verdict[GUARDIAN_VERDICT_MAX_LENGTH + 1U],
+                                    UINT* request_acknowledged, UINT* result_received,
+                                    UINT* campaign_finished, UINT* campaign_failed)
+{
+    NX_PACKET* packet = NX_NULL;
+    CHAR message[GUARDIAN_DATAGRAM_MAX_LENGTH];
+    ULONG packet_length = 0U;
+    ULONG bytes_copied = 0U;
+    unsigned long response_id = 0UL;
+    UINT status;
+
+    *request_acknowledged = 0U;
+    *result_received = 0U;
+    *campaign_finished = 0U;
+    *campaign_failed = 0U;
+
+    status = nx_udp_socket_receive(&guardian_socket, &packet, TX_NO_WAIT);
+    if (status == NX_NO_PACKET)
+    {
+        return NX_SUCCESS;
+    }
+    if (status != NX_SUCCESS)
+    {
+        return status;
+    }
+
+    status = nx_packet_length_get(packet, &packet_length);
+    if (status != NX_SUCCESS || packet_length >= sizeof(message))
+    {
+        nx_packet_release(packet);
+        printf("ERROR: Guardian campaign response is invalid or too large\r\n");
+        return status == NX_SUCCESS ? NX_SIZE_ERROR : status;
+    }
+
+    status = nx_packet_data_retrieve(packet, message, &bytes_copied);
+    nx_packet_release(packet);
+    if (status != NX_SUCCESS || bytes_copied != packet_length)
+    {
+        printf("ERROR: Guardian campaign response read failed (0x%08x)\r\n", status);
+        return status == NX_SUCCESS ? NX_SIZE_ERROR : status;
+    }
+    message[bytes_copied] = '\0';
+
+    if (sscanf(message, "{\"type\":\"campaign_ack\",\"id\":%lu}", &response_id) == 1 &&
+        response_id == (unsigned long)expected_request_id)
+    {
+        *request_acknowledged = 1U;
+        return NX_SUCCESS;
+    }
+
+    if (sscanf(message,
+               "{\"type\":\"campaign_result\",\"id\":%lu",
+               &response_id) == 1 &&
+        json_string_field(message, "scenario", scenario,
+                          GUARDIAN_SCENARIO_MAX_LENGTH + 1U) &&
+        json_string_field(message, "verdict", verdict,
+                          GUARDIAN_VERDICT_MAX_LENGTH + 1U) &&
+        response_id == (unsigned long)expected_request_id)
+    {
+        *request_acknowledged = 1U;
+        *result_received = 1U;
+        return NX_SUCCESS;
+    }
+
+    if (sscanf(message, "{\"type\":\"campaign_error\",\"id\":%lu}", &response_id) == 1 &&
+        response_id == (unsigned long)expected_request_id)
+    {
+        *campaign_finished = 1U;
+        *campaign_failed = 1U;
+        return NX_SUCCESS;
+    }
+
+    if (sscanf(message, "{\"type\":\"campaign_complete\",\"id\":%lu}", &response_id) == 1 &&
+        response_id == (unsigned long)expected_request_id)
+    {
+        *campaign_finished = 1U;
+    }
+
+    return NX_SUCCESS;
+}
+
 void guardian_thread_entry(ULONG parameter)
 {
     UINT status;
     uint32_t sequence = 1U;
+    uint32_t campaign_request_id = 0U;
     ULONG last_sample_tick;
     ULONG last_display_tick;
     ULONG button_status_tick = 0U;
+    ULONG campaign_request_tick = 0U;
     UINT button_status_active = 0U;
+    UINT campaign_running = 0U;
+    UINT campaign_acknowledged = 0U;
+    UINT campaign_result_visible = 0U;
     ULONG poll_ticks = GUARDIAN_POLL_INTERVAL_TICKS;
     button_debounce_t button_a = {0U, 0U, 0U};
     button_debounce_t button_b = {0U, 0U, 0U};
@@ -222,26 +381,101 @@ void guardian_thread_entry(ULONG parameter)
     last_display_tick = last_sample_tick;
     while (1)
     {
+        CHAR scenario[GUARDIAN_SCENARIO_MAX_LENGTH + 1U] = {0};
+        CHAR verdict[GUARDIAN_VERDICT_MAX_LENGTH + 1U] = {0};
+        UINT request_acknowledged = 0U;
+        UINT result_received = 0U;
+        UINT campaign_finished = 0U;
+        UINT campaign_failed = 0U;
         ULONG now = tx_time_get();
+
+        status = receive_campaign_result(campaign_request_id, scenario, verdict,
+                                         &request_acknowledged, &result_received,
+                                         &campaign_finished, &campaign_failed);
+        if (status != NX_SUCCESS)
+        {
+            printf("ERROR: Guardian campaign response receive failed (0x%08x)\r\n", status);
+        }
+        else
+        {
+            if (request_acknowledged)
+            {
+                campaign_acknowledged = 1U;
+            }
+            if (campaign_failed)
+            {
+                campaign_running = 0U;
+                campaign_result_visible = 0U;
+                screen_print_campaign_result("campaign", "ERROR");
+                button_status_tick = now;
+                button_status_active = 1U;
+            }
+            else if (result_received)
+            {
+                campaign_result_visible = 1U;
+                screen_print_campaign_result(scenario, verdict);
+                button_status_tick = now;
+                button_status_active = 1U;
+                printf("Campaign result: %s %s\r\n", scenario, verdict);
+            }
+            else if (campaign_finished)
+            {
+                campaign_running = 0U;
+                campaign_result_visible = 0U;
+                button_status_active = 0U;
+            }
+        }
+
         if (button_pressed(&button_a, BUTTON_A_IS_PRESSED))
         {
-            status = send_button_event("can_fault", sequence++);
-            screen_print_button_status('A', "CAN faults", "4 faults / 5s gaps",
-                                       GUARDIAN_BRIDGE_IP, status == NX_SUCCESS);
+            if (campaign_running)
+            {
+                screen_print_campaign_result("campaign", "BUSY");
+            }
+            else
+            {
+                campaign_request_id = sequence++;
+                status = send_campaign_request(campaign_request_id);
+                if (status == NX_SUCCESS)
+                {
+                    campaign_running = 1U;
+                    campaign_acknowledged = 0U;
+                    campaign_result_visible = 0U;
+                    campaign_request_tick = now;
+                    screen_print_campaign_result("campaign", "RUNNING");
+                    printf("Button A: started full OTA Outlaws campaign (request %lu)\r\n",
+                           (unsigned long)campaign_request_id);
+                }
+                else
+                {
+                    screen_print_campaign_result("campaign", "SEND ERROR");
+                    printf("ERROR: Button A campaign request failed (0x%08x)\r\n", status);
+                }
+            }
             button_status_tick = now;
             button_status_active = 1U;
-            printf("Button A: request all campaign CAN fault traces; UDP status 0x%08x\r\n",
-                   status);
         }
         if (button_pressed(&button_b, BUTTON_B_IS_PRESSED))
         {
-            status = send_button_event("bad_sample", sequence++);
+            campaign_result_visible = 0U;
+            status = send_bad_sample(sequence++);
             screen_print_button_status('B', "bad temp", "120 C sample",
                                        GUARDIAN_BRIDGE_IP, status == NX_SUCCESS);
             button_status_tick = now;
             button_status_active = 1U;
             printf("Button B: request one-shot %u C sample; UDP status 0x%08x\r\n",
                    (unsigned)GUARDIAN_BAD_TEMPERATURE_C, status);
+        }
+
+        if (campaign_running && !campaign_acknowledged &&
+            (ULONG)(now - campaign_request_tick) >= GUARDIAN_CAMPAIGN_ACK_TICKS)
+        {
+            campaign_running = 0U;
+            campaign_result_visible = 1U;
+            screen_print_campaign_result("campaign", "NO HOST");
+            button_status_tick = now;
+            button_status_active = 1U;
+            printf("ERROR: No campaign bridge response within 10 seconds\r\n");
         }
 
         if ((ULONG)(now - last_sample_tick) >= GUARDIAN_SAMPLE_INTERVAL_TICKS)
@@ -258,8 +492,9 @@ void guardian_thread_entry(ULONG parameter)
 
         if ((ULONG)(now - last_display_tick) >= GUARDIAN_DISPLAY_INTERVAL_TICKS)
         {
-            if (button_status_active &&
-                (ULONG)(now - button_status_tick) < GUARDIAN_BUTTON_STATUS_TICKS)
+            if (campaign_running || campaign_result_visible ||
+                (button_status_active &&
+                 (ULONG)(now - button_status_tick) < GUARDIAN_BUTTON_STATUS_TICKS))
             {
                 last_display_tick = now;
             }

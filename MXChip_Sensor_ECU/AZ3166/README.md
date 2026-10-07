@@ -113,7 +113,7 @@ winget install --id=Kitware.CMake  -e
 To compile the application, use the provided scripts in the `MXChip/AZ3166/scripts` folder.
 
 ### Windows (PowerShell)
-You can build the application using `build.ps1`. It accepts a `-Config` parameter to select the application version (`starter`, `arcade`, `telemetry`, `mqtt`, or `guardian`).
+You can build the application using `build.ps1`. It accepts a `-Config` parameter to select the application version (`starter`, `arcade`, `telemetry`, `mqtt`, or `guardian`). Each configuration has its own build directory under `build`, so cached outputs from another configuration or worktree are not reused.
 ```powershell
 .\scripts\build.ps1 -Config starter
 ```
@@ -125,7 +125,7 @@ committed. The AZ3166 OLED cycles through a welcome page and the onboard sensor
 readings, while sensor and networking logs are written to the UART console.
 
 For the `guardian` configuration, provide Wi-Fi settings and the IPv4 address
-of the host running the OTA Outlaws UDP adapter in an untracked
+of the host running the OTA Outlaws campaign bridge in an untracked
 `app/guardian/cloud_config.local.h` file:
 
 ```c
@@ -140,72 +140,49 @@ connect the PC to the same Hackathon Wi-Fi as the AZ3166, then run
 `scripts/prepare-guardian.ps1`. It discovers the PC's current Wi-Fi IPv4
 address, updates the ignored local config and builds the firmware. Do not set
 the board's destination to a WSL or Docker virtual-interface address. The
-adapter listens on UDP port `30502`.
+campaign bridge listens on UDP port `30502`.
 
-The board sends its HTS221 temperature to a host-side adapter at 10 Hz, matching
-the OTA Outlaws Guardian's 300 ms freshness limit. The adapter writes the
-temperature and rolling counter to KUKSA, where the existing VSS Publisher sends
-the values to Guardian over uProtocol/Zenoh. Normal live board telemetry is the
-nominal baseline. Button A replays each fault trace in `campaign/traces` fully,
-in this order: `heating.asc`, `invalid_during_warning.asc`, `max_stuck.asc`,
-and `spike.asc`. The non-fault `nominal.asc` baseline is intentionally skipped.
-There is a five-second gap between fault traces; live board samples resume
-during each gap. Trace durations are read from their ASC timestamps, so the
-sequence takes about 71 seconds end to end. Each one-off provider is stopped
-before the next trace. Button B sends a
-one-shot 120 C temperature value in its UDP JSON event; the adapter validates
-and writes that reported value to KUKSA, which should drive the Guardian's
-critical-temperature response. The adapter pauses board writes during replay and stops the default
-CAN provider while it is running, avoiding competing writers. Each one-off
-fault provider is stopped before the next trace. On adapter shutdown it restarts
-the default provider.
-In the Guardian firmware, either button temporarily replaces the sensor pages
-with the selected action, destination IPv4 address, and UDP send result on the
-OLED, then returns to the sensor pages after about three seconds.
-
-The HTS221 is an ambient-temperature sensor, not a battery-pack sensor. Mapping
-it to the battery-temperature VSS paths is a demo proxy only. The current OTA
-Outlaws Guardian evaluates the maximum temperature and detects freshness,
-counter, signal-stuck, and invalid-quality faults; it does not currently check
-whether min/average/max are ordered or whether the reading is physically
-plausible.
-
-Run the adapter in WSL (Python 3.8 or newer) so it can reach the local Docker
-Compose stack. Install its dependency once from WSL:
-
-```sh
-sudo apt install python3-venv
-python3 -m venv ~/.venvs/az3166-bridge
-~/.venvs/az3166-bridge/bin/pip install -r /mnt/c/path/to/samplex/MXChip/AZ3166/host/requirements.txt
+After preparing the firmware, explicitly deploy the guardian configuration:
+```powershell
+.\scripts\deploy.ps1 -Config guardian -Destination D:
 ```
+The guardian image is `build/guardian/app/mxchip_threadx.bin`. Scenario verdicts
+are shown while the campaign is running; when the host reports completion or an
+error, the OLED resumes the sensor pages.
 
-Start the OTA Outlaws Compose stack, then launch the adapter in WSL using the
-local paths:
+Run the bridge in WSL with Python 3.8 or newer, Rust/Cargo, and Docker
+available. Point it at the root of the cloned `ota-outlaws` repository:
 
 ```powershell
-wsl.exe -e bash -lc 'cd /mnt/c/path/to/samplex/MXChip/AZ3166 && ~/.venvs/az3166-bridge/bin/python host/ota_outlaws_bridge.py --compose-dir /home/your-user/Guardian_repo/ota-outlaws'
+wsl.exe -e bash -lc 'cd /mnt/c/path/to/samplex/MXChip/AZ3166 && python3 host/campaign_bridge.py --campaign-dir /home/your-user/ota-outlaws'
 ```
 
-The adapter connects to KUKSA at `127.0.0.1:55556`; that is the host-published
-databroker port, not the container's Zenoh port. In a separate, non-admin
-PowerShell window, run `scripts/start-guardian-udp-relay.ps1` and leave that
-window open. It forwards UDP from the PC's Wi-Fi address into WSL. The relay
-requires a one-time inbound firewall rule, which must be added from
-Administrator PowerShell:
+When Button A is pressed, the bridge runs the OTA Outlaws full campaign
+(`campaign run --all`) and immediately forwards each scenario verdict printed
+by the running campaign to the board over UDP. The OLED displays each scenario
+name and result (for example, `counter_stuck` and `PASS`) as soon as that
+scenario completes; it does not wait for the campaign's final report.
+Campaign evidence remains in the `runs/` directory of the `ota-outlaws`
+repository. This runs the campaign's built-in trace-based tests; the board's
+HTS221 samples are not inputs to those tests.
+
+In a separate, non-admin PowerShell window, run
+`scripts/start-guardian-udp-relay.ps1` and leave that window open. It forwards
+UDP requests from the PC's Wi-Fi address into WSL and campaign results back to
+the board. The relay requires a one-time inbound firewall rule, which must be
+added from Administrator PowerShell:
 
 ```powershell
 New-NetFirewallRule -DisplayName "AZ3166 OTA Outlaws UDP 30502" -Direction Inbound -Protocol UDP -LocalPort 30502 -Action Allow -Profile Public -RemoteAddress LocalSubnet
 ```
 
-The `ota-outlaws` repository must contain the four fault ASC files in
-`campaign/traces` and the `kuksa-can-provider` Compose service. The bridge only
-permits those known scenarios and the `all` sequence command; it does not accept
-arbitrary file paths from UDP messages. Keep the updated adapter script on the
-host PC so it recognizes Button A's `all` request.
+The bridge only accepts a campaign request; it does not accept shell commands
+or scenario paths from the board. Button B continues to send its existing
+one-shot bad-sample event, which is separate from the campaign bridge.
 
 To deploy, use `deploy.ps1` (adjust the destination drive as needed):
 ```powershell
-.\scripts\deploy.ps1 -Destination D:
+.\scripts\deploy.ps1 -Config starter -Destination D:
 ```
 
 ### Linux / MacOS (Bash)
@@ -218,10 +195,12 @@ To deploy, use `deploy.sh` (adjust the destination path as needed):
 ```bash
 ./scripts/deploy.sh /Volumes/AZ3166
 ```
+Pass the build configuration as the second argument when deploying another
+configuration, for example `./scripts/deploy.sh /Volumes/AZ3166 guardian`.
 
 To deploy your code on the AZ3166, just plug the board on your computer. When you do so, this will create a virtual drive and a serial port over USB.
 
-Once compilation is finished, you will find the executable in the `MXChip/AZ3166/build/app` folder. The default filename is `mxchip_threadx.bin`. Just copy that file to the virtual drive and the AZ3166's boot loader will reset the board and execute your code.
+Once compilation is finished, you will find the executable in the `MXChip/AZ3166/build/<config>/app` folder (for example, `build/guardian/app/mxchip_threadx.bin`). Deploy the matching configuration to the virtual drive; the AZ3166 boot loader will reset the board and execute it.
 
 You can use any terminal application to connect to the serial port and monitor your application's output. Personally, we use Tera Term, which you can install using `winget`. Just make sure you set the baud rate to **115,200**. On MacOS, we used [SerialTools](https://apps.apple.com/de/app/serialtools/id611021963?mt=12) which you can install via the Mac App Store.
 
