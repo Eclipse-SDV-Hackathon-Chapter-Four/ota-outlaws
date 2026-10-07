@@ -113,7 +113,7 @@ async fn diagnostic_campaign() {
             if let Ok(json) = response.json::<serde_json::Value>().await {
                 if json["items"]
                     .as_array()
-                    .is_some_and(|a| a.len() == guardian_service::diagnostics::codes().len())
+                    .is_some_and(|a| a.len() >= guardian_service::diagnostics::codes().len())
                 {
                     break;
                 }

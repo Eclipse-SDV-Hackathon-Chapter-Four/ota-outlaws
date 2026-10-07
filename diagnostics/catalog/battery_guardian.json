@@ -161,6 +161,22 @@
       "reporter_side_reset": null,
       "manager_side_debounce": null,
       "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_GuardianHeartbeatLoss"
+      },
+      "name": "BTG_GuardianHeartbeatLoss",
+      "summary": "FSR-2.7: Guardian itself stops reporting",
+      "category": "Software",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
     }
   ]
 }

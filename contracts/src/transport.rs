@@ -120,7 +120,7 @@ pub fn uri(topic: Topic) -> UUri {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BATTERY_TEMPERATURE, GUARDIAN_EVENTS};
+    use crate::{BATTERY_TEMPERATURE, GUARDIAN_EVENTS, GUARDIAN_HEARTBEAT};
 
     #[test]
     fn topic_uris_match_the_contract_documentation() {
@@ -129,5 +129,9 @@ mod tests {
             "//battery-vss/9001/1/9001"
         );
         assert_eq!(uri(GUARDIAN_EVENTS).to_uri(false), "//guardian/9002/1/8001");
+        assert_eq!(
+            uri(GUARDIAN_HEARTBEAT).to_uri(false),
+            "//guardian/9002/1/8002"
+        );
     }
 }

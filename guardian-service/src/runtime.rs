@@ -20,18 +20,21 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use guardian::{Event, Guardian, GuardianConfig, Millis, Sample};
-use thermal_contract::{BATTERY_TEMPERATURE, GUARDIAN_EVENTS};
+use thermal_contract::{BATTERY_TEMPERATURE, GUARDIAN_EVENTS, GUARDIAN_HEARTBEAT};
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UTransport};
 
-use crate::convert::{decode_sample, encode_event_for_session};
+use crate::convert::{decode_sample, encode_event_for_session, encode_heartbeat};
 use crate::diagnostics::Diagnostics;
 use crate::transport::uri;
 
 /// How often the core checks time-based conditions, such as missing samples.
 pub const TICK_INTERVAL: Duration = Duration::from_millis(50);
+
+/// `T_hb_period`: how often the Guardian publishes a `Heartbeat` (FSR-2.7).
+pub const HEARTBEAT_PERIOD: Duration = Duration::from_millis(500);
 
 /// Received samples waiting for the core. A full queue drops samples, which
 /// the core then detects as missing data.
@@ -83,6 +86,12 @@ pub async fn run_with_diagnostics(
 
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // The heartbeat is driven by the same loop that runs the core, not by a
+    // separate task: if the core hangs, the heartbeat stops too, so the
+    // watchdog sees a hang and not only a crash (HARA TS-13).
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_PERIOD);
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut heartbeat_sequence: u64 = 0;
     tokio::pin!(shutdown);
 
     loop {
@@ -90,6 +99,11 @@ pub async fn run_with_diagnostics(
             () = &mut shutdown => break,
             _ = ticker.tick() => guardian.on_tick(now()),
             Some(sample) = samples_rx.recv() => guardian.on_sample(sample, now()),
+            _ = heartbeat.tick() => {
+                heartbeat_sequence += 1;
+                publisher.publish_heartbeat(heartbeat_sequence, now().0).await;
+                Vec::new()
+            }
         };
         for event in &events {
             if let Some(diagnostics) = &diagnostics {
@@ -151,6 +165,27 @@ impl EventPublisher {
                 }
             }
             Err(error) => warn!(%error, id = event.id.0, "cannot build guardian event message"),
+        }
+    }
+
+    /// Publishes one `Heartbeat`. A failed publish is logged; a missing
+    /// heartbeat is exactly what the watchdog is there to notice.
+    async fn publish_heartbeat(&self, sequence: u64, guardian_time_ms: u64) {
+        debug!(sequence, "guardian heartbeat");
+        let message = UMessageBuilder::publish(uri(GUARDIAN_HEARTBEAT)).build_with_payload(
+            encode_heartbeat(&self.session_id, sequence, guardian_time_ms),
+            UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF,
+        );
+        match message {
+            Ok(message) => {
+                match tokio::time::timeout(Duration::from_millis(100), self.transport.send(message))
+                    .await
+                {
+                    Ok(Ok(())) => {}
+                    result => warn!(?result, sequence, "cannot publish guardian heartbeat"),
+                }
+            }
+            Err(error) => warn!(%error, sequence, "cannot build guardian heartbeat message"),
         }
     }
 }

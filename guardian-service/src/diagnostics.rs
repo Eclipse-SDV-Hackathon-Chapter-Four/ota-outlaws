@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+// AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 //! Asynchronous DFM fault reporting, independent of diagnostic verification.
 //!
@@ -126,9 +126,17 @@ impl DiagnosticsConfig {
             .iter()
             .filter_map(|f| f["id"]["Text"].as_str())
             .collect();
+        // The SOVD app is shared: the watchdog reports BTG_GuardianHeartbeatLoss
+        // under the same entity, because a crashed Guardian cannot report its
+        // own failure. So the catalog must contain every Guardian DTC, and
+        // may contain codes owned by other reporters.
+        let missing: Vec<_> = codes()
+            .into_iter()
+            .filter(|dtc| !ids.contains(dtc))
+            .collect();
         anyhow::ensure!(
-            ids == codes().into_iter().collect(),
-            "catalog must contain exactly the Guardian's DTCs"
+            missing.is_empty(),
+            "catalog is missing Guardian DTCs: {missing:?}"
         );
         classification(&self.catalog)?;
         Ok(())
@@ -358,7 +366,7 @@ mod tests {
         assert_eq!(diagnostics.stats.rejected.load(Ordering::Relaxed), 1);
     }
     #[test]
-    fn shipped_catalog_is_exactly_the_core_fault_set() {
+    fn shipped_catalog_contains_the_core_fault_set() {
         DiagnosticsConfig {
             catalog: "../diagnostics/catalog/battery_guardian.json".into(),
             entity: "battery_guardian".into(),

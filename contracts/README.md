@@ -29,6 +29,7 @@ the same `.proto` file.
 |-------|---------------|-----------|---------|
 | Battery temperature | `//battery-vss/9001/1/9001` | VSS Publisher (`vss-publisher`) | `BatteryTemperature` |
 | Guardian events | `//guardian/9002/1/8001` | Battery Thermal Guardian (`guardian-service`) | `GuardianEvent` |
+| Guardian heartbeat | `//guardian/9002/1/8002` | Battery Thermal Guardian (`guardian-service`) | `Heartbeat` |
 
 ## BatteryTemperature
 
@@ -96,6 +97,15 @@ stuck interval. Subsequent detected faults recover through `FaultRecovered`.
 Only `testFailed` clearing is required; historical confirmation and warning bits
 follow DFM's lifecycle/reset policy.
 
+## Heartbeat
+
+Published every `T_hb_period` (500 ms) whether or not anything changed, so the
+[watchdog](../watchdog/README.md) can tell "nothing to report" from "Guardian
+crashed or hung" (FSR-2.7). `session_id` is the same as in the Guardian's
+`GuardianEvent` messages; `sequence` counts heartbeats from 1. The heartbeat is
+sent from the same loop that runs the Guardian core, so it stops when the core
+hangs, not only when the process ends.
+
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
@@ -103,3 +113,6 @@ This document was created with the assistance of **Claude Code** using the model
 
 The GuardianEvent session field was added with assistance from **Codex** using
 **GPT-6.1 Sol** (`gpt-6.1-sol`).
+
+The Heartbeat topic and payload were added with the assistance of **Claude Code**
+using the model **Claude Opus 5.5** (`claude-opus-5-5`).

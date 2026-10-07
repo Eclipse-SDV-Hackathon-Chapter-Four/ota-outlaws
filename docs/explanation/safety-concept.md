@@ -271,7 +271,7 @@ Two kinds of end-to-end campaigns prove requirements:
 | FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | tested |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised as described in the [output model](#guardian-output-model). | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | implemented |
 | FSR-2.6 | Each active fault shall recover only after `N_recover` consecutive fresh, valid samples spanning at least `T_recover` without the fault condition; a gap, an invalid sample, or a repeated frame restarts the window. The monitoring status shall return from DEGRADED to OK only when every active fault has recovered. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | tested |
-| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. The Evidence Collector shall record a heartbeat missing for longer than `T_hb` as a Guardian failure. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | planned |
+| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. The Evidence Collector shall record a heartbeat missing for longer than `T_hb` as a Guardian failure. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | implemented |
 | FSR-2.8 | When the clocks of source and Guardian are synchronized (enabled by configuration), a sample whose source timestamp is older than `T_age` shall not count as fresh. | `T_react` | Constant transport delay longer than `T_age` | Could | planned |
 
 ### SG-2, SG-3, SG-4: Invalid input
@@ -421,10 +421,22 @@ FSR-2.5, FSR-2.6, and FSR-3.6 apply to every fault in SG-2, SG-3, and SG-4.
   Diagnostic delivery is asynchronous; monitoring recovery does not wait for DFM.
   These parameters remain proposals, not validated vehicle safety values.
 - **Guardian failure in the vehicle.** Nothing in the vehicle reacts to a dead
-  Guardian: FSR-2.7 only records the failure as evidence and restarts a
-  terminated Guardian. Warning the occupants would need an independent monitor,
-  for example in the HMI. It is not yet verified whether the runtime can detect
-  a hung Guardian, as opposed to a terminated one.
+  Guardian: FSR-2.7 only records the failure and restarts a terminated
+  Guardian. Warning the occupants would need an independent monitor, for
+  example in the HMI.
+- **FSR-2.7 as built.** The Guardian publishes its heartbeat from the loop that
+  runs its core, so a hung core stops it too. A separate
+  [watchdog](../../watchdog/README.md) process reports
+  `BTG_GuardianHeartbeatLoss` to DFM when the heartbeat is missing for longer
+  than `T_hb`, and Passed on the next one; Docker restarts a terminated
+  Guardian. Verified by hand against OpenSOVD: SIGKILL reported 1.4 s after the
+  kill, `docker pause` (a hang, which Docker itself does not notice) 1.8 s after
+  the pause, both Passed again on the next heartbeat. The Evidence Collector
+  does not read the heartbeat yet, and no campaign scenario covers it, so the
+  status is **implemented**, not **tested**. Under heavy host load (Rust builds,
+  about 10 minutes) the watchdog reported 19 false losses for a running
+  Guardian: `T_hb` = 1500 ms has little margin against scheduling stalls on a
+  developer machine.
 - **Diagnostic link.** Guardian session/event IDs and last-sample references are
   stored in DFM environment data and verified in integration tests through the
   individual OpenSOVD fault endpoint. Guardian performs no OpenSOVD polling;
@@ -455,3 +467,6 @@ This document was created with the assistance of **Claude Code** using the model
 
 The diagnostics implementation status and correlation limitations were updated
 with assistance from **Codex** using **GPT-6.1 Sol** (`gpt-6.1-sol`).
+
+The FSR-2.7 status and watchdog results were updated with assistance from
+**Claude Code** using **Claude Opus 5.5** (`claude-opus-5-5`).

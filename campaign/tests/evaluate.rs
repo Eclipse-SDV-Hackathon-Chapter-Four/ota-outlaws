@@ -270,7 +270,11 @@ fn fault_codes_come_from_the_dfm_catalog() {
     assert!(context
         .fault_codes
         .contains(&"BTG_TempFreshnessLost".to_owned()));
-    assert_eq!(context.fault_codes.len(), 10);
+    // The watchdog reports BTG_GuardianHeartbeatLoss under the same entity.
+    assert!(context
+        .fault_codes
+        .contains(&"BTG_GuardianHeartbeatLoss".to_owned()));
+    assert_eq!(context.fault_codes.len(), 11);
 }
 
 // --- PASS -----------------------------------------------------------------------

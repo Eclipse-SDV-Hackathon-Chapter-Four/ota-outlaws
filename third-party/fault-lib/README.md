@@ -26,6 +26,16 @@ small overwrite buffer can still lose records during a large backlog. The outage
 regression establishes a healthy baseline before pausing DFM to isolate the two
 failure/recovery records. No OpenSOVD polling is added.
 
+Before it creates its iceoryx2 node, the IPC worker removes the stale resources
+of dead nodes (`Node::cleanup_dead_nodes`). A reporter that is killed never
+releases its publisher slot on the DFM event service, and that service only has
+two (iceoryx2 default, set by DFM, which creates it). With the Guardian and the
+[watchdog](../../watchdog/README.md) both reporting, a restarted Guardian
+otherwise got `ExceedsMaxSupportedPublishers` on every retry and never reached
+DFM again. iceoryx2 treats every node with the caller's own PID as alive, so this
+only works when reporters do not all run as PID 1 in separate PID namespaces;
+`docker-compose.yml` puts them into DFM's PID namespace.
+
 Cargo.toml expands the upstream workspace settings for this repository. The IPC behavior patch is in ipc_worker.rs. Three assertions in reporter.rs tests
 also use assert_ne! to satisfy newer Clippy versions. Other Rust files are
 unchanged from the pinned source.
@@ -36,4 +46,5 @@ provides the same ordering guarantee.
 ## AI Assistance
 
 This document was created with the assistance of **Codex** using the model
-**GPT-6.1 Sol** (`gpt-6.1-sol`).
+**GPT-6.1 Sol** (`gpt-6.1-sol`), and of **Claude Code** using the model
+**Claude Opus 5.5** (`claude-opus-5-5`).
