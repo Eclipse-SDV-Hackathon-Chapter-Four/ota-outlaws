@@ -30,6 +30,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 thermal-contract = { path = "../contracts", features = ["transport"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "signal", "sync"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "signal", "sync", "io-util"] }
 toml = "1.1.6"
 up-rust = "0.9"

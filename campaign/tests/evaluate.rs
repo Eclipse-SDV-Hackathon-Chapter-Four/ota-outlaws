@@ -16,8 +16,8 @@
 
 use std::path::Path;
 
-use campaign::catalog::{Scenario, Stimulus};
-use campaign::evaluate::{evaluate, Evaluation, LinkState, Outcome, Verdict};
+use campaign::catalog::{Expectation, Scenario, ScenarioStatus, Stimulus};
+use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
 use campaign::onset::Onset;
 use campaign::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
 use campaign::Context;
@@ -291,6 +291,27 @@ fn fault_codes_come_from_the_dfm_catalog() {
     assert_eq!(context.fault_codes.len(), 11);
 }
 
+#[test]
+fn a_scenario_dtc_outside_the_dfm_catalog_is_rejected() {
+    let context = context();
+    context.catalog.check_dtcs(&context.fault_codes).unwrap();
+
+    let mut catalog = context.catalog.clone();
+    let scenario = catalog
+        .scenarios
+        .iter_mut()
+        .find(|scenario| scenario.status == ScenarioStatus::Implemented)
+        .unwrap();
+    scenario.expectations.push(Expectation::Fault {
+        dtc: "BTG_TempOutofRange".into(),
+        budget: "T_react".into(),
+        requirement: "FSR-3.2".into(),
+    });
+
+    let error = catalog.check_dtcs(&context.fault_codes).unwrap_err();
+    assert!(error.to_string().contains("BTG_TempOutofRange"), "{error}");
+}
+
 // --- PASS -----------------------------------------------------------------------
 
 #[test]
@@ -372,13 +393,14 @@ fn late_detection_is_fail() {
 fn counter_stuck_at_n_stuck_repeated_frames_is_in_budget() {
     let context = context();
     let mut r = counter_stuck_run();
-    // The 10th repeated frame arrives at 2900. Budget T_counter_stuck + T_react
-    // = 10 × 100 + 100 ms after t0 = 2000.
-    r.full_reaction("BTG_TempCounterStuck", 2900, 6000);
+    // The 9th repeated frame, the 10th message with that counter (HARA DFR-7),
+    // arrives at 2800. Budget T_counter_stuck + T_react = 9 × 100 + 100 ms
+    // after t0 = 2000.
+    r.full_reaction("BTG_TempCounterStuck", 2800, 6000);
 
     let evaluation = r.judge(&context, "counter_stuck");
 
-    assert_eq!(context.budgets["T_counter_stuck"], 1000);
+    assert_eq!(context.budgets["T_counter_stuck"], 900);
     assert_eq!(evaluation.requirements["FSR-2.3"], Verdict::Pass);
 }
 
@@ -830,19 +852,51 @@ fn ts_10_lowering_after_invalid_input_is_fail() {
 }
 
 #[test]
-fn samples_before_the_guardian_started_are_not_judged() {
-    // A gap before the Guardian started is not a fault the Guardian could see.
+fn fault_before_the_guardian_was_ready_is_inconclusive() {
+    // A gap before the Guardian was ready is not a fault the Guardian could
+    // see. Its later reaction proves nothing either.
     let context = context();
     let mut r = Recording::default();
     r.nominal(0, 1000);
     r.nominal(2000, 3000);
-    r.injection(2500, "start_guardian");
+    r.injection(500, "start_guardian");
+    r.injection(2500, "guardian_ready");
     r.nominal(3000, 6000);
+    r.full_reaction("BTG_TempFreshnessLost", 2600, 5200);
 
     let evaluation = r.judge(&context, "timeout");
 
     assert_eq!(evaluation.verdict, Verdict::Inconclusive);
-    assert!(evaluation.reason.contains("never showed"));
+    assert!(
+        evaluation.reason.contains("before the Guardian was ready"),
+        "{}",
+        evaluation.reason
+    );
+    assert!(evaluation.checks.is_empty());
+    assert_eq!(evaluation.onset.as_ref().unwrap().t_ms, 1000);
+    assert_eq!(evaluation.requirements["FSR-2.2"], Verdict::Inconclusive);
+}
+
+#[test]
+fn samples_between_start_and_ready_are_not_judged() {
+    // The Guardian's container takes a while to start; the samples meanwhile
+    // are not judged. The gap after it is.
+    let context = context();
+    let mut r = timeout_run();
+    r.injection(300, "start_guardian");
+    r.injection(1200, "guardian_ready");
+    // t0 = 1900 + 100; detected 300 ms later.
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.onset.as_ref().unwrap().t_ms, 2000);
 }
 
 #[test]
@@ -1199,4 +1253,221 @@ fn a_run_that_recorded_nothing_is_inconclusive_not_fail() {
         .values()
         .all(|v| *v == Verdict::Inconclusive));
     assert!(!evaluation.chain.complete);
+// --- Guardian supervision (TS-24, TS-25) and the raw input quality ----------------
+
+impl Recording {
+    /// An OpenSOVD record of a fault without a Guardian event, as the
+    /// watchdog's heartbeat loss is.
+    fn sovd_without_event(&mut self, t_ms: u64, code: &str, failed: bool, since_clear: bool) {
+        self.observations.push(Observation {
+            t_ms,
+            tap: Tap::SovdFault {
+                code: code.to_owned(),
+                http_status: Some(200),
+                body: serde_json::json!({
+                    "status": {"testFailed": failed, "testFailedSinceLastClear": since_clear},
+                }),
+            },
+        });
+    }
+}
+
+const HEARTBEAT_LOSS: &str = "BTG_GuardianHeartbeatLoss";
+
+/// A `guardian_crash` run: nominal samples, the Guardian is stopped at 6 s.
+fn guardian_stopped_run() -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 20000);
+    r.injection(6000, "stop");
+    r
+}
+
+fn sovd_check_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::SovdFault { .. }))
+        .expect("the scenario has a sovd_fault check")
+        .outcome
+}
+
+#[test]
+fn ts_24_heartbeat_loss_in_opensovd_within_budget_is_pass() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    // T_hb (1500 ms) plus T_diag (2000 ms) after the stop is the budget.
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+    assert!(matches!(
+        sovd_check_outcome(&evaluation),
+        Outcome::Met { .. }
+    ));
+}
+
+#[test]
+fn ts_24_heartbeat_loss_after_the_budget_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 3600, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("late")));
+}
+
+#[test]
+fn ts_24_no_heartbeat_loss_in_opensovd_is_fail() {
+    let context = context();
+    let r = {
+        let mut r = guardian_stopped_run();
+        // A record that never failed does not count.
+        r.sovd_without_event(7000, HEARTBEAT_LOSS, false, false);
+        r
+    };
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("never failed")));
+}
+
+#[test]
+fn ts_24_heartbeat_loss_before_the_stop_is_not_counted() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(2000, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn ts_24_unreachable_opensovd_is_inconclusive() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.observations.push(Observation {
+        t_ms: 0,
+        tap: Tap::SovdFault {
+            code: HEARTBEAT_LOSS.into(),
+            http_status: None,
+            body: serde_json::Value::Null,
+        },
+    });
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+}
+
+/// A `guardian_hang` run: the Guardian is paused at 6 s for 4 s.
+fn guardian_paused_run() -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 20000);
+    r.injection(6000, "pause");
+    r.injection(10000, "unpause");
+    r
+}
+
+#[test]
+fn ts_25_loss_and_recovery_in_opensovd_is_pass() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, true);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+}
+
+#[test]
+fn ts_25_loss_without_recovery_is_fail() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("never showed as passed")));
+}
+
+#[test]
+fn ts_25_passed_without_history_is_not_a_recovery() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, false);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+/// A `quality_single_invalid` run: nominal samples with one frame whose
+/// quality is `quality`.
+fn quality_run(quality: &str) -> Recording {
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.counter += 1;
+    r.sample_at(5000, r.counter, quality, 40.0, 32.0, 24.0);
+    r.nominal(5100, 10000);
+    r
+}
+
+fn quality_outcome(evaluation: &Evaluation) -> &Outcome {
+    &evaluation
+        .checks
+        .iter()
+        .find(|c| matches!(c.expectation, Expectation::InputQuality { .. }))
+        .expect("the scenario has an input_quality check")
+        .outcome
+}
+
+#[test]
+fn input_quality_seen_at_the_input_is_met() {
+    let context = context();
+    let r = quality_run("NOT_AVAILABLE");
+
+    let evaluation = r.judge(&context, "quality_single_invalid");
+
+    assert!(matches!(quality_outcome(&evaluation), Outcome::Met { .. }));
+}
+
+#[test]
+fn input_quality_mapped_to_the_wrong_value_is_fail() {
+    let context = context();
+    // The raw byte was 0xFF (NOT_AVAILABLE), but the publisher mapped it to INVALID.
+    let r = quality_run("INVALID");
+
+    let evaluation = r.judge(&context, "quality_single_invalid");
+
+    assert!(matches!(
+        quality_outcome(&evaluation),
+        Outcome::Failed { .. }
+    ));
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("NOT_AVAILABLE")));
 }

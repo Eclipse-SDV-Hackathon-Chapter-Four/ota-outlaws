@@ -38,5 +38,6 @@ void screen_print_sensor_page(unsigned int page, hts221_data_t hts221_data,
                               lis2mdl_data_t lis2mdl_data);
 void screen_print_button_status(char button, const char* action, const char* detail,
                                 uint32_t destination_ip, int send_succeeded);
+void screen_print_campaign_result(const char* scenario, const char* verdict);
 
 #endif // _SCREEN_H

@@ -232,7 +232,11 @@ pub fn resolve_budget(expression: &str, budgets: &Budgets) -> Result<u64, String
 }
 
 struct Run<'a> {
+    /// The samples the Guardian could have received: from [`GUARDIAN_READY`].
     samples: Vec<(u64, &'a Temperature)>,
+    /// Every recorded sample, also those before the Guardian was ready.
+    all_samples: Vec<(u64, &'a Temperature)>,
+    ready: Option<u64>,
     events: Vec<(u64, &'a GuardianEvent)>,
     sovd: Vec<(u64, &'a str, Option<u16>, &'a serde_json::Value)>,
     injections: Vec<(u64, &'a str)>,
@@ -240,9 +244,15 @@ struct Run<'a> {
     window_end: Option<u64>,
 }
 
-/// The tool logs this injection right before it starts the Guardian. Samples
-/// before it cannot have reached the Guardian and are not judged.
+/// The tool logs this injection right before it starts the Guardian. Only for
+/// the timeline: the time until [`GUARDIAN_READY`] is the container's start.
 pub const GUARDIAN_START: &str = "start_guardian";
+
+/// The tool logs this injection once the Guardian has logged its
+/// subscription. Samples before it may not have reached the Guardian and are
+/// not judged. Docker delivers the log line with a delay, so the marker can
+/// come late, never early.
+pub const GUARDIAN_READY: &str = "guardian_ready";
 
 /// A delivery this much later than the detection is shown in the report.
 const DELIVERY_DELAY_NOTICE_MS: u64 = 50;
@@ -267,13 +277,21 @@ impl<'a> Run<'a> {
                 }
             }
         }
-        if let Some((start, _)) = injections.iter().rev().find(|(_, a)| *a == GUARDIAN_START) {
-            samples.retain(|(t, _)| t >= start);
+        let all_samples = samples.clone();
+        let ready = injections
+            .iter()
+            .rev()
+            .find(|(_, a)| *a == GUARDIAN_READY)
+            .map(|(t, _)| *t);
+        if let Some(ready) = ready {
+            samples.retain(|(t, _)| *t >= ready);
         }
         let session_id = events.first().map(|(_, e)| e.session_id.clone());
         let window_end = samples.last().map(|(t, _)| t + cycle_ms);
         Run {
             samples,
+            all_samples,
+            ready,
             events,
             sovd,
             injections,
@@ -337,6 +355,16 @@ impl<'a> Run<'a> {
                 .map(|f| f.t_ms),
             None => Some(t0),
         }
+    }
+
+    /// OpenSOVD records of `dtc`, whoever reported it. For faults without a
+    /// Guardian event, such as the watchdog's heartbeat loss.
+    fn sovd_records_of(&self, dtc: &str) -> Vec<(u64, &'a serde_json::Value)> {
+        self.sovd
+            .iter()
+            .filter(|(_, code, status, _)| *code == dtc && *status == Some(200))
+            .map(|(t, _, _, body)| (*t, *body))
+            .collect()
     }
 
     /// OpenSOVD records of `dtc` that belong to this run's `event`.
@@ -779,9 +807,16 @@ pub fn evaluate(
 ) -> Result<Evaluation, String> {
     let run = Run::new(observations, params.cycle_ms);
     let onset = scenario.onset.find(&run.samples, &run.injections, params);
+    let early = early_onset(scenario, &run, params);
+    // A fault that began before the Guardian was ready proves nothing.
+    let judged = if early.is_none() {
+        onset.as_ref()
+    } else {
+        None
+    };
 
     let mut checks = Vec::new();
-    if let Some(found) = &onset {
+    if let Some(found) = judged {
         for expectation in &scenario.expectations {
             checks.push(check(
                 expectation,
@@ -793,7 +828,7 @@ pub fn evaluate(
             )?);
         }
     }
-    let violations = match &onset {
+    let violations = match judged {
         Some(found) => forbidden(scenario, found.t_ms, &run),
         None => Vec::new(),
     };
@@ -809,6 +844,15 @@ pub fn evaluate(
         (
             Verdict::Inconclusive,
             "no sample reached the Guardian's input".to_owned(),
+        )
+    } else if let (Some(found), Some(ready)) = (&early, run.ready) {
+        (
+            Verdict::Inconclusive,
+            format!(
+                "the fault began at {:.2} s, before the Guardian was ready at {:.2} s",
+                found.t_ms as f64 / 1000.0,
+                ready as f64 / 1000.0
+            ),
         )
     } else if onset.is_none() {
         (
@@ -849,6 +893,7 @@ pub fn evaluate(
     }
     if onset.is_none() || observations.is_empty() {
         requirements.clear();
+    if judged.is_none() {
         for expectation in &scenario.expectations {
             requirements.insert(expectation.requirement().to_owned(), Verdict::Inconclusive);
         }
@@ -860,6 +905,7 @@ pub fn evaluate(
         status: scenario.status,
         verdict,
         reason: reason.clone(),
+        onset: early.or(onset),
         session_id: run.session_id.clone(),
         window_end_ms: run.window_end,
         checks,
@@ -871,6 +917,20 @@ pub fn evaluate(
         timeline: timeline(&run),
         onset,
     })
+}
+
+/// The onset in all recorded samples, if it came before the Guardian was
+/// ready. `none` and `no_input` mean the Guardian's first sample or none, so
+/// they cannot come early.
+fn early_onset(scenario: &Scenario, run: &Run<'_>, params: &OnsetParams) -> Option<Found> {
+    let ready = run.ready?;
+    if matches!(scenario.onset, Onset::None | Onset::NoInput) {
+        return None;
+    }
+    scenario
+        .onset
+        .find(&run.all_samples, &run.injections, params)
+        .filter(|found| found.t_ms < ready)
 }
 
 /// The onset cannot be judged because it never reached the Guardian's input.
@@ -904,6 +964,88 @@ fn check(
     let missing_fault = |dtc: &str| failed(format!("no {dtc} reported after the onset"));
 
     match expectation {
+        Expectation::SovdFault { dtc, budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = if !run.sovd_reachable() {
+                Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                }
+            } else {
+                let failed_record = run
+                    .sovd_records_of(dtc)
+                    .into_iter()
+                    .find(|(t, body)| *t >= t0 && body["status"]["testFailed"] == true);
+                match failed_record {
+                    None => failed(format!("{dtc} never failed in OpenSOVD after the onset")),
+                    Some((t, _)) => {
+                        let latency = t.saturating_sub(t0);
+                        result.t_ms = Some(t);
+                        result.latency_ms = Some(latency);
+                        let text = format!("{dtc} testFailed in OpenSOVD");
+                        if latency <= budget {
+                            Outcome::Met { detail: text }
+                        } else {
+                            failed(format!("{text}, late"))
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::SovdRecovery { dtc, .. } => {
+            result.outcome = if !run.sovd_reachable() {
+                Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                }
+            } else {
+                let records = run.sovd_records_of(dtc);
+                let first_failed = records
+                    .iter()
+                    .find(|(t, body)| *t >= t0 && body["status"]["testFailed"] == true)
+                    .map(|(t, _)| *t);
+                match first_failed {
+                    None => failed(format!("{dtc} never failed in OpenSOVD after the onset")),
+                    Some(t_failed) => {
+                        let passed = records.iter().find(|(t, body)| {
+                            *t > t_failed
+                                && body["status"]["testFailed"] == false
+                                && body["status"]["testFailedSinceLastClear"] == true
+                        });
+                        match passed {
+                            None => failed(format!(
+                                "{dtc} never showed as passed with its history after it failed"
+                            )),
+                            Some((t, _)) => {
+                                result.t_ms = Some(*t);
+                                Outcome::Met {
+                                    detail: format!("{dtc} passed again, history kept"),
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::InputQuality { quality, .. } => {
+            let seen = run
+                .samples
+                .iter()
+                .find(|(t, sample)| *t >= t0 && sample.quality == *quality);
+            result.outcome = match seen {
+                Some((t, sample)) => {
+                    result.t_ms = Some(*t);
+                    Outcome::Met {
+                        detail: format!(
+                            "a sample with quality {quality} reached the input (sequence {})",
+                            sample.sequence
+                        ),
+                    }
+                }
+                None => failed(format!(
+                    "no sample with quality {quality} reached the Guardian's input after the onset"
+                )),
+            };
+        }
         Expectation::Fault { dtc, budget, .. } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);

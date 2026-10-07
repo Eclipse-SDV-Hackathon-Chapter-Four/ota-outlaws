@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use thermal_contract::transport::ZenohEndpoints;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::catalog::{Scenario, Stimulus};
@@ -127,7 +128,7 @@ fn free_port() -> anyhow::Result<u16> {
 /// campaign, not per scenario.
 pub async fn build(repo: &Path) -> anyhow::Result<()> {
     let status = Command::new("docker")
-        .args(["compose", "build", "guardian", "vss-publisher"])
+        .args(["compose", "build", "guardian", "vss-publisher", "watchdog"])
         .current_dir(repo)
         .status()
         .await?;
@@ -150,6 +151,8 @@ struct Plan {
     /// Recording time without a source.
     no_source_for: Duration,
     actions: Vec<(Duration, Action)>,
+    /// Start the Guardian watchdog right after the Guardian.
+    watchdog: bool,
 }
 
 fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
@@ -163,6 +166,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
             trace: None,
             no_source_for: Duration::from_millis(*duration_ms),
             actions: Vec::new(),
+            watchdog: false,
         }),
         Stimulus::CanTrace {
             trace,
@@ -174,6 +178,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
             isolate,
             isolate_after_ms,
             isolate_for_ms,
+            watchdog,
         } => {
             let path = repo.join(trace);
             if !path.is_file() {
@@ -200,6 +205,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
                 trace: Some((trace.clone(), trace_duration(&path)?)),
                 no_source_for: Duration::ZERO,
                 actions,
+                watchdog: *watchdog,
             })
         }
     }
@@ -333,6 +339,21 @@ async fn drive(
     );
     compose.run(&["up", "-d", "--no-build", "guardian"]).await?;
     wait_for_log(compose, "guardian", "subscribed to battery temperature").await?;
+    injection(
+        &recorder,
+        crate::evaluate::GUARDIAN_READY,
+        "the Guardian has subscribed".to_owned(),
+    );
+    if plan.watchdog {
+        // Only now: the watchdog counts the silence from its own start, so
+        // started earlier it would report the Guardian as lost before it began.
+        compose.run(&["up", "-d", "--no-build", "watchdog"]).await?;
+        injection(
+            &recorder,
+            "start_watchdog",
+            "the watchdog starts".to_owned(),
+        );
+    }
 
     let Some((_, trace_duration)) = plan.trace else {
         tokio::time::sleep(plan.no_source_for).await;
@@ -429,20 +450,35 @@ async fn wait_for_sovd(url: &str, entity: &str) -> anyhow::Result<()> {
     }
 }
 
+/// Waits until a service logs `text`. Follows the log instead of polling it,
+/// so the wait ends as soon as Docker delivers the line.
 async fn wait_for_log(compose: &Compose, service: &str, text: &str) -> anyhow::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        if compose
-            .output(&["logs", "--no-color", service])
-            .await?
-            .contains(text)
-        {
-            return Ok(());
+    let mut child = compose
+        .command(&["logs", "--follow", "--no-color", service])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context("cannot run docker compose logs")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("no output of docker compose logs")?;
+    let mut lines = BufReader::new(stdout).lines();
+    let found = tokio::time::timeout(Duration::from_secs(60), async {
+        while let Some(line) = lines.next_line().await? {
+            if line.contains(text) {
+                return Ok(true);
+            }
         }
-        if Instant::now() > deadline {
-            bail!("{service} did not log '{text}'");
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        Ok::<_, std::io::Error>(false)
+    })
+    .await;
+    match found {
+        Ok(Ok(true)) => Ok(()),
+        Ok(Ok(false)) => bail!("{service} stopped before it logged '{text}'"),
+        Ok(Err(error)) => Err(error).context("cannot read docker compose logs"),
+        Err(_) => bail!("{service} did not log '{text}'"),
     }
 }
 

@@ -376,6 +376,30 @@ mod tests {
         .unwrap();
     }
     #[test]
+    fn shipped_catalog_names_the_requirement_of_each_dtc() {
+        // The catalog's summary starts with the requirement that detects the
+        // DTC, for example "FSR-3.2: …". It must match the Guardian's.
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string("../diagnostics/catalog/battery_guardian.json").unwrap(),
+        )
+        .unwrap();
+        for dtc in Dtc::all() {
+            let summary = json["faults"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|fault| fault["id"]["Text"] == dtc.code())
+                .and_then(|fault| fault["summary"].as_str())
+                .unwrap_or_else(|| panic!("{} has no summary", dtc.code()));
+            assert!(
+                summary.starts_with(&format!("{}:", dtc.requirement())),
+                "{}: catalog says '{summary}', the Guardian {}",
+                dtc.code(),
+                dtc.requirement()
+            );
+        }
+    }
+    #[test]
     fn metadata_fits_the_dfm_limits_and_carries_the_classification() {
         let event = Event {
             id: EventId(u64::MAX),

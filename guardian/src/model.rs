@@ -89,7 +89,7 @@ pub enum Quality {
 
 /// How dangerous the battery temperature is.
 ///
-/// See "Guardian output model" in `docs/explanation/safety-concept.md`.
+/// See "Guardian output model" in `docs/reference/hara.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThermalState {
     /// Initial state: no valid data has been received yet. Not "all clear".
@@ -118,8 +118,10 @@ impl ThermalState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MonitoringStatus {
     Ok,
-    /// The source may be frozen: repeated frames arrived (FSR-2.3). Isolated
-    /// invalid samples (FSR-3.5) will also lead here once implemented.
+    /// Input was discarded but not yet persistently: repeated frames or
+    /// duplicates (FSR-2.3, DFR-7), an out-of-order sample (TS-08), or an
+    /// isolated spike (FSR-3.5). Returns to OK after `N_recover` fresh, valid
+    /// samples (DFR-8). Requests no mitigation.
     Suspect,
     Degraded,
 }
@@ -131,7 +133,8 @@ pub enum MonitoringStatus {
 pub enum FaultCode {
     /// No fresh sample for longer than the freshness timeout.
     FreshnessLost,
-    /// Samples keep arriving, but the alive counter does not change.
+    /// Samples keep arriving, but the alive counter does not change: a frozen
+    /// source or persistent duplicates (DFR-7).
     CounterStuck,
     /// Maximum temperature frozen while other temperatures change.
     SignalStuck,
@@ -141,7 +144,8 @@ pub enum FaultCode {
     OrderImplausible,
     /// A temperature is outside the plausible range.
     OutOfRange,
-    /// The maximum rose faster than physically plausible.
+    /// The maximum rose faster than physically plausible, `N_suspect` times
+    /// within `T_suspect` (FSR-3.5).
     RateImplausible,
     /// No fresh sample since the Guardian started.
     NoDataAtStartup,
