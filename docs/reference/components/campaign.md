@@ -119,9 +119,13 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
    into `recording.jsonl`, stamped with the tool's own clock.
 3. The KUKSA CAN Provider replays the scenario's trace **once**. The Guardian
    starts only when the first sample reaches the tap: started earlier, it would
-   rightly report that no data arrived after its start (FSR-2.1). Samples before
-   its start are not judged. Faults in traces should therefore come no earlier
-   than about 4 s into the trace.
+   rightly report that no data arrived after its start (FSR-2.1). The recording
+   marks `start_guardian` before the container starts and `guardian_ready` once
+   the Guardian has logged its subscription; the time between them is the
+   container's start. Samples before `guardian_ready` are not judged. If the
+   fault began before it, the scenario is INCONCLUSIVE: the Guardian could not
+   have seen its onset. Faults in traces should therefore come no earlier than
+   about 4 s into the trace; slow Docker hosts may need more.
 4. When the samples have stopped after the trace's duration, the tool records
    3 s more, so OpenSOVD can catch up, then removes the project.
 5. The evaluation judges the recording. The judged window ends with the last
@@ -155,7 +159,7 @@ As defined in the [Safety Concept](../../explanation/safety-concept.md#scenario-
 |---------|------|
 | PASS | Onset observed, every expectation met within its budget, nothing forbidden |
 | FAIL | An expectation missed or late, or a forbidden reaction |
-| INCONCLUSIVE | Onset not observed, or evidence missing (for example, OpenSOVD never answered) |
+| INCONCLUSIVE | Onset not observed, onset before the Guardian was ready, or evidence missing (for example, OpenSOVD never answered) |
 
 ## Hardware demo
 

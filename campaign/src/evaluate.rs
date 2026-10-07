@@ -127,7 +127,11 @@ pub fn resolve_budget(expression: &str, budgets: &Budgets) -> Result<u64, String
 }
 
 struct Run<'a> {
+    /// The samples the Guardian could have received: from [`GUARDIAN_READY`].
     samples: Vec<(u64, &'a Temperature)>,
+    /// Every recorded sample, also those before the Guardian was ready.
+    all_samples: Vec<(u64, &'a Temperature)>,
+    ready: Option<u64>,
     events: Vec<(u64, &'a GuardianEvent)>,
     sovd: Vec<(u64, &'a str, Option<u16>, &'a serde_json::Value)>,
     injections: Vec<(u64, &'a str)>,
@@ -135,9 +139,15 @@ struct Run<'a> {
     window_end: Option<u64>,
 }
 
-/// The tool logs this injection right before it starts the Guardian. Samples
-/// before it cannot have reached the Guardian and are not judged.
+/// The tool logs this injection right before it starts the Guardian. Only for
+/// the timeline: the time until [`GUARDIAN_READY`] is the container's start.
 pub const GUARDIAN_START: &str = "start_guardian";
+
+/// The tool logs this injection once the Guardian has logged its
+/// subscription. Samples before it may not have reached the Guardian and are
+/// not judged. Docker delivers the log line with a delay, so the marker can
+/// come late, never early.
+pub const GUARDIAN_READY: &str = "guardian_ready";
 
 /// A delivery this much later than the detection is shown in the report.
 const DELIVERY_DELAY_NOTICE_MS: u64 = 50;
@@ -162,13 +172,21 @@ impl<'a> Run<'a> {
                 }
             }
         }
-        if let Some((start, _)) = injections.iter().rev().find(|(_, a)| *a == GUARDIAN_START) {
-            samples.retain(|(t, _)| t >= start);
+        let all_samples = samples.clone();
+        let ready = injections
+            .iter()
+            .rev()
+            .find(|(_, a)| *a == GUARDIAN_READY)
+            .map(|(t, _)| *t);
+        if let Some(ready) = ready {
+            samples.retain(|(t, _)| *t >= ready);
         }
         let session_id = events.first().map(|(_, e)| e.session_id.clone());
         let window_end = samples.last().map(|(t, _)| t + cycle_ms);
         Run {
             samples,
+            all_samples,
+            ready,
             events,
             sovd,
             injections,
@@ -269,9 +287,16 @@ pub fn evaluate(
 ) -> Result<Evaluation, String> {
     let run = Run::new(observations, params.cycle_ms);
     let onset = scenario.onset.find(&run.samples, &run.injections, params);
+    let early = early_onset(scenario, &run, params);
+    // A fault that began before the Guardian was ready proves nothing.
+    let judged = if early.is_none() {
+        onset.as_ref()
+    } else {
+        None
+    };
 
     let mut checks = Vec::new();
-    if let Some(found) = &onset {
+    if let Some(found) = judged {
         for expectation in &scenario.expectations {
             checks.push(check(
                 expectation,
@@ -283,7 +308,7 @@ pub fn evaluate(
             )?);
         }
     }
-    let violations = match &onset {
+    let violations = match judged {
         Some(found) => forbidden(scenario, found.t_ms, &run),
         None => Vec::new(),
     };
@@ -292,6 +317,15 @@ pub fn evaluate(
         (
             Verdict::Inconclusive,
             "no sample reached the Guardian's input".to_owned(),
+        )
+    } else if let (Some(found), Some(ready)) = (&early, run.ready) {
+        (
+            Verdict::Inconclusive,
+            format!(
+                "the fault began at {:.2} s, before the Guardian was ready at {:.2} s",
+                found.t_ms as f64 / 1000.0,
+                ready as f64 / 1000.0
+            ),
         )
     } else if onset.is_none() {
         (
@@ -330,7 +364,7 @@ pub fn evaluate(
     for v in &violations {
         requirements.insert(v.requirement.clone(), Verdict::Fail);
     }
-    if onset.is_none() {
+    if judged.is_none() {
         for expectation in &scenario.expectations {
             requirements.insert(expectation.requirement().to_owned(), Verdict::Inconclusive);
         }
@@ -342,7 +376,7 @@ pub fn evaluate(
         status: scenario.status,
         verdict,
         reason,
-        onset,
+        onset: early.or(onset),
         session_id: run.session_id.clone(),
         window_end_ms: run.window_end,
         checks,
@@ -351,6 +385,20 @@ pub fn evaluate(
         samples: run.samples.len(),
         guardian_events: run.events.len(),
     })
+}
+
+/// The onset in all recorded samples, if it came before the Guardian was
+/// ready. `none` and `no_input` mean the Guardian's first sample or none, so
+/// they cannot come early.
+fn early_onset(scenario: &Scenario, run: &Run<'_>, params: &OnsetParams) -> Option<Found> {
+    let ready = run.ready?;
+    if matches!(scenario.onset, Onset::None | Onset::NoInput) {
+        return None;
+    }
+    scenario
+        .onset
+        .find(&run.all_samples, &run.injections, params)
+        .filter(|found| found.t_ms < ready)
 }
 
 /// The onset cannot be judged because it never reached the Guardian's input.

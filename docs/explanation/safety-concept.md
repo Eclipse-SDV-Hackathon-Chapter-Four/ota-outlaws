@@ -214,7 +214,7 @@ The Evidence Collector measures it at its tap point.
 |---------|-----------|
 | PASS | The fault was observed at the tap point, every expected reaction occurred within its latency budget, no forbidden reaction occurred, and the evidence is complete. |
 | FAIL | An expected safety reaction is missing or late, or a forbidden reaction occurred (for example, the thermal state was lowered while monitoring was DEGRADED). |
-| INCONCLUSIVE | The fault never reached the tap point (for example, the CAN provider resampled a one-frame spike away), or the evidence is incomplete (for example, a DFM record is missing in a scenario that does not target diagnostics). |
+| INCONCLUSIVE | The fault never reached the tap point (for example, the CAN provider resampled a one-frame spike away), the fault began before the Guardian was ready to receive samples, or the evidence is incomplete (for example, a DFM record is missing in a scenario that does not target diagnostics). |
 
 Each campaign defines its expected reactions. For a **diagnostics** fault
 campaign, the expected reaction is that the collector detects the missing or
