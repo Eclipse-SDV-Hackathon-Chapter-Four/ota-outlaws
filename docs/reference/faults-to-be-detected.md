@@ -44,31 +44,38 @@ today. The rest are derivable from the same four signals and are either
 specified in the Safety Concept as `planned`, or proposed here as not yet
 specified at all; none of those are implemented.
 
-| Fault | Description | Severity | Mitigation |
-|---|---|---|---|
-| Overtemperature Warning *(implemented)* | Max cell temperature crossed the WARNING threshold (≥45°C) | Warn | Log and raise driver attention, no active intervention yet |
-| Overtemperature Critical *(implemented)* | Max cell temperature crossed the CRITICAL threshold (≥55°C) | Fatal | `DriverWarningOvertemp` |
-| Undertemperature | Temperature drops below a safe charging/operating threshold (no dedicated threshold implemented yet) | Warn | Log and raise driver attention, block charging if applicable |
-| FreshnessLost *(implemented)* | No fresh data arriving anymore | Error | `DriverWarningMonitoringUnavailable` |
-| CounterStuck *(implemented)* | ECU frozen, keeps sending the same frame | Error | `DriverWarningMonitoringUnavailable` |
-| SignalStuck *(implemented)* | Max frozen while Avg/Min keep moving | Error | `DriverWarningMonitoringUnavailable` |
-| QualityInvalid *(implemented)* | Source marks the value as unusable | Error | `DriverWarningMonitoringUnavailable` |
-| OrderImplausible *(implemented)* | Min/Avg/Max not in the correct order | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| OutOfRange *(implemented)* | Value outside the plausible range | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| RateImplausible *(implemented)* | Rise faster than physically plausible | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| Fast-Heating Trend | Rise below θ_warn sustained over time, early warning | Warn | Log and raise driver attention, pre-arm thermal mitigation |
-| Hot Spot | Max significantly above Avg, single cell overheating | Warn | Log and raise driver attention, pre-arm thermal mitigation |
-| Mitigation Failed | Temperature keeps rising despite requested mitigation | Fatal | Escalate to a stronger protective action (e.g. request power limiting or shutdown) |
-| Startup Without Source | No valid sample since Guardian start | Error | `DriverWarningMonitoringUnavailable` |
-| Isolated vs. Repeated Spike | Single occurrence sets SUSPECT, repeated sets DEGRADED | Warn / Error | Discard sample only / escalate to `DriverWarningMonitoringUnavailable` |
-| Counter Error, Isolated vs. Repeated | Counter jump, not advancing by exactly one | Warn / Error | Discard sample only / escalate to `DriverWarningMonitoringUnavailable` |
-| Heartbeat Loss | Guardian itself stops reporting | Fatal | Runtime restarts the Guardian, `DriverWarningMonitoringUnavailable` until recovered |
-| Stale Timestamp | Constant transport delay despite synchronized clocks | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| Min Stuck | Mirror of SignalStuck, but on the cold side | Error | `DriverWarningMonitoringUnavailable` |
-| Avg Deviates from (Min+Max)/2 | Internal aggregation error in the BMS | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| Chattering Between Warning/Critical | Unstable thermal process despite hysteresis | Warn | Log only, no mitigation change |
-| Upper-Scale Saturation | Sensor pegged at its limit rather than a plausible value | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
-| Rapid Cooling Faster Than Physically Plausible | Coolant leak or sensor fault | Warn | Log and raise driver attention |
+The HARA ID column traces each fault to the
+[preliminary HARA](hara.md#candidate-faults-and-malfunctions)'s candidate faults
+(`F-*`) or, where a row is a correct escalation rather than an injected fault,
+to the hazardous events it guards against (`HE-*`). `—` means the HARA does not
+currently define a matching item; that is a gap to close there, not evidence
+the fault is unimportant here.
+
+| Fault | HARA ID | Description | Severity | Mitigation |
+|---|---|---|---|---|
+| Overtemperature Warning *(implemented)* | HE-1, HE-2, HE-3 | Max cell temperature crossed the WARNING threshold (≥45°C) | Warn | Log and raise driver attention, no active intervention yet |
+| Overtemperature Critical *(implemented)* | HE-1, HE-2, HE-3 | Max cell temperature crossed the CRITICAL threshold (≥55°C) | Fatal | `DriverWarningOvertemp` |
+| Undertemperature | — | Temperature drops below a safe charging/operating threshold (no dedicated threshold implemented yet) | Warn | Log and raise driver attention, block charging if applicable |
+| FreshnessLost *(implemented)* | F-4, F-9 | No fresh data arriving anymore | Error | `DriverWarningMonitoringUnavailable` |
+| CounterStuck *(implemented)* | F-1 | ECU frozen, keeps sending the same frame | Error | `DriverWarningMonitoringUnavailable` |
+| SignalStuck *(implemented)* | F-1 | Max frozen while Avg/Min keep moving | Error | `DriverWarningMonitoringUnavailable` |
+| QualityInvalid *(implemented)* | — | Source marks the value as unusable | Error | `DriverWarningMonitoringUnavailable` |
+| OrderImplausible | — | Min/Avg/Max not in the correct order | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| OutOfRange | F-6 | Value outside the plausible range | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| RateImplausible | F-8 | Rise faster than physically plausible | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| Fast-Heating Trend | F-7 | Rise below θ_warn sustained over time, early warning | Warn | Log and raise driver attention, pre-arm thermal mitigation |
+| Hot Spot | — | Max significantly above Avg, single cell overheating | Warn | Log and raise driver attention, pre-arm thermal mitigation |
+| Mitigation Failed | — | Temperature keeps rising despite requested mitigation | Fatal | Escalate to a stronger protective action (e.g. request power limiting or shutdown) |
+| Startup Without Source | — | No valid sample since Guardian start | Error | `DriverWarningMonitoringUnavailable` |
+| Isolated vs. Repeated Spike | F-8 | Single occurrence sets SUSPECT, repeated sets DEGRADED | Warn / Error | Discard sample only / escalate to `DriverWarningMonitoringUnavailable` |
+| Counter Error, Isolated vs. Repeated | F-3, F-5 | Counter jump, not advancing by exactly one | Warn / Error | Discard sample only / escalate to `DriverWarningMonitoringUnavailable` |
+| Heartbeat Loss | F-10 | Guardian itself stops reporting | Fatal | Runtime restarts the Guardian, `DriverWarningMonitoringUnavailable` until recovered |
+| Stale Timestamp | F-2 | Constant transport delay despite synchronized clocks | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| Min Stuck | F-1 | Mirror of SignalStuck, but on the cold side | Error | `DriverWarningMonitoringUnavailable` |
+| Avg Deviates from (Min+Max)/2 | — | Internal aggregation error in the BMS | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| Chattering Between Warning/Critical | — | Unstable thermal process despite hysteresis | Warn | Log only, no mitigation change |
+| Upper-Scale Saturation | — | Sensor pegged at its limit rather than a plausible value | Error | Discard sample, `DriverWarningMonitoringUnavailable` |
+| Rapid Cooling Faster Than Physically Plausible | F-7 | Coolant leak or sensor fault | Warn | Log and raise driver attention |
 
 ## AI Assistance
 
