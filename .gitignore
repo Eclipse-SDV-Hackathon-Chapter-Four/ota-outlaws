@@ -11,7 +11,7 @@
 # AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 /start
-# Cargo build output at any level, including vss-publisher/target.
+# Cargo build output at any level.
 target/
 
 # Reproducible campaign results are preserved locally and uploaded by CI.

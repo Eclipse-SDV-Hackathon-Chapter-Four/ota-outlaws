@@ -13,9 +13,15 @@
 
 [workspace]
 resolver = "2"
-members = ["guardian", "guardian-service", "contracts", "third-party/fault-lib"]
-# Built on its own, with its own lockfile.
-exclude = ["vss-publisher"]
+# One lockfile for every component on the uProtocol bus, so both ends of
+# the wire use the same uProtocol and Zenoh versions.
+members = [
+    "guardian",
+    "guardian-service",
+    "contracts",
+    "vss-publisher",
+    "third-party/fault-lib",
+]
 
 [workspace.package]
 edition = "2021"
