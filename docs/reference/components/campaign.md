@@ -67,6 +67,12 @@ budget = "T_counter_stuck + T_react"  # from safety-params.toml (N_stuck × cycl
 requirement = "FSR-2.3"
 ```
 
+The tool refuses to load the catalog if an `implemented` scenario expects a
+`dtc` that is not in the DFM catalog
+([`battery_guardian.json`](../../../diagnostics/catalog/battery_guardian.json)):
+a misspelt DTC would otherwise look like a missing reaction of the Guardian.
+A `planned` scenario may name a DTC that does not exist yet.
+
 | Stimulus | Effect |
 |----------|--------|
 | `can_trace` | Replays the trace once through the KUKSA CAN Provider. Optionally, after the source started: pauses services for a while (`pause`, `pause_after_ms`, `pause_for_ms`), stops services for good (`stop`, `stop_after_ms`), or cuts one service off the network for a while (`isolate`, `isolate_after_ms`, `isolate_for_ms`) |
