@@ -523,40 +523,6 @@ mitigation events, fault record, and reaction latency. Do not classify the
 expected `WARNING` as a false positive solely because the injected sample was
 anomalous.
 
-### To be reviewed
-
-| ID | HARA trace | Preconditions and Stimulus | Expected result | Evidence and verdict focus |
-|---|---|---|---|---|
-| TS-11/12/13 | HE-1 to HE-3; SG-2, SG-4; DFR-3; FSR-1.5, FSR-2.5, FSR-2.6, FSR-3.6 | First reach WARNING (repeat at CRITICAL). Inject a low out-of-range or invalid-quality sample, then restore valid samples. | Invalid input does not lower or clear the active thermal state. Lowering/recovery occurs only under valid-sample, hysteresis, and recovery conditions. | Capture validity, state before/after injection, monitoring status, recovery count, and de-escalation point. |
-| TS-14 | HE-1, HE-4, HE-5; SG-1, SG-3; DFR-1, DFR-4; FSR-3.2, FSR-3.3, FSR-3.6 | Separately inject a high out-of-range sample and a one-sample rise exceeding `r_max` while below CRITICAL. | Raise at least WARNING because the sample may indicate real danger; do not enter CRITICAL or request mitigation from the invalid sample alone. | Verify state, warning event, absence of mitigation, fault record, and latency. Do not label the expected WARNING a false positive solely because input was anomalous. |
-| TS-15 | HE-4, HE-5; SG-3; DFR-4 | While below CRITICAL, inject duplicate, high out-of-range, and high-spike variants separately; then provide valid critical input as a positive control. | Invalid/repeated input alone causes no mitigation. Valid critical input produces the defined mitigation request. | This directly tests DFR-4, for which no explicit FSR exists. Record as a requirement gap until the mitigation-gating invariant is added to the Safety Concept. |
-| TS-16 | HE-6; SG-4; | Present the approved warning for uncertain high-temperature data in an OS-1 driving simulator/human-factors setup, with a credible thermal-warning positive control. | Communicate uncertainty and approved driver action without suppressing a potentially valid thermal warning or inducing the defined unsafe response. | Blocked until HMI acceptance criteria, warning design, and owner are approved. A Guardian replay cannot verify driver response. |
-| TS-17 | Diagnostic goal; DFR-6; FSR-D.1 to FSR-D.4, EC-1 to EC-3 | Run a fault scenario that causes a Guardian diagnostic; separately delay the DFM write or suppress OpenSOVD visibility. | Safety behavior is not delayed by diagnostics. The collector correlates records or flags missing/late evidence. | Correlate run ID, fault code, detecting requirement, event time, DFM/OpenSOVD record, and verdict. Diagnostics from a future independent supervisor remain uncovered. |
-| TS-18 | HE-1 to HE-3; SG-1, SG-2; F-10; DFR-5 | With valid temperature input active, terminate the Guardian process. | Proposed independent supervisor requests `DRIVER_WARNING_MONITORING_UNAVAILABLE`; runtime may restart the process. The collector log is not the occupant response. | Warning behavior is **not implemented**: mark blocked or failed against the safety objective, never PASS from heartbeat evidence alone. Measure warning/recovery latency after implementation. |
-| TS-19 | HE-1 to HE-3; SG-1, SG-2; F-10; DFR-5 | With valid input active, pause the Guardian evaluation loop while leaving its process alive. | Progress-aware monitor detects the missing evaluation progress and requests monitoring-unavailable warning; hang recovery is separately defined. | **Missing:** current FSR-2.7 does not require heartbeat to prove evaluation progress or specify hang recovery. Until defined and implemented, record the gap. |
-| TS-20 | HE-1 to HE-3; SG-1; DFR-1 | Replay or simulate an approved battery thermal profile from warning trigger through the defined dangerous condition. | Occupants receive warning at least the approved lead time before the dangerous condition. | **Blocked/missing:** no approved lead-time value, reference condition, or validated thermal profile exists. `T_react` alone cannot pass this test. |
-| TS-21 | SG-2; DFR-5, DFR-6 | After an independent supervisor is implemented, terminate or hang the Guardian and observe the supervisor's diagnostic output. | The supervisor's fault is traceable through diagnostics to the campaign verdict without delaying its warning response. | **Missing allocation:** no Safety Concept FSR/EC currently defines supervisor diagnostics. Add and approve that allocation before claiming coverage. |
-
-For each run, record the operational situation, fault variant and injection
-parameters, run/correlation IDs, input and output timestamps, expected and
-observed reaction, diagnostic visibility, and PASS/FAIL/INCONCLUSIVE verdict.
-PASS requires the fault to reach the Guardian input, all required reactions to
-meet their budgets, no forbidden reaction, and complete evidence. Use
-INCONCLUSIVE when the stimulus did not reach the Guardian or the required vehicle
-interface/evidence was unavailable. Retain failed runs in the report.
-
-These scenarios verify the stated software and evidence behaviors; they do not establish vehicle-level S/E/C ratings or prove occupant safety by themselves.
-Mark a scenario PASS only when its requirement is approved, the stimulus reaches the intended boundary, all specified reactions occur within budget, no forbidden reaction occurs, and required evidence is complete. Keep blocked and failed scenarios visible in the report.
-
-## Fault and Catalog Single-Fault Test Cases
-
-The cases below map fault-catalog entries and HARA candidate faults to tests.
-An entry marked **HARA-only** is not yet included in the separate fault catalog.
-A test injects only the named fault; nominal input and recovery samples are
-setup/control data, not additional injected faults. Isolated/repeated behaviors
-and high/low range directions are separate cases. **Blocked** means a required
-threshold, response, owner, or observable oracle is not defined or implemented;
-it is not a passing result.
 
 | Fault catalog entry / HARA candidate | HARA test case |
 |---|---|
@@ -570,7 +536,7 @@ it is not a passing result.
 | Isolated vs. Repeated Spike | TS-37 (isolated), TS-38 (repeated) |
 | Heartbeat Loss | TS-41 (termination), TS-42 (hang) |
 
-### TS-22 Overtemperature Warning
+### TS-15 Overtemperature Warning
 
 **HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Overtemperature Warning.
 
@@ -589,7 +555,7 @@ keeping it below `θ_crit`.
 state transition, any DTC, and emitted mitigation events. Fail if this
 warning-only condition triggers critical mitigation.
 
-### TS-23 Overtemperature Critical
+### TS-16 Overtemperature Critical
 
 **HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Overtemperature Critical.
 
@@ -606,7 +572,7 @@ budget and reports the overtemperature-critical DTC.
 **Evidence and Verdict Focus:** Capture the valid sample, threshold, state
 transition, DTC/DFM record, mitigation event, and latency.
 
-### TS-24 Undertemperature
+### TS-17 Undertemperature
 
 **HARA trace:** No matching HARA fault ID or safety goal is currently defined;
 catalog fault: Undertemperature.
@@ -627,7 +593,7 @@ existing Guardian mitigation.
 **Evidence and Verdict Focus:** **Blocked:** record the approved limit, owner,
 requirement, and interface before executing this case as a pass/fail test.
 
-### TS-25 FreshnessLost
+### TS-18 FreshnessLost
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-4/F-9; catalog fault: FreshnessLost.
 
@@ -646,7 +612,7 @@ fault within `T_stale + T_react`; it does not lower an existing thermal state.
 onset, timeout, Guardian status/fault, DFM/OpenSOVD evidence, and latency. Inject
 only the stream interruption and use taps to attribute its origin.
 
-### TS-28 QualityInvalid
+### TS-19 QualityInvalid
 
 **HARA trace:** SG-2; no dedicated candidate fault ID exists in the HARA yet;
 catalog fault: QualityInvalid.
@@ -666,7 +632,7 @@ overtemperature mitigation from invalid quality alone.
 state/status transition, DTC, DFM/OpenSOVD record, and latency. Add a dedicated
 candidate malfunction ID to the HARA before claiming complete HARA traceability.
 
-### TS-30 OutOfRange: low value
+### TS-20 OutOfRange: low value
 
 **HARA trace:** HE-1 to HE-3; SG-2/SG-4; F-6; catalog fault: OutOfRange.
 
@@ -686,7 +652,7 @@ approved invalid-input response.
 **Evidence and Verdict Focus:** Record range limits, injected value, state
 before/after, monitoring status, fault, diagnostic record, and latency.
 
-### TS-31 OutOfRange: high value
+### TS-21 OutOfRange: high value
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-6; catalog fault: OutOfRange.
 
@@ -707,7 +673,7 @@ monitoring-unavailable warning if monitoring becomes `DEGRADED`.
 mitigation events, and latency. Fail if the warning is suppressed or invalid
 input alone triggers mitigation.
 
-### TS-32 RateImplausible
+### TS-22 RateImplausible
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog fault:
 RateImplausible.
@@ -730,7 +696,7 @@ monitoring.
 computed rate, state/status, warning/DTC, mitigation, and latency. Resolve the
 FSR-3.3 versus FSR-3.5 isolated-invalid status rule before final pass/fail.
 
-### TS-37 Isolated Spike
+### TS-23 Isolated Spike
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog fault:
 Isolated vs. Repeated Spike.
@@ -753,7 +719,7 @@ criterion is reached.
 samples, status/state, warning/DTC, and mitigation. Resolve FSR-3.3/FSR-3.5
 status behavior before declaring a pass.
 
-### TS-38 Repeated Spike
+### TS-24 Repeated Spike
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog:
 Isolated vs. Repeated Spike.
@@ -774,7 +740,7 @@ overtemperature mitigation from invalid spikes alone.
 **Evidence and Verdict Focus:** Record every spike, timestamps, debounce
 window/count, status/state, DTC, DFM record, and output events.
 
-### TS-41 Heartbeat Loss: Process Termination
+### TS-25 Heartbeat Loss: Process Termination
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; F-10; catalog: Heartbeat Loss.
 
@@ -794,7 +760,7 @@ actually restarts it; independent warning remains a safety gap.
 process recovery, and collector event. Do not treat collector evidence as an
 occupant safety response.
 
-### TS-42 Heartbeat Loss: Evaluation Hang
+### TS-26 Heartbeat Loss: Evaluation Hang
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; F-10; catalog: Heartbeat Loss.
 
