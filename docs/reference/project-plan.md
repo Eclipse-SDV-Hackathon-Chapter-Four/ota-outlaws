@@ -35,24 +35,11 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 - We use rust as a robust and efficient way to implement our solution of the `Battery Thermal Guardian`
 - The fault traces are generated in Python. The `Campaign Tool` (campaign runner and evidence collector in one) is implemented in Rust, so that it uses the same uProtocol library and contract as the Guardian 
 - The `TempSensor` implementation on the `MXCHIP` PCB will be done in C++
-- Outline faults and how to react to them (fault catalog)
-   - CAN Message Timeout
-   - CAN Counter Error
-   - CAN Counter Stuck
-   - Invalid Quality
-   - CellTempMin > CellTempAvg
-   - CellTempAvg > CellTempMax
-   - CellTempMin > CellTempMax
-   - Temperature Value Out of Range
-   - Implausible Temperature Value
-   - Excessive Temperature Difference (CellTempMax − CellTempMin)
-   - Temperature Sensor Stuck / No Temperature Change over Time
-   - Missing or Outdated Temperature Data
-- Implement a scenario generator
+- Outline faults and how to react to them [fault catalog](hara.md#candidate-faults-and-malfunctions)
+- Implement a campaign runner
    - Provides fault CAN messages
-   - Creates manifest, containing, Injection time (when the fault will happen), Fault ID
-   - Evidence collector takes manifest into account and generates report
-- Decouple the Battery Thermal Guardian from the Evidence Collector via OpenSOVD Server
+   - Creates scenario data, containing, Injection time (when the fault will happen), Fault ID
+   - Collect evidence takes manifest into account and generates report
 - [Architecture specification](architecture.md)
 
 ## How We Work
