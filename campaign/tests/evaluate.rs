@@ -829,19 +829,51 @@ fn ts_10_lowering_after_invalid_input_is_fail() {
 }
 
 #[test]
-fn samples_before_the_guardian_started_are_not_judged() {
-    // A gap before the Guardian started is not a fault the Guardian could see.
+fn fault_before_the_guardian_was_ready_is_inconclusive() {
+    // A gap before the Guardian was ready is not a fault the Guardian could
+    // see. Its later reaction proves nothing either.
     let context = context();
     let mut r = Recording::default();
     r.nominal(0, 1000);
     r.nominal(2000, 3000);
-    r.injection(2500, "start_guardian");
+    r.injection(500, "start_guardian");
+    r.injection(2500, "guardian_ready");
     r.nominal(3000, 6000);
+    r.full_reaction("BTG_TempFreshnessLost", 2600, 5200);
 
     let evaluation = r.judge(&context, "timeout");
 
     assert_eq!(evaluation.verdict, Verdict::Inconclusive);
-    assert!(evaluation.reason.contains("never showed"));
+    assert!(
+        evaluation.reason.contains("before the Guardian was ready"),
+        "{}",
+        evaluation.reason
+    );
+    assert!(evaluation.checks.is_empty());
+    assert_eq!(evaluation.onset.as_ref().unwrap().t_ms, 1000);
+    assert_eq!(evaluation.requirements["FSR-2.2"], Verdict::Inconclusive);
+}
+
+#[test]
+fn samples_between_start_and_ready_are_not_judged() {
+    // The Guardian's container takes a while to start; the samples meanwhile
+    // are not judged. The gap after it is.
+    let context = context();
+    let mut r = timeout_run();
+    r.injection(300, "start_guardian");
+    r.injection(1200, "guardian_ready");
+    // t0 = 1900 + 100; detected 300 ms later.
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(
+        evaluation.verdict,
+        Verdict::Pass,
+        "{:#?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.onset.as_ref().unwrap().t_ms, 2000);
 }
 
 #[test]

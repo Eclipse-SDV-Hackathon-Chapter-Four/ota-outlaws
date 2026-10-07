@@ -333,6 +333,11 @@ async fn drive(
     );
     compose.run(&["up", "-d", "--no-build", "guardian"]).await?;
     wait_for_log(compose, "guardian", "subscribed to battery temperature").await?;
+    injection(
+        &recorder,
+        crate::evaluate::GUARDIAN_READY,
+        "the Guardian has subscribed".to_owned(),
+    );
 
     let Some((_, trace_duration)) = plan.trace else {
         tokio::time::sleep(plan.no_source_for).await;

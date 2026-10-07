@@ -40,8 +40,8 @@ status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/normal.asc" }
 onset = "none"
 
-# The Guardian starts while the source is already running, so this budget
-# includes its start. TS-01 sets no time limit.
+# The Guardian starts while the source is already running; t0 is the first
+# sample after it has subscribed. TS-01 sets no time limit.
 [[scenario.expect]]
 kind = "thermal"
 state = "MONITORING"
