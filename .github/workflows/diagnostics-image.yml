@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+
+name: Diagnostics image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, ci/publish-diagnostics-image]
+    paths:
+      - diagnostics/Dockerfile
+      - diagnostics/build-images.sh
+      - diagnostics/image.env
+      - .github/workflows/diagnostics-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: diagnostics-image-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.pin.outputs.image }}
+      source: ${{ steps.pin.outputs.source }}
+      exists: ${{ steps.existing.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pin
+        run: |
+          . diagnostics/image.env
+          echo "image=$DIAGNOSTICS_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "source=$PINNED_SOURCE_REV" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - id: existing
+        env:
+          IMAGE: ${{ steps.pin.outputs.image }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.exists != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit
+          ref: ${{ needs.prepare.outputs.source }}
+          path: diagnostic-source
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: crazy-max/ghaction-github-runtime@v4
+      - name: Build and publish from the pinned source
+        env:
+          SOURCE_REF: ${{ needs.prepare.outputs.source }}
+          PUSH_IMAGE: "1"
+          IMAGE_ARCH: ${{ matrix.arch }}
+          PUBLISH_TAG: ${{ needs.prepare.outputs.image }}-${{ matrix.arch }}
+        run: sh diagnostics/build-images.sh diagnostic-source
+
+  manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Publish the multi-platform tag
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+        run: |
+          docker buildx imagetools create --tag "$IMAGE" "$IMAGE-amd64" "$IMAGE-arm64"
+          docker buildx imagetools inspect "$IMAGE"
+          echo "Published: $IMAGE" >> "$GITHUB_STEP_SUMMARY"

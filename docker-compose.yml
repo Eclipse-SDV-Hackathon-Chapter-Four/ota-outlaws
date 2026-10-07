@@ -104,8 +104,8 @@ services:
       - opensovd-dfm
 
   opensovd-dfm:
-    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
-    pull_policy: never
+    image: ${DIAGNOSTICS_IMAGE:-ghcr.io/eclipse-sdv-hackathon-chapter-four/ota-outlaws-diagnostics:97dd4a503f25674e866a89829e2bd92d2cf2655d-v1}
+    pull_policy: missing
     entrypoint: ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/dfm_bin"]
     command: ["--catalog-dir", "/catalog", "--storage-dir", "/data"]
     tmpfs: [/tmp]
@@ -118,8 +118,8 @@ services:
     restart: unless-stopped
 
   opensovd-gateway:
-    image: ${DIAGNOSTICS_IMAGE:-local/opensovd-demo-fork:verified}
-    pull_policy: never
+    image: ${DIAGNOSTICS_IMAGE:-ghcr.io/eclipse-sdv-hackathon-chapter-four/ota-outlaws-diagnostics:97dd4a503f25674e866a89829e2bd92d2cf2655d-v1}
+    pull_policy: missing
     entrypoint: ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/opensovd-gateway"]
     command: ["--url", "http://0.0.0.0:7690/sovd", "--dfm-fault-app", "battery_guardian"]
     tmpfs: [/tmp]
