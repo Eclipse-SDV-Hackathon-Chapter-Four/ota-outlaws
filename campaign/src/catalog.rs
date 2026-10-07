@@ -87,7 +87,7 @@ pub enum Stimulus {
         isolate_after_ms: Option<u64>,
         isolate_for_ms: Option<u64>,
         /// Start the Guardian watchdog next to the Guardian. Only the scenarios
-        /// that supervise the Guardian itself (HARA TS-25, TS-26) need it.
+        /// that supervise the Guardian itself (HARA TS-24, TS-25) need it.
         #[serde(default)]
         watchdog: bool,
     },
@@ -167,7 +167,10 @@ pub enum Expectation {
     /// A sample with this quality (`VALID`, `INVALID`, `NOT_AVAILABLE`) reached
     /// the Guardian's input after t0: the VSS Publisher mapped the raw CAN
     /// quality byte as expected.
-    InputQuality { quality: String, requirement: String },
+    InputQuality {
+        quality: String,
+        requirement: String,
+    },
     /// The thermal state reaches `state` from valid data, and OpenSOVD shows
     /// `dtc` failed for that change within the budget, with the catalog's
     /// fault type and severity. If the state is lowered again, OpenSOVD

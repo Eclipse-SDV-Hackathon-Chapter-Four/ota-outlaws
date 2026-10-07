@@ -226,7 +226,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-29. Each scenario in the catalog names the ones it implements
+TS-01 to TS-28. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -237,47 +237,34 @@ TS-01 to TS-29. Each scenario in the catalog names the ones it implements
 | TS-04 Source shutdown | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
 | TS-05 Delayed or withheld update | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
-<<<<<<< HEAD
 | TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign |
 | TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`) |
 | TS-09 Stuck maximum | `max_stuck` | campaign |
 | TS-10 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-11, TS-12, TS-20 Low out of range | `out_of_range_low_warning`, `out_of_range_low_critical`, `out_of_range_low_min_warning` | planned: the Guardian's `min_c` is 0, the HARA says 10 °C |
+| TS-11, TS-12, TS-19 Low out of range | `out_of_range_low_warning`, `out_of_range_low_critical`, `out_of_range_low_min_warning` | planned: the Guardian's `min_c` is 0, the HARA says 10 °C |
 | TS-13 Invalid source quality | `invalid_during_warning`, `invalid_during_critical` | campaign |
-| TS-14, TS-21 High out of range | `out_of_range`, `implausible_jump` | campaign |
+| TS-14, TS-20 High out of range | `out_of_range`, `implausible_jump` | campaign |
 | TS-15, TS-16 Overtemperature | `heating` | campaign |
-| TS-17 Undertemperature | — | blocked in the HARA (no lower limit, no interface) |
-| TS-18 Freshness lost | `timeout`, `transport_dropout` | campaign |
-| TS-19 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
-| TS-22 Rate-implausible sample | `implausible_jump` | campaign |
-| TS-23 Isolated spike | `spike` | campaign |
-| TS-24 Repeated spikes | `repeated_spikes` | planned: blocked in the HARA (FSR-3.3 against FSR-3.5) |
-| TS-25 Guardian termination | `guardian_crash` | campaign, with the watchdog |
-| TS-26 Guardian hang | `guardian_hang` | campaign, with the watchdog |
-| TS-27 Late-arriving message | `late_message` | planned: needs FSR-2.8 and a transport fault injector |
-| TS-28 Gradual drift | `gradual_drift` | planned: needs FSR-1.3 |
-| TS-29 Saturation at 255 °C | `saturation_255` | campaign |
+| TS-17 Freshness lost | `timeout`, `transport_dropout` | campaign |
+| TS-18 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
+| TS-21 Rate-implausible sample | `implausible_jump` | campaign |
+| TS-22 Isolated spike | `spike` | campaign |
+| TS-23 Repeated spikes | `repeated_spikes` | planned: blocked in the HARA (FSR-3.3 against FSR-3.5) |
+| TS-24 Guardian termination | `guardian_crash` | campaign, with the watchdog |
+| TS-25 Guardian hang | `guardian_hang` | campaign, with the watchdog |
+| TS-26 Late-arriving message | `late_message` | planned: needs FSR-2.8 and a transport fault injector |
+| TS-27 Gradual drift | `gradual_drift` | planned: needs FSR-1.3 |
+| TS-28 Saturation at 255 °C | `saturation_255` | campaign |
 
-TS-25 and TS-26 start the Guardian watchdog next to the Guardian
+TS-24 and TS-25 start the Guardian watchdog next to the Guardian
 (`watchdog = true` in the stimulus) and check, with `sovd_fault` and
 `sovd_recovery`, that OpenSOVD reports `BTG_GuardianHeartbeatLoss` within
 `T_hb + T_diag`. The `input_quality` check compares the raw CAN quality byte
-with the quality the Guardian input shows (TS-13, TS-19).
-=======
-| TS-07 Duplicate, out of order | — | not covered: needs an injection point on the uProtocol channel |
-| TS-08 Stuck maximum | `max_stuck` | campaign |
-| TS-09 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-10 Invalid input during WARNING | `invalid_during_warning` | campaign |
-| TS-11 High out of range, spike | `out_of_range`, `implausible_jump`, `spike` | campaign |
-| TS-12 No mitigation from invalid input | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign, without the duplicate variant |
-| TS-13 HMI for uncertain data | — | blocked in the HARA (needs a driving simulator) |
-| TS-14 Diagnostics delayed or missing | — | [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py) (outage) |
-| TS-15, TS-16, TS-18 Guardian crash or hang, supervisor | — | not covered: no independent supervisor yet (HARA DFR-5) |
->>>>>>> origin/main
+with the quality the Guardian input shows (TS-13, TS-18).
 
 ## Not covered yet
 
-- **Transport faults** (TS-08, TS-27: delay and reorder on the uProtocol
+- **Transport faults** (TS-08, TS-26: delay and reorder on the uProtocol
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
 - **Diagnostics outage**: still covered by

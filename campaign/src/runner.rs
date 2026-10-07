@@ -348,7 +348,11 @@ async fn drive(
         // Only now: the watchdog counts the silence from its own start, so
         // started earlier it would report the Guardian as lost before it began.
         compose.run(&["up", "-d", "--no-build", "watchdog"]).await?;
-        injection(&recorder, "start_watchdog", "the watchdog starts".to_owned());
+        injection(
+            &recorder,
+            "start_watchdog",
+            "the watchdog starts".to_owned(),
+        );
     }
 
     let Some((_, trace_duration)) = plan.trace else {

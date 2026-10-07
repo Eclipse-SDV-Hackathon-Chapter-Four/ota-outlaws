@@ -21,7 +21,7 @@
     "short": "CntStuck"
   },
   "invalid_quality": {
-    "ts": "TS-19",
+    "ts": "TS-18",
     "title": "Quality invalid",
     "short": "BadQuality"
   },
@@ -61,12 +61,12 @@
     "short": "OutRange"
   },
   "implausible_jump": {
-    "ts": "TS-22",
+    "ts": "TS-21",
     "title": "Rate-implausible sample",
     "short": "BigJump"
   },
   "spike": {
-    "ts": "TS-23",
+    "ts": "TS-22",
     "title": "Isolated spike",
     "short": "RateSpike"
   },
@@ -116,12 +116,12 @@
     "short": "LowInCrit"
   },
   "guardian_crash": {
-    "ts": "TS-25",
+    "ts": "TS-24",
     "title": "Guardian process termination",
     "short": "GrdCrash"
   },
   "guardian_hang": {
-    "ts": "TS-26",
+    "ts": "TS-25",
     "title": "Guardian evaluation hang",
     "short": "GrdHang"
   },
@@ -136,32 +136,32 @@
     "short": "OutOfOrd"
   },
   "quality_single_invalid": {
-    "ts": "TS-19",
+    "ts": "TS-18",
     "title": "Quality invalid",
     "short": "1BadQual"
   },
   "out_of_range_low_min_warning": {
-    "ts": "TS-20",
+    "ts": "TS-19",
     "title": "Out-of-range low value",
     "short": "LowMinWarn"
   },
   "saturation_255": {
-    "ts": "TS-29",
+    "ts": "TS-28",
     "title": "Upper-scale saturation",
     "short": "Sat255"
   },
   "repeated_spikes": {
-    "ts": "TS-24",
+    "ts": "TS-23",
     "title": "Repeated spikes",
     "short": "Spikes"
   },
   "late_message": {
-    "ts": "TS-27",
+    "ts": "TS-26",
     "title": "Late-arriving stale message",
     "short": "LateMsg"
   },
   "gradual_drift": {
-    "ts": "TS-28",
+    "ts": "TS-27",
     "title": "Gradual temperature drift",
     "short": "Drift"
   }
