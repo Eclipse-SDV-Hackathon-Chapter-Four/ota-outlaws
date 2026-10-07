@@ -72,7 +72,7 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 | F-8 | Temperature has an implausible spike | Signal | Guardian misses to issue an unjustified warning/mitigation request |
 | F-9 | Source disconnects or replay stops | Source/Transport | Guardian fails to identify loss of connection |
 | F-10 | Guardian process terminates or its evaluation loop hangs/stops making progress | Application | Guardian stops evaluating temperature and publishing safety events/heartbeat; termination and hang are separate injection variants |
-| F-11 | CAN source sets the quality flag to `INVALID` or `ERROR_NOT_AVAILABLE` on a fresh temperature frame | Source/Signal | Guardian fails to reject the sample, mark monitoring unavailable, or report the quality fault; invalid temperature data may be treated as trustworthy or its loss may go unnoticed |
+| F-11 | CAN source marks a fresh temperature frame `INVALID` (`0x00`) or `ERROR_NOT_AVAILABLE` (`0xFF`) | Source/Signal | Guardian fails to reject the sample, mark monitoring unavailable, or report the quality fault; invalid temperature data may be treated as trustworthy or its loss may go unnoticed |
 
 > NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility should be tracked separately as evidence-chain faults. They test whether a scenario is observable and its verdict is supportable; they are not temperature-input malfunctions by themselves.
 
@@ -103,10 +103,13 @@ The events below group faults by the unsafe outcome they can produce, rather tha
 
 F-11 maps to HE-1 through HE-3 because it can make thermal monitoring
 unavailable during the same hazardous vehicle situations; it does not create a
-separate hazardous event. The table carries forward the existing S3 entries for
-those events. E and C remain unassessed, so the displayed ASIL-D values are not
-fully derived or confirmed for F-11 until exposure and controllability are
-supported for each operating situation.
+separate hazardous event. The source quality flag is expected to make the
+sample unusable; the hazardous malfunction is that the Guardian accepts it as
+trustworthy or fails to report the resulting loss of monitoring. S3 is plausible
+only when a real thermal event coincides with the loss of monitoring. E and C
+remain unassessed, so the displayed ASIL-D values are not fully derived or
+confirmed for F-11 until exposure and controllability are supported for each
+operating situation.
 
 ## Risk classification and safety goals
 
@@ -133,8 +136,8 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | ID | HARA trace | Derived functional requirement | Safety Concept mapping | Coverage assessment |
 |---|---|---|---|---|
 | DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and issue the corresponding occupant warning and mitigation response within its approved (`T_react = 100ms`). | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. | **Partial Missing:** safety concept does not take `T_react` into account. |
-| DFR-2 | SG-2; HE-1 to HE-3; F-11 | The Guardian shall treat a fresh sample whose CAN quality flag is not `VALID` as unusable, enter `DEGRADED`, and report a quality fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. | FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. | **Specified/implemented in the Safety Concept** for the Guardian response. Vehicle-level warning independence remains the separate DFR-5 gap. |
-| DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. | **Covered at Guardian behavior level**, subject to testing the stated valid-sample and recovery conditions. |
+| DFR-2 | SG-2; HE-1 to HE-3; F-11 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE` as unusable, enter `DEGRADED`, and report a quality fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. | FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. | **Specified/implemented in the Safety Concept** for the Guardian response. Vehicle-level warning independence remains the separate DFR-5 gap. |
+| DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input, including a CAN quality flag other than `VALID`, shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. | **Covered at Guardian behavior level**, subject to testing the stated valid-sample and recovery conditions. |
 | DFR-4 | SG-3; HE-4, HE-5 | An invalid, stale, duplicated, or out-of-order sample shall not by itself cause CRITICAL state or a mitigation request. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** these FSRs limit invalid-input state escalation, but no FSR explicitly states the output invariant that mitigation is issued only for a valid critical condition. Add that invariant to the Safety Concept and test it. |
 | DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Partial:** the [watchdog](../../watchdog/README.md) is a separate process that detects termination and hang (heartbeat from the evaluation loop, `T_hb` = 1500 ms) and reports `BTG_GuardianHeartbeatLoss` to DFM/OpenSOVD. **Missing:** the occupant warning; the watchdog does not request `DRIVER_WARNING_MONITORING_UNAVAILABLE`. |
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
@@ -463,8 +466,10 @@ FSR-3.4 and FSR-3.6.
 **Preconditions:** Start a fresh Guardian with valid samples and establish
 `WARNING`; repeat from `CRITICAL` to verify thermal-state retention.
 
-**Stimulus:** In a separate run, publish a fresh sample whose quality flag is
-`INVALID` or `ERROR_NOT_AVAILABLE`. Then restore fresh valid samples.
+**Stimulus:** In a separate run, replay one CAN frame whose raw `Quality` byte
+is `0x00` (`INVALID`) or `0xFF` (`ERROR_NOT_AVAILABLE`), with fresh timestamp
+and advancing alive counter. Verify the VSS Publisher maps that source quality
+to the corresponding uProtocol quality enum. Then restore fresh valid frames.
 
 **Expected Result:** The Guardian rejects the sample, sets monitoring status to
 `DEGRADED`, and reports a quality fault within `T_react`. The thermal state is
@@ -475,11 +480,10 @@ consecutive-valid-sample rule; thermal-state reduction still follows hysteresis.
 is `DEGRADED`; no new overtemperature mitigation is caused by invalid quality
 alone.
 
-**Evidence and Verdict Focus:** Capture the quality flag, source timestamp,
-alive counter, thermal state before/after, monitoring-status transition, fault
-code, DFM record, recovery sample count, and response latency. Add a dedicated
-quality-invalid fault ID to the inventory before claiming complete fault
-traceability.
+**Evidence and Verdict Focus:** Capture the raw CAN quality byte, mapped VSS /
+uProtocol quality enum, source timestamp, alive counter, thermal state
+before/after, monitoring-status transition, fault code, DFM record, recovery
+sample count, and response latency. The catalog maps this case to F-11.
 
 ### TS-14
 
