@@ -4930,6 +4930,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "watchdog"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "fault_lib",
+ "prost",
+ "serde_json",
+ "thermal-contract",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "up-rust",
+ "uuid",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -54,3 +54,12 @@ pub const GUARDIAN_EVENTS: Topic = Topic {
     ue_version_major: 1,
     resource_id: 0x8001,
 };
+
+/// `Heartbeat` messages, published by the Battery Thermal Guardian every
+/// `T_hb_period` and watched by the watchdog (FSR-2.7).
+pub const GUARDIAN_HEARTBEAT: Topic = Topic {
+    authority: "guardian",
+    ue_id: 0x9002,
+    ue_version_major: 1,
+    resource_id: 0x8002,
+};

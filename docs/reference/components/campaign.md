@@ -63,7 +63,7 @@ onset = "alive_counter_repeats"
 [[scenario.expect]]
 kind = "fault"
 dtc = "BTG_TempCounterStuck"
-budget = "T_stale + T_react"      # T_stale from safety-params.toml, T_react from [budgets]
+budget = "T_counter_stuck + T_react"  # from safety-params.toml (N_stuck × cycle), T_react from [budgets]
 requirement = "FSR-2.3"
 ```
 

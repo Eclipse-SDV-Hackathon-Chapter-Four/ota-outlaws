@@ -22,6 +22,7 @@ members = [
     "vss-publisher",
     "campaign",
     "dashboard",
+    "watchdog",
     "third-party/fault-lib",
 ]
 

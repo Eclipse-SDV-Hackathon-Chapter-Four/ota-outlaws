@@ -22,26 +22,49 @@ cargo test                                # all components, no Docker needed
 cargo run -p campaign -- run --all        # fault campaigns through the real chain
 ```
 
-The campaigns need Docker and the diagnostics image built below. All test
+The campaigns need Docker and the published diagnostics image described below. All test
 levels, from unit tests to the hardware demo, are described in
 [Run the Tests](docs/how-to/run-tests.md).
 
 Compose runs KUKSA plus separate `opensovd-dfm` and `opensovd-gateway` containers.
-Both services use the single local image `local/opensovd-demo-fork:verified`.
+Both services pull the versioned GHCR image configured in `diagnostics/image.env`.
+The image supports Linux AMD64 (CI) and ARM64 (Apple Silicon and AutoSD).
 The image also contains legacy example tools; the campaign suite uses Guardian.
 This is a custom development image because the
 published upstream gateway does not contain the example's DFM adapter.
 
-## Build from clean committed source
+## Pull the published diagnostics image
+
+```sh
+set -a
+. diagnostics/image.env
+set +a
+docker compose pull opensovd-dfm opensovd-gateway
+docker compose up -d --wait opensovd-dfm opensovd-gateway
+```
+
+Guardian CI pulls this image and checks its source-revision label. It still builds
+our Guardian test runner, because that contains the code under test.
+The separate **Diagnostics image** workflow is called before main-branch tests
+and can also be manually dispatched. It checks for the pinned version first and
+only builds when that tag is missing. Pull-request CI only pulls existing images;
+publish a new pin before testing a PR that changes it. Existing tags are reused. Bump the `-v1` suffix in `diagnostics/image.env` and both Compose defaults
+when changing the recipe; update the source SHA in the same places when upgrading.
+The workflow builds on native AMD64 and ARM64 runners and caches build layers.
+Publishing uses GitHub Actions' `GITHUB_TOKEN` with `packages: write`; routine CI
+only needs `packages: read`. The package must be public for anonymous pulls and
+fork PRs. An organization owner can set its visibility on the package settings page.
+
+## Build from clean committed source (optional)
 
 ```sh
 sh diagnostics/build-images.sh /path/to/Doctor-Whodunit
-docker compose up -d --wait opensovd-dfm opensovd-gateway
+DIAGNOSTICS_IMAGE=local/opensovd-demo-fork:verified docker compose up -d --wait opensovd-dfm opensovd-gateway
 curl -fsS http://localhost:7690/sovd/v1/apps/battery_guardian/faults
 ```
 
 The source revision is pinned to `97dd4a503f25674e866a89829e2bd92d2cf2655d` in
-`build-images.sh`. This local Doctor-Whodunit revision contains separate commits for restoring omitted upstream CLI
+`diagnostics/image.env`. This committed Doctor-Whodunit revision contains separate commits for restoring omitted upstream CLI
 support crates and repairing the diagnostic demo. It retains the
 adapter's original Git dependency: `bburda42dot/fault-lib` at
 `2b638d84a38568a70d5acab4b46cbe17a84e8e7c`. The DFM daemon still builds from the
@@ -58,8 +81,9 @@ Git blob manifest at `/usr/share/opensovd/source-files.txt`. `SOURCE_REF` can se
 another committed integration revision. The Dockerfile and build helper are
 tracked here, so there are no undocumented build steps.
 
-Compose uses existing local images (`pull_policy: never`); starting services does
-not compile anything. Override `DIAGNOSTICS_IMAGE` only with an image providing the required binaries at
+Compose pulls the published image when missing; starting diagnostics does not
+compile anything. Set `DIAGNOSTICS_IMAGE=local/opensovd-demo-fork:verified` to use
+a local source build. Override `DIAGNOSTICS_IMAGE` only with an image providing the required binaries at
 `/usr/local/bin/`. To transfer the built image:
 
 ```sh

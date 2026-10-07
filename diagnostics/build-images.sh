@@ -17,13 +17,14 @@ if [ "$#" -ne 1 ]; then
     exit 2
 fi
 source_repo=$(cd "$1" && pwd)
-source_ref=${SOURCE_REF:-97dd4a503f25674e866a89829e2bd92d2cf2655d}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$script_dir/image.env"
+source_ref=${SOURCE_REF:-$PINNED_SOURCE_REV}
 source_revision=$(git -C "$source_repo" rev-parse "$source_ref^{commit}")
 if [ -n "$(git -C "$source_repo" status --porcelain --untracked-files=all)" ]; then
     echo "Source checkout is dirty; commit or resolve changes before building." >&2
     exit 1
 fi
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 build_context=$(mktemp -d)
 trap 'rm -rf "$build_context"' EXIT HUP INT TERM
 # Only tracked bytes from the selected commit enter the build context.
@@ -32,5 +33,16 @@ git -C "$source_repo" archive "$source_revision" demo | tar -x -C "$build_contex
 git -C "$source_repo" ls-tree -r "$source_revision" demo > "$build_context/source-files.txt"
 cp "$script_dir/Dockerfile" "$build_context/Dockerfile"
 echo "Building from clean committed source: $source_revision"
-docker build --build-arg "SOURCE_REV=$source_revision" \
-    -t local/opensovd-demo-fork:verified "$build_context"
+if [ "${PUSH_IMAGE:-0}" = 1 ]; then
+    # Native Actions runners build each architecture with a persistent layer cache.
+    : "${PUBLISH_TAG:?Set PUBLISH_TAG when pushing}"
+    : "${IMAGE_ARCH:?Set IMAGE_ARCH when pushing}"
+    docker buildx build --push --platform "linux/$IMAGE_ARCH" \
+        --cache-from "type=gha,version=2,scope=diagnostics-$IMAGE_ARCH" \
+        --cache-to "type=gha,version=2,mode=max,scope=diagnostics-$IMAGE_ARCH" \
+        --label org.opencontainers.image.source=https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/ota-outlaws \
+        --build-arg "SOURCE_REV=$source_revision" -t "$PUBLISH_TAG" "$build_context"
+else
+    docker build --build-arg "SOURCE_REV=$source_revision" \
+        -t local/opensovd-demo-fork:verified "$build_context"
+fi

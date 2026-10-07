@@ -150,7 +150,7 @@ CLEAR < MONITORING < WARNING < CRITICAL = MITIGATING
 | Monitoring status | Meaning |
 |-------------------|---------|
 | OK | The input is fresh, in order, and plausible. |
-| SUSPECT | Isolated invalid samples were seen and discarded. No state change yet (debounce). |
+| SUSPECT | Repeated frames were seen and discarded (FSR-2.3), or isolated invalid samples (FSR-3.5, planned). No mitigation yet (debounce). |
 | DEGRADED | The input is lost or persistently invalid. The thermal state cannot be assessed reliably. |
 
 **Fresh sample:** a sample whose source timestamp is later than that of the
@@ -266,12 +266,12 @@ Two kinds of end-to-end campaigns prove requirements:
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
 | FSR-2.1 | When no fresh sample arrives within `T_stale` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. (HARA TS-03 sets the limit to `T_stale`.) | `T_stale` + `T_react`, from the Guardian's start, on its own clock | Guardian started without a source | Must | tested |
-| FSR-2.2 | When no **fresh** sample arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a freshness fault. Fresh is defined in the [output model](#guardian-output-model); samples that are not fresh are ignored. | `T_stale` + `T_react` | Transport outage, transport delay longer than `T_stale`, VSS Publisher stopped, source dropout, duplicate, reorder | Must | tested |
-| FSR-2.3 | When no fresh sample arrives for longer than `T_stale`, but at least two frames with an unchanged alive counter arrive meanwhile, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault (counter stuck) instead of a freshness fault. A single repeated frame, such as a duplicate, does not count. | `T_stale` + `T_react` | Source repeats the same frame (frozen ECU) | Must | tested |
+| FSR-2.2 | When neither a **fresh** sample nor a repeated frame (FSR-2.3) arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a freshness fault. Fresh is defined in the [output model](#guardian-output-model); samples that are not fresh are ignored. | `T_stale` + `T_react` | Transport outage, transport delay longer than `T_stale`, VSS Publisher stopped, source dropout, duplicate, reorder | Must | tested |
+| FSR-2.3 | A repeated frame is a frame with a newer source timestamp and the alive counter of the last fresh sample. `N_suspect` repeated frames since the last fresh sample shall set the monitoring status to SUSPECT; the next fresh sample sets it back to OK. `N_stuck` repeated frames shall set the monitoring status to DEGRADED and the Guardian shall report a **source** fault (counter stuck). | `T_counter_stuck` (`N_stuck` × signal cycle) + `T_react` | Source repeats the same frame (frozen ECU) | Must | tested |
 | FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | tested |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised as described in the [output model](#guardian-output-model). | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | implemented |
 | FSR-2.6 | Each active fault shall recover only after `N_recover` consecutive fresh, valid samples spanning at least `T_recover` without the fault condition; a gap, an invalid sample, or a repeated frame restarts the window. The monitoring status shall return from DEGRADED to OK only when every active fault has recovered. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | tested |
-| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. The Evidence Collector shall record a heartbeat missing for longer than `T_hb` as a Guardian failure. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | planned |
+| FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. The Evidence Collector shall record a heartbeat missing for longer than `T_hb` as a Guardian failure. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | implemented |
 | FSR-2.8 | When the clocks of source and Guardian are synchronized (enabled by configuration), a sample whose source timestamp is older than `T_age` shall not count as fresh. | `T_react` | Constant transport delay longer than `T_age` | Could | planned |
 
 ### SG-2, SG-3, SG-4: Invalid input
@@ -319,7 +319,8 @@ in the end-to-end setup.
 |-----------|-------|---------|---------|
 | `θ_warn` | [config](../../config/guardian/safety-params.toml) | Warning threshold for the maximum cell temperature | FSR-1.1 |
 | `θ_crit` | [config](../../config/guardian/safety-params.toml) | Critical threshold for the maximum cell temperature | FSR-1.2 |
-| `T_stale` | [config](../../config/guardian/safety-params.toml) | Freshness timeout, three times the 100 ms signal cycle | FSR-2.2, FSR-2.3 |
+| `T_stale` | [config](../../config/guardian/safety-params.toml) | Freshness timeout, three times the 100 ms signal cycle | FSR-2.2 |
+| `N_suspect`, `N_stuck` | [config](../../config/guardian/safety-params.toml) | Repeated frames that set SUSPECT and DEGRADED. `N_stuck` delays detection of a frozen source to about `N_stuck` signal cycles, longer than `T_stale`, and to `N_stuck` × `T_stale` if the frozen source sends at a slower rate | FSR-2.3 |
 | `T_stuck` | [config](../../config/guardian/safety-params.toml) | Maximum time the maximum may stay frozen while other signals change | FSR-2.4 |
 | `Δ_stuck` | [config](../../config/guardian/safety-params.toml) | Minimum change of average or minimum that makes a frozen maximum suspicious. Two steps of the 1 °C CAN resolution, so that a single-step flicker does not count | FSR-2.4 |
 | `T_react` | 100 ms | Reaction time of the Guardian once a condition is observable, from the HARA (DFR-1) | most FSRs |
@@ -421,10 +422,22 @@ FSR-2.5, FSR-2.6, and FSR-3.6 apply to every fault in SG-2, SG-3, and SG-4.
   Diagnostic delivery is asynchronous; monitoring recovery does not wait for DFM.
   These parameters remain proposals, not validated vehicle safety values.
 - **Guardian failure in the vehicle.** Nothing in the vehicle reacts to a dead
-  Guardian: FSR-2.7 only records the failure as evidence and restarts a
-  terminated Guardian. Warning the occupants would need an independent monitor,
-  for example in the HMI. It is not yet verified whether the runtime can detect
-  a hung Guardian, as opposed to a terminated one.
+  Guardian: FSR-2.7 only records the failure and restarts a terminated
+  Guardian. Warning the occupants would need an independent monitor, for
+  example in the HMI.
+- **FSR-2.7 as built.** The Guardian publishes its heartbeat from the loop that
+  runs its core, so a hung core stops it too. A separate
+  [watchdog](../../watchdog/README.md) process reports
+  `BTG_GuardianHeartbeatLoss` to DFM when the heartbeat is missing for longer
+  than `T_hb`, and Passed on the next one; Docker restarts a terminated
+  Guardian. Verified by hand against OpenSOVD: SIGKILL reported 1.4 s after the
+  kill, `docker pause` (a hang, which Docker itself does not notice) 1.8 s after
+  the pause, both Passed again on the next heartbeat. The Evidence Collector
+  does not read the heartbeat yet, and no campaign scenario covers it, so the
+  status is **implemented**, not **tested**. Under heavy host load (Rust builds,
+  about 10 minutes) the watchdog reported 19 false losses for a running
+  Guardian: `T_hb` = 1500 ms has little margin against scheduling stalls on a
+  developer machine.
 - **Diagnostic link.** Guardian session/event IDs and last-sample references are
   stored in DFM environment data and verified in integration tests through the
   individual OpenSOVD fault endpoint. Guardian performs no OpenSOVD polling;
@@ -451,7 +464,11 @@ input while diagnostics are paused, then verifies the final Passed state after r
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
-**Claude Opus 5.5** (`claude-opus-5-5`).
+**Claude Opus 5.5** (`claude-opus-5-5`). The model also updated FSR-2.3 to
+count repeated frames.
 
 The diagnostics implementation status and correlation limitations were updated
 with assistance from **Codex** using **GPT-6.1 Sol** (`gpt-6.1-sol`).
+
+The FSR-2.7 status and watchdog results were updated with assistance from
+**Claude Code** using **Claude Opus 5.5** (`claude-opus-5-5`).

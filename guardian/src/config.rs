@@ -75,12 +75,16 @@ pub struct ThermalConfig {
     pub critical_c: f32,
 }
 
-/// Freshness monitoring (FSR-2.2).
+/// Freshness monitoring (FSR-2.2) and repeated frames (FSR-2.3).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FreshnessConfig {
     /// `T_stale` in milliseconds.
     pub stale_timeout_ms: u64,
+    /// `N_suspect`: repeated frames that set SUSPECT.
+    pub suspect_repeated_frames: u32,
+    /// `N_stuck`: repeated frames that lead to DEGRADED (counter stuck).
+    pub stuck_repeated_frames: u32,
 }
 
 /// Stuck value detection (FSR-2.4).
@@ -121,6 +125,19 @@ impl GuardianConfig {
         }
         if self.freshness.stale_timeout_ms == 0 {
             return invalid("freshness.stale_timeout_ms must be greater than zero");
+        }
+        let freshness = &self.freshness;
+        if freshness.suspect_repeated_frames == 0 {
+            return invalid("freshness.suspect_repeated_frames must be greater than zero");
+        }
+        if freshness.stuck_repeated_frames < 2 {
+            // A single repeated frame, such as a duplicate, is not a frozen source.
+            return invalid("freshness.stuck_repeated_frames must be at least 2");
+        }
+        if freshness.suspect_repeated_frames > freshness.stuck_repeated_frames {
+            return invalid(
+                "freshness.suspect_repeated_frames must not exceed freshness.stuck_repeated_frames",
+            );
         }
         if self.stuck.timeout_ms == 0 {
             return invalid("stuck.timeout_ms must be greater than zero");

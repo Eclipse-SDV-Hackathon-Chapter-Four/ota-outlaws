@@ -10,7 +10,7 @@
  * https://www.apache.org/licenses/LICENSE-2.0
  */
 
-// AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+// AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 use alloc::{collections::VecDeque, sync::Weak};
 use core::time::Duration;
@@ -27,7 +27,7 @@ use common::{
 };
 use iceoryx2::{
     port::{publisher::Publisher, subscriber::Subscriber},
-    prelude::{NodeBuilder, ServiceName},
+    prelude::{Config, Node, NodeBuilder, ServiceName},
 };
 use tracing::{debug, error, info, warn};
 
@@ -271,6 +271,19 @@ impl IpcWorker {
         service_name: &str,
         ec_manager: Weak<EnablingConditionManager>,
     ) -> Result<Self, SinkInitError> {
+        // A reporter that was killed (SIGKILL, OOM, crash) never releases its
+        // publisher slot. The event service only has a few of them
+        // (iceoryx2 default: 2), so after a crash the restarted reporter would
+        // get `ExceedsMaxSupportedPublishers` forever. Free the slots of dead
+        // nodes first.
+        let cleanup = Node::<ServiceType>::cleanup_dead_nodes(Config::global_config());
+        if cleanup.cleanups > 0 || cleanup.failed_cleanups > 0 {
+            info!(
+                cleanups = cleanup.cleanups,
+                failed_cleanups = cleanup.failed_cleanups,
+                "removed stale iceoryx2 resources of dead nodes"
+            );
+        }
         let node = NodeBuilder::new()
             .create::<ServiceType>()
             .map_err(|e| SinkInitError::IpcService(format!("node creation: {e}")))?;

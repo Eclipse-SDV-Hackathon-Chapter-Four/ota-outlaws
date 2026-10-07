@@ -30,6 +30,7 @@ on:
       - "diagnostics/**"
       - "docker-compose.yml"
       - ".github/workflows/guardian.yml"
+      - ".github/workflows/diagnostics-image.yml"
 
 jobs:
   check:
@@ -47,17 +48,37 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  diagnostic-image:
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/diagnostics-image.yml
+
   diagnostics:
+    needs: diagnostic-image
+    if: always() && (needs.diagnostic-image.result == 'success' || needs.diagnostic-image.result == 'skipped')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Load the pinned diagnostic image
+        run: |
+          . diagnostics/image.env
+          echo "DIAGNOSTICS_IMAGE=$DIAGNOSTICS_IMAGE" >> "$GITHUB_ENV"
+          echo "PINNED_SOURCE_REV=$PINNED_SOURCE_REV" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v3
         with:
-          repository: Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit
-          ref: 97dd4a503f25674e866a89829e2bd92d2cf2655d
-          path: diagnostic-source
-      - name: Build the pinned diagnostic stack
-        run: sh diagnostics/build-images.sh diagnostic-source
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull the published diagnostic stack
+        run: |
+          docker pull "$DIAGNOSTICS_IMAGE"
+          revision=$(docker image inspect "$DIAGNOSTICS_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+          test "$revision" = "$PINNED_SOURCE_REV"
       - name: Test Guardian diagnostic campaigns
         run: python3 diagnostics/smoke_test.py
       - uses: actions/upload-artifact@v4
