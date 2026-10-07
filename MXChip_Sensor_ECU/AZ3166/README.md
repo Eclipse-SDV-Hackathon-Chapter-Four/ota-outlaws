@@ -145,11 +145,14 @@ adapter listens on UDP port `30502`.
 The board sends its HTS221 temperature to a host-side adapter at 10 Hz, matching
 the OTA Outlaws Guardian's 300 ms freshness limit. The adapter writes the
 temperature and rolling counter to KUKSA, where the existing VSS Publisher sends
-the values to Guardian over uProtocol/Zenoh. Button A replays the fault traces
-from `Fault_Injection_CAN_Logs` one by one, holding each for five seconds:
-`counter_stuck`, `invalid_quality`, `timeout`, `temp_stuck`, `avg_gt_max`,
-`counter_error`, `high_delta`, `min_gt_avg`, `implausible_jump`, `out_of_range`,
-and `min_gt_max`. The normal baseline trace is not replayed. Button B sends a
+the values to Guardian over uProtocol/Zenoh. Normal live board telemetry is the
+nominal baseline. Button A replays each fault trace in `campaign/traces` fully,
+in this order: `heating.asc`, `invalid_during_warning.asc`, `max_stuck.asc`,
+and `spike.asc`. The non-fault `nominal.asc` baseline is intentionally skipped.
+There is a five-second gap between fault traces; live board samples resume
+during each gap. Trace durations are read from their ASC timestamps, so the
+sequence takes about 71 seconds end to end. Each one-off provider is stopped
+before the next trace. Button B sends a
 one-shot 120 C temperature value in its UDP JSON event; the adapter validates
 and writes that reported value to KUKSA, which should drive the Guardian's
 critical-temperature response. The adapter pauses board writes during replay and stops the default
@@ -194,11 +197,11 @@ Administrator PowerShell:
 New-NetFirewallRule -DisplayName "AZ3166 OTA Outlaws UDP 30502" -Direction Inbound -Protocol UDP -LocalPort 30502 -Action Allow -Profile Public -RemoteAddress LocalSubnet
 ```
 
-The `ota-outlaws` repository must contain the `Fault_Injection_CAN_Logs`
-directory and the `kuksa-can-provider` Compose service. The bridge only permits
-the known fault scenario names and the `all` sequence command; it does not
-accept arbitrary file paths from UDP messages. Keep the adapter script updated
-on the host PC so it recognizes Button A's `all` command.
+The `ota-outlaws` repository must contain the four fault ASC files in
+`campaign/traces` and the `kuksa-can-provider` Compose service. The bridge only
+permits those known scenarios and the `all` sequence command; it does not accept
+arbitrary file paths from UDP messages. Keep the updated adapter script on the
+host PC so it recognizes Button A's `all` request.
 
 To deploy, use `deploy.ps1` (adjust the destination drive as needed):
 ```powershell
