@@ -36,7 +36,7 @@ SPDX-License-Identifier: EPL-2.0
 |Component Name|Code|Documentation|
 |---|---|---|
 |Temperature Sensor|||
-|Trace Generator|[Fault_Injection_CAN_Logs](../../Fault_Injection_CAN_Logs), [campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
+|Trace Generator|[campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
 |VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
 |Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
 |Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|

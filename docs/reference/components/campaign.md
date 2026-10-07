@@ -57,7 +57,7 @@ fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"            # or "planned": expected to fail until implemented
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/counter_stuck.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
 
 [[scenario.expect]]
@@ -172,10 +172,9 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 
 ## Traces
 
-Most traces come from
-[`Fault_Injection_CAN_Logs/`](../../../Fault_Injection_CAN_Logs/README.txt).
-[`campaign/traces/generate_traces.py`](../../../campaign/traces/generate_traces.py)
-adds the ones the safety concept needs and that do not exist there yet:
+All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
+`generate_asc_logs.py` generates the fault traces of the original fault list;
+`generate_traces.py` adds the ones the safety concept needs on top:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).
