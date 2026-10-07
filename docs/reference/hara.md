@@ -169,7 +169,7 @@ the approved Safety Concept configuration.
 | F-7: Temperature drifts over time | `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | TS-25 |
 | F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-12, TS-19, TS-20 |
 | F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-15 |
-| F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-22 (termination), TS-23 (hang) |
+| F-10: Guardian terminates or evaluation hangs | `DriverWarningMonitoringUnavailable` from the independent watchdog (DFR-5); `RestartGuardian` where the runtime restart policy applies. | TS-22 (termination), TS-23 (hang) |
 | F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-11, TS-16 |
 | F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | TS-12, TS-26 |
 | F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-21 |
@@ -650,16 +650,18 @@ valid input active; confirm heartbeat receipt.
 
 **Stimulus:** Terminate the Guardian process once; inject no other fault.
 
-**Expected Result:** The Evidence Collector detects heartbeat loss and the
-runtime applies its configured restart policy. No independent in-vehicle
-occupant warning is implemented, so occupant protection is not demonstrated.
+**Expected Result:** The independent watchdog detects the heartbeat loss within
+`T_hb` and requests the monitoring-unavailable occupant warning on its own
+topic (DFR-5); it reports the loss to diagnostics. The runtime applies its
+configured restart policy.
 
-**Expected Mitigations:** `RestartGuardian` only if the configured runtime
-actually restarts it; independent warning remains a safety gap.
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` from the
+watchdog; `RestartGuardian` if the configured runtime restarts it.
 
-**Evidence and Verdict Focus:** Record last heartbeat, timeout, restart,
-process recovery, and collector event. Do not treat collector evidence as an
-occupant safety response.
+**Evidence and Verdict Focus:** Record last heartbeat, timeout, the watchdog's
+loss and warning events with their cause link, the diagnostic record, restart,
+and process recovery. Do not treat collector evidence as an occupant safety
+response.
 
 ### TS-23: Guardian evaluation hang
 
@@ -671,16 +673,17 @@ while valid input is active.
 **Stimulus:** Pause only the Guardian evaluation loop while leaving its process
 alive.
 
-**Expected Result:** Pass only if the heartbeat is tied to evaluation progress
-and a monitor detects its loss. Current requirements do not define hang
-detection or recovery.
+**Expected Result:** The heartbeat is tied to evaluation progress, so the
+watchdog detects its loss within `T_hb` while the process stays alive and
+requests the monitoring-unavailable occupant warning (DFR-5). When evaluation
+resumes, the watchdog reports the Guardian as restored.
 
-**Expected Mitigations:** Runtime recovery only if progress-aware supervision
-is implemented; occupant warning is not currently provided.
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` from the
+watchdog. A hung Guardian is not restarted.
 
 **Evidence and Verdict Focus:** Distinguish process liveness from evaluation
-progress and heartbeat. Mark blocked/failed against the catalog claim until
-hang detection/recovery is specified and implemented.
+progress and heartbeat. Record the watchdog's loss, warning, and restoration
+events with their cause links, and the diagnostic record.
 
 ### TS-24: Late-arriving stale message
 
@@ -754,6 +757,7 @@ This document was revised with the assistance of **GitHub Copilot (GPT-6 Luna)**
 The fault mitigation and test coverage overview was added with the assistance of
 **GitHub Copilot** using the model **GPT-6 Luna**.
 
-Removing TS-11/TS-12, aligning TS-07 with DFR-7, and removing the coverage
-assessment column were done with the assistance of **Claude Code** using the
+Removing TS-11/TS-12, aligning TS-07 with DFR-7, removing the coverage
+assessment column, and updating F-10, TS-22, and TS-23 to the watchdog's
+occupant warning (DFR-5) were done with the assistance of **Claude Code** using the
 model **Claude Opus 5.5** (`claude-opus-5-5`).

@@ -164,6 +164,13 @@ pub enum Expectation {
     },
     /// OpenSOVD later shows that DTC as passed, with its history kept.
     SovdRecovery { dtc: String, requirement: String },
+    /// The watchdog requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its
+    /// own topic, caused by a `GuardianLost` event, within the budget after
+    /// t0 (HARA DFR-5).
+    SupervisorWarning { budget: String, requirement: String },
+    /// After that warning, the watchdog reports `GuardianRestored`, linked to
+    /// the same loss.
+    SupervisorRestored { requirement: String },
     /// A sample with this quality (`VALID`, `INVALID`, `NOT_AVAILABLE`) reached
     /// the Guardian's input after t0: the VSS Publisher mapped the raw CAN
     /// quality byte as expected.
@@ -199,6 +206,8 @@ impl Expectation {
             | Expectation::NotLowered { requirement }
             | Expectation::SovdFault { requirement, .. }
             | Expectation::SovdRecovery { requirement, .. }
+            | Expectation::SupervisorWarning { requirement, .. }
+            | Expectation::SupervisorRestored { requirement }
             | Expectation::InputQuality { requirement, .. }
             | Expectation::OvertempDtc { requirement, .. } => requirement,
         }
@@ -221,6 +230,8 @@ impl Expectation {
             | Expectation::NoFault { .. }
             | Expectation::SamplesContinue { .. }
             | Expectation::InputQuality { .. }
+            | Expectation::SupervisorWarning { .. }
+            | Expectation::SupervisorRestored { .. }
             | Expectation::NotLowered { .. } => None,
         }
     }

@@ -814,9 +814,14 @@ hazard = "HE-1"
 safety_goal = "SG-2"
 hara_tests = ["TS-22"]
 status = "implemented"
-note = "The watchdog must report the lost heartbeat. Restart is the runtime's job and not checked; no occupant warning exists."
+note = "The watchdog must request the monitoring-unavailable warning on its own topic and report the lost heartbeat. Restart is the runtime's job and not checked."
 stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", watchdog = true, stop = ["guardian"], stop_after_ms = 6000 }
 onset = "injection:stop"
+
+[[scenario.expect]]
+kind = "supervisor_warning"
+budget = "T_hb + T_react"
+requirement = "DFR-5"
 
 [[scenario.expect]]
 kind = "sovd_fault"
@@ -835,6 +840,15 @@ status = "implemented"
 note = "Pause stops the evaluation loop and the heartbeat; the watchdog reports the loss and the recovery after the unpause."
 stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", watchdog = true, pause = ["guardian"], pause_after_ms = 6000, pause_for_ms = 4000 }
 onset = "injection:pause"
+
+[[scenario.expect]]
+kind = "supervisor_warning"
+budget = "T_hb + T_react"
+requirement = "DFR-5"
+
+[[scenario.expect]]
+kind = "supervisor_restored"
+requirement = "DFR-5"
 
 [[scenario.expect]]
 kind = "sovd_fault"

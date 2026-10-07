@@ -36,6 +36,8 @@ pub enum Tap {
     BatteryTemperature(Temperature),
     /// A `GuardianEvent` message on the Guardian's event topic.
     GuardianEvent(GuardianEvent),
+    /// A `SupervisorEvent` message on the watchdog's topic (HARA DFR-5).
+    SupervisorEvent(SupervisorEvent),
     /// A change of one fault in OpenSOVD, or a failed poll (`body` is null).
     SovdFault {
         code: String,
@@ -129,6 +131,58 @@ pub enum EventKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SupervisorEvent {
+    pub session_id: String,
+    pub event_id: u64,
+    /// 0 if the event has no cause.
+    pub cause_event_id: u64,
+    pub watchdog_time_ms: u64,
+    pub kind: SupervisorKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SupervisorKind {
+    GuardianLost {
+        last_guardian_session_id: String,
+        silence_ms: u64,
+    },
+    MitigationRequested {
+        mitigation: String,
+    },
+    GuardianRestored {
+        guardian_session_id: String,
+    },
+    Unknown,
+}
+
+impl From<&pb::SupervisorEvent> for SupervisorEvent {
+    fn from(message: &pb::SupervisorEvent) -> Self {
+        use pb::supervisor_event::Kind;
+        let kind = match &message.kind {
+            Some(Kind::GuardianLost(lost)) => SupervisorKind::GuardianLost {
+                last_guardian_session_id: lost.last_guardian_session_id.clone(),
+                silence_ms: lost.silence_ms,
+            },
+            Some(Kind::MitigationRequested(request)) => SupervisorKind::MitigationRequested {
+                mitigation: mitigation_name(request.mitigation),
+            },
+            Some(Kind::GuardianRestored(restored)) => SupervisorKind::GuardianRestored {
+                guardian_session_id: restored.guardian_session_id.clone(),
+            },
+            None => SupervisorKind::Unknown,
+        };
+        SupervisorEvent {
+            session_id: message.session_id.clone(),
+            event_id: message.event_id,
+            cause_event_id: message.cause_event_id,
+            watchdog_time_ms: message.watchdog_time_ms,
+            kind,
+        }
+    }
+}
+
 impl From<&pb::BatteryTemperature> for Temperature {
     fn from(message: &pb::BatteryTemperature) -> Self {
         Temperature {
@@ -188,12 +242,7 @@ impl From<&pb::GuardianEvent> for GuardianEvent {
                 requirement: fault.requirement.clone(),
             },
             Some(Kind::MitigationRequested(request)) => EventKind::MitigationRequested {
-                mitigation: short_name(
-                    pb::Mitigation::try_from(request.mitigation)
-                        .map(|m| m.as_str_name())
-                        .unwrap_or("UNKNOWN"),
-                    "MITIGATION_",
-                ),
+                mitigation: mitigation_name(request.mitigation),
             },
             None => EventKind::Unknown,
         };
@@ -206,6 +255,15 @@ impl From<&pb::GuardianEvent> for GuardianEvent {
             sample,
         }
     }
+}
+
+fn mitigation_name(raw: i32) -> String {
+    short_name(
+        pb::Mitigation::try_from(raw)
+            .map(|m| m.as_str_name())
+            .unwrap_or("UNKNOWN"),
+        "MITIGATION_",
+    )
 }
 
 fn short_name(name: &str, prefix: &str) -> String {

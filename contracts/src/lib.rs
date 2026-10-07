@@ -63,3 +63,13 @@ pub const GUARDIAN_HEARTBEAT: Topic = Topic {
     ue_version_major: 1,
     resource_id: 0x8002,
 };
+
+/// `SupervisorEvent` messages, published by the Guardian watchdog when the
+/// Guardian's heartbeat is lost or returns (HARA DFR-5). A uEntity of its own,
+/// so the warning does not depend on the Guardian.
+pub const SUPERVISOR_EVENTS: Topic = Topic {
+    authority: "guardian-watchdog",
+    ue_id: 0x9003,
+    ue_version_major: 1,
+    resource_id: 0x8001,
+};

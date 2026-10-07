@@ -289,11 +289,14 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-26 Upper-scale saturation | `saturation_255` | campaign |
 
 TS-22 and TS-23 start the Guardian watchdog next to the Guardian
-(`watchdog = true` in the stimulus) and check, with `sovd_fault` and
-`sovd_recovery`, that OpenSOVD reports `BTG_GuardianHeartbeatLoss` within
-`T_hb + T_diag`. The `input_quality` check compares the raw CAN quality byte
-with the quality the Guardian input shows (TS-11, TS-16). No independent
-occupant warning exists yet (HARA DFR-5).
+(`watchdog = true` in the stimulus). `supervisor_warning` checks that the
+watchdog requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own topic,
+caused by `GuardianLost`, within `T_hb + T_react` (HARA DFR-5);
+`supervisor_restored` checks that a returning Guardian withdraws it. With
+`sovd_fault` and `sovd_recovery`, they check that OpenSOVD reports
+`BTG_GuardianHeartbeatLoss` within `T_hb + T_diag`. The `input_quality` check
+compares the raw CAN quality byte with the quality the Guardian input shows
+(TS-11, TS-16).
 
 ## Not covered yet
 
