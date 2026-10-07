@@ -30,52 +30,52 @@ Guardian.
 **External actors and systems:**
 
 | Name | Role |
-|---|---|---|
+|---|---|
 | KUKSA CAN Provider | Converts CAN frames to VSS signals |
 | KUKSA Data Broker | Stores decoded VSS values |
-| OpenSOVD Server | Makes diagnostic records visible |
-| Ankaios | Manage lifetime of container under test |
-| Docker Compose | Manage lifetime of container under test |
+| DFM and OpenSOVD gateway | Store and expose diagnostic records |
+| Docker Compose | Runs the local signal chain and isolated campaign projects |
+| Ankaios / AutoSD | Intended target runtime; no deployment manifest is currently present |
 
 ## 2. Functional Overview
 
-The nominal data path is CAN temperature source -> KUKSA CAN Provider -> KUKSA
-Data Broker -> VSS Publisher -> Battery Thermal Guardian -> OpenSOVD Server -> Evidence Collector. The
-Guardian publishes thermal state, monitoring status, heartbeat, warning or
-mitigation events, and faults. The Evidence Collector observes relevant inputs,
-Guardian events, and diagnostics to determine whether each scenario passed.
-
-The Guardian protects: its behavior determines what the vehicle is told. The
-Evidence Collector explains and proves: it attributes faults, measures timing,
-checks diagnostics, and produces the verdict. The Scenario Generator acts as the
-campaign runner by preparing deterministic scenarios and recording a manifest.
+The nominal data path is CAN trace or external sensor -> KUKSA CAN Provider ->
+KUKSA Data Broker -> VSS Publisher -> Battery Thermal Guardian over uProtocol.
+The Guardian publishes thermal and monitoring events, mitigation requests,
+fault events, and a heartbeat over uProtocol. Guardian and watchdog fault
+lifecycle records are sent to DFM; the OpenSOVD gateway exposes them to the
+campaign tool. The campaign tool is a Rust crate that runs scenarios, records
+uProtocol and OpenSOVD observations, evaluates evidence, and writes verdicts.
+Python is used by the diagnostics smoke-test harness and trace-generation
+scripts, not as a separate scenario generator or evidence collector.
 
 | Responsibility | Owner |
 |---|---|
-| Temperature thresholds, trend, hot spot, and hysteresis | Guardian |
+| Temperature thresholds, trend, and hysteresis | Guardian; hot-spot criterion is not implemented |
 | Freshness, stuck-value, and plausibility response | Guardian |
-| Fault reporting to DFM | Guardian |
-| Guardian heartbeat publication | Guardian |
-| Missing-heartbeat observation and verdict evidence | Evidence Collector/runtime, according to the deployment contract |
-| Source/publisher/transport fault attribution | Evidence Collector |
-| Sequence-based duplicate, reorder, and drop analysis | Evidence Collector; Guardian applies its defined freshness rules |
-| Timing measurements, OpenSOVD checks, and verdict | Evidence Collector |
-| Fault scenario execution and manifest | Scenario Generator or documented manual campaign runner |
+| Guardian fault reporting to DFM | Guardian service through the local DFM reporter interface |
+| Guardian heartbeat publication | Guardian service, every 500 ms |
+| Heartbeat-loss detection and DFM reporting | Separate Rust watchdog; it does not issue an occupant warning or restart a hung Guardian |
+| Input/event taps, OpenSOVD polling, timing evaluation, and verdict | Rust campaign tool; attribution is limited to the evidence available at its tap points |
+| Fault scenario execution and manifest | Rust campaign tool using `campaign/scenarios.toml`; diagnostics outage is a separate custom smoke-test campaign |
 
 ## 3. Quality Attributes
 
 | Attribute | Architectural concern | Source or verification |
 |---|---|---|
-| Functional safety | Hazards, operating situations, safety goals, and candidate ratings | [HARA](hara.md); validate S/E/C and ASIL with the vehicle/system safety owner |
-| Safety behavior | Thermal state and monitoring status remain distinct; loss or invalidity must not be interpreted as a safe battery | [Safety Concept](../explanation/safety-concept.md); verify each linked FSR |
-| Timing | Warning, freshness, reaction, and diagnostic visibility have measurable budgets | Safety Concept parameters; measure with the Evidence Collector |
-| Diagnostic observability | Guardian faults can be correlated to DFM and OpenSOVD records | Campaign tests for every relevant fault |
+| Functional safety | Hazards, operating situations, safety goals, and candidate ratings | [HARA risk classification and safety goals](hara.md#risk-classification-and-safety-goals); S/E/C and ASIL remain subject to vehicle/system safety-owner confirmation |
+| Safety behavior | Thermal state and monitoring status remain distinct; loss or invalidity must not be interpreted as a safe battery | [HARA-derived requirements](hara.md#derived-functional-requirements) and their current tests in [HARA-derived test scenarios](hara.md#hara-derived-test-scenarios) |
+| Timing | Warning, freshness, reaction, and diagnostic visibility have measurable budgets | HARA DFR-1 and test-case budgets; implementation values are in `config/guardian/safety-params.toml` and `campaign/scenarios.toml` |
+| Diagnostic observability | Guardian faults can be correlated to DFM and OpenSOVD records | Integration and campaign tests cover selected fault paths; coverage remains incomplete |
 | Reproducibility | Fault campaigns can be rerun with the same inputs and expected reactions | Scenario manifest, configured environment, and repeat-run comparison |
 | Portability | Guardian logic depends on the uProtocol service contract, not direct broker or CAN-decoder internals | Architecture/interface review and deployment rerun |
 
-The HARA identifies hazardous events and candidate safety goals; it is not a
-quality-attribute specification by itself. Measurable implementation behavior is
-defined in the Safety Concept and linked to HARA identifiers there.
+The HARA is the safety reference in this repository. It records candidate
+hazards and safety goals, derived requirements, and test scenarios. Runtime
+parameter values are configured in `config/guardian/safety-params.toml`; the
+campaign catalog supplies additional budgets and maps scenarios to HARA tests.
+The HARA still contains candidate, unconfirmed risk ratings and requirements
+that are not implemented, so those must not be presented as verified behavior.
 
 ## 4. Constraints
 
@@ -114,14 +114,15 @@ defined in the Safety Concept and linked to HARA identifiers there.
 
 | Component | Implementation | Documentation |
 |---|---|---|
-| Temperature Sensor | C, ThreadX (target/source details TBD) | TODO: link component documentation |
-| Scenario Generator | Python | TODO: link campaign-runner documentation |
+| Temperature source | CAN trace replay through KUKSA CAN Provider; optional MXChip/ThreadX source for manual demonstration | [Campaign Tool](components/campaign.md#hardware-demo); [traces](../../campaign/traces/README.md) |
 | VSS Publisher | [vss-publisher](../../vss-publisher) | [Battery Thermal Contract](../../contracts/README.md) |
-| Battery Thermal Guardian | [guardian](../../guardian), [guardian-service](../../guardian-service) | [Battery Thermal Guardian](components/battery-thermal-guardian.md) |
-| Campaign | Rust | TODO: link collector documentation |
-| KUKSA Data Broker | External component | KUKSA documentation/configuration TBD |
-| OpenSOVD Server | External component | OpenSOVD/DFM configuration TBD |
-| Watchdog | Rust | TBD |
+| Battery Thermal Guardian | Rust core and service adapter: [guardian](../../guardian), [guardian-service](../../guardian-service) | [Battery Thermal Guardian](components/battery-thermal-guardian.md) |
+| Campaign runner and evidence collector | Rust crate: [campaign](../../campaign) | [Campaign Tool](components/campaign.md) |
+| Diagnostics outage smoke test | Python orchestration harness and diagnostics campaign container | [smoke_test.py](../../diagnostics/smoke_test.py); [run tests](../how-to/run-tests.md) |
+| KUKSA Data Broker and CAN Provider | External container images in the Compose signal chain | [Compose deployment](../../docker-compose.yml); [signal-chain guide](../how-to/run-signal-chain.md) |
+| DFM and OpenSOVD gateway | External diagnostics image, configured by Docker Compose | [diagnostics setup](../../README.md#interfaces-and-ipc); [DFM catalog](../../diagnostics/catalog/battery_guardian.json) |
+| Guardian Watchdog | Rust service: [watchdog](../../watchdog) | [Guardian Watchdog](components/guardian-watchdog.md) |
+| Dashboard | Rust web service | [Dashboard](components/dashboard.md) |
 
 ### Component design pattern
 
@@ -143,11 +144,11 @@ container view.
 
 | Codebase | Language/runtime | Responsibility | Entry point and build/test instructions |
 |---|---|---|---|
-| [vss-publisher](../../vss-publisher) | Rust | Exposes VSS data through the service contract | See repository README/Cargo targets; document exact command here |
-| [guardian](../../guardian) | Rust | Evaluates Guardian state and safety behavior | TODO: document entry point and commands |
-| [guardian-service](../../guardian-service) | Rust | Connects Guardian behavior to its runtime interface | TODO: document entry point and commands |
-| Evidence Collector | Python | Correlates campaign evidence | TODO: identify code location and commands |
-| Scenario Generator | Python | Prepares deterministic fault campaigns | TODO: identify code location and commands |
+| [vss-publisher](../../vss-publisher) | Rust | Subscribes to KUKSA VSS data and publishes `BatteryTemperature` over uProtocol | `cargo run -p vss-publisher`; see [contract](../../contracts/README.md) |
+| [guardian](../../guardian) and [guardian-service](../../guardian-service) | Rust | Evaluate samples, publish Guardian events/heartbeat, and report DTC lifecycle updates | `cargo test -p guardian -p guardian-service`; service entry point: `guardian-service/src/main.rs` |
+| [campaign](../../campaign) | Rust | Runs catalog scenarios, records evidence, evaluates runs, and writes reports | `cargo run -p campaign -- run --all`; [commands and artifacts](components/campaign.md) |
+| [watchdog](../../watchdog) | Rust | Monitors Guardian heartbeat and reports heartbeat loss to DFM | `cargo test -p watchdog`; service entry point: `watchdog/src/main.rs` |
+| [diagnostics smoke test](../../diagnostics/smoke_test.py) | Python | Orchestrates isolated diagnostics campaigns, including the TS-27 outage case | `python3 diagnostics/smoke_test.py`; [test guide](../how-to/run-tests.md) |
 
 **Code organization pattern:**
 
@@ -163,17 +164,19 @@ container view.
 
 ```mermaid
 flowchart LR
-    SG[Scenario Generator] -->|scenario and fault manifest| COL[Evidence Collector]
-    ASC[CAN replay] --> CAN[KUKSA CAN Provider]
+  CAM[Campaign Tool] -->|launches isolated Compose project and stimulus| SRC[CAN replay or external source]
+  SRC --> CAN[KUKSA CAN Provider]
     CAN -->|decoded VSS| DB[KUKSA Data Broker]
     DB -->|VSS values| PUB[VSS Publisher]
     PUB -->|uProtocol| GUARD[Battery Thermal Guardian]
-    PUB -->|observed input| COL
-    GUARD -->|state, heartbeat, faults, mitigation| COL
-    GUARD --> DFM[DFM]
+  PUB -->|input tap| CAM
+  GUARD -->|events and heartbeat| CAM
+  GUARD -->|fault lifecycle| DFM[DFM]
+  GUARD -->|heartbeat| WD[Guardian Watchdog]
+  WD -->|heartbeat-loss DTC| DFM
     DFM --> SOVD[OpenSOVD]
-    SOVD --> COL
-    COL --> REPORT[Evidence report and verdict]
+  SOVD -->|diagnostic polling| CAM
+  CAM --> REPORT[Recording, evaluation, and verdict]
 ```
 
 ### CAN signal contract
@@ -219,30 +222,37 @@ The KUKSA CAN Provider maps these signals as defined in
 The temperature paths are standard VSS. The `BMS` branch is a project-private
 extension, not part of the VSS standard catalogue.
 
-### Scenario manifest pattern
+### Campaign manifest and evidence identifiers
 
 | Field | Purpose | Status |
 |---|---|---|
-| `run_id` | Identifies one campaign run | Required; schema TBD |
-| `scenario_id` | Identifies the scenario and expected reactions | Required; schema TBD |
-| `seed` | Makes generated input/fault selection repeatable | Required when generation is randomized |
-| `correlation_id` | Links injected fault, Guardian event, diagnostics, and verdict | Required |
-| `faults` | Fault kind, target, parameters, and activation condition | Required; schema TBD |
-| `expected_reactions` | Expected states/events and timing budgets | Required; schema TBD |
-| `environment` | Relevant software versions and configuration | Required fields TBD |
+| `run_id` | Identifies a campaign or observed run | Written by the Rust campaign tool |
+| `scenario` | Selects the catalog scenario | Written by the Rust campaign tool; scenario definition and expectations are in `campaign/scenarios.toml` |
+| `mode` | `run` for tool-driven stimulus or `observe` for external stimulus | Written by the Rust campaign tool |
+| `started_at`, `git_revision` | Run start and repository revision | Written when available |
+| `stimulus` | Serialized stimulus configuration | Written by the Rust campaign tool |
+| `inputs` | SHA-256 hashes of the catalog, safety parameter file, and trace when applicable | Written by the Rust campaign tool |
 
-TODO: Define the machine-readable schema and versioning/compatibility rules.
+The campaign report adds the HARA hazard/safety-goal references and evaluation.
+There is no single `correlation_id` field: evidence is related through the run
+and scenario, Guardian `session_id`, `event_id` and `cause_event_id`, and the
+session/event metadata in DFM/OpenSOVD records. Scenario expectations are stored
+in the TOML catalog, not duplicated in the manifest. The separate custom
+diagnostics smoke campaign for [HARA TS-27](hara.md#ts-27-source-loss-during-dfmopensovd-outage)
+is the `outage` case in [diagnostics/smoke_test.py](../../diagnostics/smoke_test.py);
+it is not currently an entry in `campaign/scenarios.toml`.
 
 ## 9. Infrastructure Architecture
 
 | Infrastructure element | Purpose | Current details or open point |
 |---|---|---|
-| MXCHIP device | Temperature source target | ThreadX firmware and sensor interface details TBD |
-| HPC | Hosts data services, Guardian, campaign and evidence workloads | Hardware and OS profile TBD |
-| CAN replay and KUKSA CAN Provider | Supplies decoded VSS input | Replay/provider deployment and versions TBD |
-| KUKSA Data Broker | Stores VSS values | Endpoint and configuration are environment-specific |
-| OpenSOVD and DFM | Stores/exposes fault records | Deployment and transport details TBD |
-| Network | Connects distributed services | Ports, trust boundaries, and security controls TBD |
+| Developer host with Docker Compose | Runs the demonstrated signal chain, diagnostics, dashboard, and campaign projects | Configuration is in `docker-compose.yml`; environment-specific host ports can be overridden |
+| CAN trace replay / optional MXChip source | Supplies temperature frames | Automated scenarios replay checked-in ASC traces; the board is an external/manual source |
+| Zenoh, KUKSA CAN Provider, and Data Broker | Route uProtocol and decode/store VSS data | Container services in `docker-compose.yml`; Guardian receives data only through the uProtocol contract |
+| Guardian and Watchdog | Evaluate temperature data and supervise Guardian heartbeat | Separate Rust containers; DFM IPC and Zenoh transport are configured in Compose |
+| DFM and OpenSOVD gateway | Store and expose diagnostic records | External image and local IPC; Compose ports/configuration are environment-specific |
+| Network and Docker socket | Connect services; dashboard controls Docker | Trust boundaries, production credentials, and hardened deployment controls remain unspecified |
+| HPC / AutoSD | Intended deployment target | Hardware/OS profile and runnable target deployment are not yet represented by checked-in manifests |
 
 TODO: Add an infrastructure diagram showing nodes, networks, trust boundaries,
 and external services when the target environment is finalized.
@@ -251,31 +261,27 @@ and external services when the target environment is finalized.
 
 | Target | Component |
 |---|---|
-| MXCHIP | Temperature Sensor |
-| HPC | Scenario Generator |
-| HPC | KUKSA Data Broker |
-| HPC | VSS Publisher |
-| HPC | Battery Thermal Guardian |
-| HPC | OpenSOVD Server |
-| HPC | Evidence Collector |
+| Developer host (Docker Compose) | Zenoh router, KUKSA CAN Provider, KUKSA Data Broker, VSS Publisher, Battery Thermal Guardian, Guardian Watchdog, DFM, OpenSOVD gateway, and dashboard |
+| Developer host (campaign project) | Rust campaign runner and evidence recorder; starts an isolated Compose project per catalog scenario |
+| MXChip device (optional/manual) | External ThreadX temperature source for the `campaign observe` demonstration |
+| HPC (AutoSD with Ankaios; target) | Intended deployment for vehicle-side services; no checked-in Ankaios/AutoSD deployment manifests or verified target run |
 
-Ankaios is the intended workload orchestrator. The exact workload manifests,
-restart policies, resource limits, and AutoSD deployment status must be recorded
-with the runnable deployment configuration.
-
-TODO: Add a deployment view mapping containers in section 6 to runtime nodes,
-including replicas, configuration, and external dependencies.
+The local Docker Compose deployment is the implemented runtime. Docker restarts
+a crashed Guardian according to its Compose policy; a hung Guardian is observed
+by the separate watchdog but is not restarted. Campaign execution uses separate
+Compose projects rather than Ankaios. Resource limits, production trust
+boundaries, and the target deployment remain open.
 
 ## 11. Operation and Support
 
 | Operational concern | Current approach | Open item |
 |---|---|---|
-| Guardian health | Guardian publishes a heartbeat | Confirm monitor, timeout, and restart ownership in deployment |
-| Monitoring degradation | Guardian publishes monitoring status and a fault | Link operator/vehicle response to the approved safety concept |
-| Diagnostics | Guardian writes DFM records; OpenSOVD exposes them | Confirm record schema, retention, and failure behavior |
-| Campaign execution | Scenario Generator or documented manual runner | Document repeatable start/stop and cleanup steps |
-| Evidence and failed runs | Evidence Collector creates a verdict report; failures remain visible | Define report retention and artifact locations |
-| Recovery | Per-scenario Guardian restart is planned/used by campaign assumptions | Document runtime recovery behavior for deployed operation |
+| Guardian health | Guardian publishes a heartbeat every 500 ms; watchdog reports loss after the configured 1500 ms timeout | Watchdog reports a DTC; it does not issue an occupant warning or restart a hung Guardian; see [HARA DFR-5](hara.md#derived-functional-requirements) |
+| Monitoring degradation | Guardian publishes monitoring status and a `DRIVER_WARNING_MONITORING_UNAVAILABLE` request | This is an event/request, not proof of a physical warning; see [HARA SG-2](hara.md#risk-classification-and-safety-goals) and [DFR-2](hara.md#derived-functional-requirements) |
+| Diagnostics | Guardian and watchdog report lifecycle records to DFM; OpenSOVD exposes them | Campaign tool polls visibility; delivery is asynchronous; see [Campaign Tool](components/campaign.md#evidence-collector-to-opensovd) |
+| Campaign execution | Rust campaign tool runs catalog scenarios; `diagnostics/smoke_test.py` runs the custom diagnostics suite including TS-27 | See [Campaign Tool](components/campaign.md) and [run tests](../how-to/run-tests.md) |
+| Evidence and failed runs | Campaign reports preserve PASS, FAIL, and INCONCLUSIVE results and logs | Output locations and retention are described in [Campaign Tool](components/campaign.md#a-run) |
+| Recovery | Guardian recovers on valid input; Docker restarts a crashed process; watchdog only detects a hang | No hung-process restart or independent occupant warning is implemented |
 
 **Runbook pattern:**
 
@@ -320,3 +326,7 @@ The CAN signal and VSS mapping material was updated with the assistance of
 
 This document was reorganized with the assistance of **GitHub Copilot** using
 the model **GPT-6 Luna**.
+
+The implementation alignment, campaign/evidence description, and deployment
+view were updated with the assistance of **GitHub Copilot** using the model
+**GPT-6 Luna**.
