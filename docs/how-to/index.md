@@ -14,5 +14,6 @@ SPDX-License-Identifier: EPL-2.0
 # How To
 
 - [Use the Dev Container](devcontainer.md)
+- [Build and Run the Whole Stack](run-the-stack.md)
 - [Run the Signal Chain](run-signal-chain.md)
 - [Run the Tests](run-tests.md)

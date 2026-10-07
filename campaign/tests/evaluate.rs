@@ -17,7 +17,7 @@
 use std::path::Path;
 
 use campaign::catalog::{Scenario, Stimulus};
-use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
+use campaign::evaluate::{evaluate, Evaluation, LinkState, Outcome, Verdict};
 use campaign::onset::Onset;
 use campaign::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
 use campaign::Context;
@@ -82,6 +82,7 @@ impl Recording {
                 cause_event_id: cause,
                 guardian_time_ms: t_ms,
                 kind,
+                sample: None,
             }),
         });
         self.next_event
@@ -1028,4 +1029,174 @@ fn input_fault_without_classification_is_fail() {
 
     assert_eq!(evaluation.verdict, Verdict::Fail);
     assert_eq!(evaluation.requirements["FSR-D.2"], Verdict::Fail);
+}
+
+// --- Evidence chain -------------------------------------------------------------
+
+fn link_state(evaluation: &Evaluation, link: &str) -> LinkState {
+    evaluation
+        .chain
+        .links
+        .iter()
+        .find(|l| l.link == link)
+        .unwrap_or_else(|| panic!("no link {link}"))
+        .state
+}
+
+#[test]
+fn full_reaction_gives_a_complete_chain_linked_by_ids() {
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+
+    let evaluation = r.judge(&context, "timeout");
+    let chain = &evaluation.chain;
+
+    assert!(chain.complete, "{:#?}", chain.links);
+    for link in [
+        "Hazard",
+        "Safety goal",
+        "Fault",
+        "Detection",
+        "Mitigation",
+        "DTC in OpenSOVD",
+        "Verdict",
+    ] {
+        assert_eq!(link_state(&evaluation, link), LinkState::Present, "{link}");
+    }
+    let detection = &chain.detections[0];
+    assert_eq!(detection.dtc.as_deref(), Some("BTG_TempFreshnessLost"));
+    assert_eq!(detection.latency_ms, Some(300));
+    assert_eq!(detection.recovered_event_id, Some(4));
+    let mitigation = &chain.mitigations[0];
+    assert_eq!(
+        mitigation.mitigation,
+        "DRIVER_WARNING_MONITORING_UNAVAILABLE"
+    );
+    assert_eq!(mitigation.detection_event_id, Some(detection.event_id));
+    // FaultDetected → MonitoringStatusChanged → MitigationRequested.
+    assert_eq!(mitigation.cause_chain.len(), 3);
+    let dtc = &chain.diagnostics[0];
+    assert_eq!(dtc.latency_ms, Some(400));
+    assert!(dtc.passed_later);
+    assert_eq!(
+        dtc.fault_type.as_deref(),
+        Some(context.classes["BTG_TempFreshnessLost"].0.as_str())
+    );
+    assert_eq!(evaluation.timeline.len(), 5);
+}
+
+#[test]
+fn a_fault_without_warning_or_dtc_leaves_those_links_missing() {
+    let context = context();
+    let mut r = timeout_run();
+    let fault = r.event(
+        2300,
+        0,
+        EventKind::FaultDetected {
+            dtc: "BTG_TempFreshnessLost".into(),
+            requirement: "FSR-2.2".into(),
+        },
+    );
+    r.event(
+        2300,
+        fault,
+        EventKind::MonitoringStatusChanged {
+            previous: "OK".into(),
+            current: "DEGRADED".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert!(!evaluation.chain.complete);
+    assert_eq!(link_state(&evaluation, "Detection"), LinkState::Present);
+    assert_eq!(link_state(&evaluation, "Mitigation"), LinkState::Missing);
+    assert_eq!(
+        link_state(&evaluation, "DTC in OpenSOVD"),
+        LinkState::Missing
+    );
+    assert!(evaluation.chain.diagnostics[0].failed_ms.is_none());
+}
+
+#[test]
+fn a_mitigation_not_caused_by_the_detection_is_not_linked() {
+    let context = context();
+    let mut r = timeout_run();
+    r.full_reaction("BTG_TempFreshnessLost", 2300, 5200);
+    // The warning (event 3) loses its cause.
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(event) = &mut observation.tap {
+            if event.event_id == 3 {
+                event.cause_event_id = 0;
+            }
+        }
+    }
+
+    let evaluation = r.judge(&context, "timeout");
+
+    assert_eq!(link_state(&evaluation, "Mitigation"), LinkState::Missing);
+    assert_eq!(evaluation.chain.mitigations[0].detection_event_id, None);
+}
+
+#[test]
+fn a_nominal_run_expects_no_detection_mitigation_or_dtc() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.event(
+        10,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CLEAR".into(),
+            current: "MONITORING".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "normal");
+
+    assert!(evaluation.chain.complete, "{:#?}", evaluation.chain.links);
+    for link in ["Detection", "Mitigation", "DTC in OpenSOVD"] {
+        assert_eq!(
+            link_state(&evaluation, link),
+            LinkState::NotExpected,
+            "{link}"
+        );
+    }
+}
+
+#[test]
+fn a_false_alarm_is_an_unexpected_detection() {
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 5000);
+    r.event(
+        2000,
+        0,
+        EventKind::FaultDetected {
+            dtc: "BTG_TempSignalStuck".into(),
+            requirement: "FSR-2.4".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "normal");
+
+    assert_eq!(link_state(&evaluation, "Detection"), LinkState::Unexpected);
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn a_run_that_recorded_nothing_is_inconclusive_not_fail() {
+    let context = context();
+
+    // The stack did not start: not a single observation.
+    let evaluation = Recording::default().judge(&context, "startup_without_source");
+
+    assert_eq!(evaluation.verdict, Verdict::Inconclusive);
+    assert!(evaluation.reason.contains("nothing was recorded"));
+    assert!(evaluation
+        .requirements
+        .values()
+        .all(|v| *v == Verdict::Inconclusive));
+    assert!(!evaluation.chain.complete);
 }

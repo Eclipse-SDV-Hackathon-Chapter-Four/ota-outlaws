@@ -19,7 +19,7 @@ use std::fmt::Write;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Scenario, ScenarioStatus};
-use crate::evaluate::{Evaluation, Outcome, Verdict};
+use crate::evaluate::{Chain, Evaluation, LinkState, Outcome, TimelineEntry, Verdict};
 
 /// Facts about a run, written when it starts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -114,7 +114,9 @@ pub fn markdown(manifest: &Manifest, scenario: &Scenario, evaluation: &Evaluatio
         let _ = writeln!(out, "| Note | {note} |");
     }
 
-    let _ = writeln!(out, "\n## Evidence chain\n");
+    chain_markdown(&mut out, &evaluation.chain);
+
+    let _ = writeln!(out, "\n## Checks\n");
     let _ = writeln!(
         out,
         "| Requirement | Expectation | Observed | Latency | Budget | Result |\n|---|---|---|---|---|---|"
@@ -154,6 +156,7 @@ pub fn markdown(manifest: &Manifest, scenario: &Scenario, evaluation: &Evaluatio
     for (requirement, verdict) in &evaluation.requirements {
         let _ = writeln!(out, "- {requirement}: {}", symbol(*verdict));
     }
+    timeline_markdown(&mut out, &evaluation.timeline);
     let _ = writeln!(out, "\n## Inputs\n");
     if let Some(revision) = &manifest.git_revision {
         let _ = writeln!(out, "- git revision `{revision}`");
@@ -162,6 +165,188 @@ pub fn markdown(manifest: &Manifest, scenario: &Scenario, evaluation: &Evaluatio
         let _ = writeln!(out, "- `{name}` sha256 `{hash}`");
     }
     out
+}
+
+/// A table cell: no line breaks, `|` escaped.
+fn cell(text: &str) -> String {
+    text.replace('|', "\\|").replace('\n', " ")
+}
+
+fn sample(sample: &Option<crate::recording::SampleRef>) -> String {
+    match sample {
+        Some(s) => format!("#{} (counter {})", s.sequence, s.alive_counter),
+        None => "—".to_owned(),
+    }
+}
+
+fn chain_markdown(out: &mut String, chain: &Chain) {
+    let state = if chain.complete {
+        "complete"
+    } else {
+        "incomplete"
+    };
+    let _ = writeln!(out, "\n## Evidence chain: {state}\n");
+    let _ = writeln!(
+        out,
+        "Hazard → safety goal → fault → detection → mitigation → DTC → verdict. \
+         Detections, mitigations, and DTCs are linked by the Guardian's session \
+         and event IDs, not by timing.\n"
+    );
+    let _ = writeln!(out, "| Link | Evidence | |\n|---|---|---|");
+    for link in &chain.links {
+        let mark = match link.state {
+            LinkState::Present => "✓",
+            LinkState::Missing => "✗ missing",
+            LinkState::NotExpected => "— not expected",
+            LinkState::Unexpected => "! unexpected",
+        };
+        let _ = writeln!(out, "| {} | {} | {mark} |", link.link, cell(&link.evidence));
+    }
+
+    if !chain.detections.is_empty() {
+        let _ = writeln!(out, "\n### Detection\n");
+        let _ = writeln!(
+            out,
+            "| Event | Detection | After t0 | Guardian time | Sample | Recovered |\n|---|---|---|---|---|---|"
+        );
+        for d in &chain.detections {
+            let recovered = match (d.recovered_event_id, d.recovered_ms) {
+                (Some(id), Some(t)) => format!("#{id} at {}", seconds(t)),
+                _ => "—".to_owned(),
+            };
+            let _ = writeln!(
+                out,
+                "| #{} | {} | {} | {} ms | {} | {recovered} |",
+                d.event_id,
+                cell(&d.event),
+                d.latency_ms.map(seconds).unwrap_or_default(),
+                d.guardian_time_ms,
+                sample(&d.sample)
+            );
+        }
+    }
+
+    if !chain.mitigations.is_empty() {
+        let _ = writeln!(out, "\n### Mitigation\n");
+        let _ = writeln!(
+            out,
+            "| Event | Mitigation | After t0 | Cause chain |\n|---|---|---|---|"
+        );
+        for m in &chain.mitigations {
+            let causes = if m.detection_event_id.is_some() {
+                m.cause_chain.join(" → ")
+            } else {
+                format!("{} (not caused by a detection)", m.cause_chain.join(" → "))
+            };
+            let _ = writeln!(
+                out,
+                "| #{} | {} | {} | {} |",
+                m.event_id,
+                m.mitigation,
+                m.latency_ms.map(seconds).unwrap_or_default(),
+                cell(&causes)
+            );
+        }
+    }
+
+    if !chain.diagnostics.is_empty() {
+        let _ = writeln!(out, "\n### DTCs in OpenSOVD\n");
+        let _ = writeln!(
+            out,
+            "| DTC | Detection | Failed in OpenSOVD | Severity | Fault type | Status | Occurrences | Passed later |\n|---|---|---|---|---|---|---|---|"
+        );
+        for d in &chain.diagnostics {
+            let status = &d.status;
+            let flags: Vec<&str> = [
+                "testFailed",
+                "confirmedDtc",
+                "pendingDtc",
+                "testFailedSinceLastClear",
+                "warningIndicatorRequested",
+            ]
+            .into_iter()
+            .filter(|flag| status[*flag] == true)
+            .collect();
+            let status_text = if status.is_null() {
+                "never shown".to_owned()
+            } else {
+                format!(
+                    "{} (mask {})",
+                    if flags.is_empty() {
+                        "no flag set".to_owned()
+                    } else {
+                        flags.join(", ")
+                    },
+                    status["mask"].as_str().unwrap_or("?")
+                )
+            };
+            let _ = writeln!(
+                out,
+                "| {} | #{} | {} | {} | {} | {} | {} | {} |",
+                d.dtc,
+                d.detection_event_id,
+                d.latency_ms
+                    .map(|l| format!("{} after the event", seconds(l)))
+                    .unwrap_or_else(|| "never".to_owned()),
+                d.severity.as_deref().unwrap_or("—"),
+                d.fault_type.as_deref().unwrap_or("—"),
+                cell(&status_text),
+                d.occurrence_counter
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "—".to_owned()),
+                if d.passed_later { "yes" } else { "no" }
+            );
+        }
+        for d in &chain.diagnostics {
+            if let Some(env) = d.environment_data.as_object() {
+                let pairs: Vec<String> = env
+                    .iter()
+                    .map(|(k, v)| {
+                        format!("{k}={}", v.as_str().map_or(v.to_string(), str::to_owned))
+                    })
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "\n- `{}` (event #{}) environment data: {}",
+                    d.dtc,
+                    d.detection_event_id,
+                    pairs.join(", ")
+                );
+            }
+        }
+    }
+}
+
+fn timeline_markdown(out: &mut String, timeline: &[TimelineEntry]) {
+    if timeline.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "\n## Guardian events\n");
+    let _ = writeln!(
+        out,
+        "| # | Cause | At the tap | Guardian time | Event | Sample |\n|---|---|---|---|---|---|"
+    );
+    let first = &timeline[0].session_id;
+    for e in timeline {
+        let cause = match e.cause_event_id {
+            0 => "—".to_owned(),
+            id => format!("#{id}"),
+        };
+        let other = if &e.session_id == first {
+            String::new()
+        } else {
+            format!(" (session {})", e.session_id)
+        };
+        let _ = writeln!(
+            out,
+            "| #{} | {cause} | {} | {} ms | {}{other} | {} |",
+            e.event_id,
+            seconds(e.delivered_ms),
+            e.guardian_time_ms,
+            cell(&e.event),
+            sample(&e.sample)
+        );
+    }
 }
 
 pub struct Summary<'a> {
@@ -174,7 +359,7 @@ pub fn campaign_markdown(campaign_id: &str, summaries: &[Summary<'_>]) -> String
     let _ = writeln!(out, "# Campaign {campaign_id}\n");
     let _ = writeln!(
         out,
-        "| Scenario | HARA test | Requirements | Verdict | Reason | Report |\n|---|---|---|---|---|---|"
+        "| Scenario | HARA test | Requirements | Verdict | Reason | Evidence chain | Report |\n|---|---|---|---|---|---|---|"
     );
     for summary in summaries {
         let e = summary.evaluation;
@@ -183,9 +368,21 @@ pub fn campaign_markdown(campaign_id: &str, summaries: &[Summary<'_>]) -> String
             ScenarioStatus::Implemented => symbol(e.verdict).to_owned(),
         };
         let requirements: Vec<_> = e.requirements.keys().cloned().collect();
+        let missing: Vec<&str> = e
+            .chain
+            .links
+            .iter()
+            .filter(|l| l.state == LinkState::Missing)
+            .map(|l| l.link.as_str())
+            .collect();
+        let chain = if missing.is_empty() {
+            "complete".to_owned()
+        } else {
+            format!("missing: {}", missing.join(", "))
+        };
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | [report]({}/report.md) |",
+            "| {} | {} | {} | {} | {} | {chain} | [report]({}/report.md) |",
             e.scenario,
             e.hara_tests.join(", "),
             requirements.join(", "),

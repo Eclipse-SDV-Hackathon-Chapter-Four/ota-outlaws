@@ -141,7 +141,7 @@ A run directory holds the evidence:
 |------|---------|
 | `manifest.json` | run ID, scenario, stimulus, git revision, SHA-256 of the catalog, the parameters, and the trace |
 | `recording.jsonl` | every observation |
-| `report.json`, `report.md` | verdict, onset, evidence chain, result per requirement |
+| `report.json`, `report.md` | verdict, onset, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, checks, result per requirement, Guardian event timeline |
 | `services.log` | logs of all services |
 | `error.txt` | only if the run itself failed; the scenario is still judged |
 
@@ -155,7 +155,36 @@ As defined in the [Safety Concept](../../explanation/safety-concept.md#scenario-
 |---------|------|
 | PASS | Onset observed, every expectation met within its budget, nothing forbidden |
 | FAIL | An expectation missed or late, or a forbidden reaction |
-| INCONCLUSIVE | Onset not observed, or evidence missing (for example, OpenSOVD never answered) |
+| INCONCLUSIVE | Onset not observed, or evidence missing (for example, OpenSOVD never answered), or nothing recorded at all because the run itself failed |
+
+## Evidence chain
+
+Every report shows the chain the challenge asks for, one link per row:
+
+| Link | Evidence | Linked to the link before by |
+|------|----------|------------------------------|
+| Hazard | HE-n of the scenario | the scenario catalog |
+| Safety goal | SG-n of the scenario | the scenario catalog |
+| Fault | injected fault, its class, and the onset t0 at the Guardian's input | the onset rule of the scenario |
+| Detection | `FaultDetected` events, and thermal states raised to WARNING or more, after t0 and within the judged window; latency after t0, the Guardian's time, the sample, and the recovery | the session; t0 |
+| Mitigation | `MitigationRequested` events with their cause chain, for example `#2 FaultDetected → #3 MonitoringStatusChanged OK → DEGRADED → #4 MitigationRequested DRIVER_WARNING_MONITORING_UNAVAILABLE` | `cause_event_id`, back to a detection |
+| DTC in OpenSOVD | the DTC's records: when it failed, severity, fault type, status bits, counters, environment data, and whether it passed again | session and event ID in the DFM environment data |
+| Verdict | PASS, FAIL, or INCONCLUSIVE with its reason | the checks |
+
+Each link is `present`, `missing` (the scenario expects it, but there is no
+evidence or no link), `not expected` (the scenario expects none and there is
+none, as in the nominal run), or `unexpected` (a detection in a scenario that
+expects none: a false alarm). The chain is **complete** when no link is
+missing. That says nothing about timing: a late detection still completes the
+chain, and the checks make the verdict FAIL. Which links a scenario expects
+follows from its expectations: `fault`, `degraded`, `sovd`, `recovery`,
+`startup_fault`, `overtemp_dtc`, `driver_warning_overtemp`, and `thermal` from
+WARNING up expect a detection; `degraded` and `driver_warning_overtemp` a
+mitigation; `sovd`, `recovery`, and `overtemp_dtc` a DTC.
+
+The recording keeps each event's sample reference (`sample`: sequence, source
+timestamp, alive counter), so the report shows which sample a detection or
+thermal change refers to. Recordings from before that have none.
 
 ## Hardware demo
 

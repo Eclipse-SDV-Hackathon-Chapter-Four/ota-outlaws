@@ -893,6 +893,7 @@ function scenarioCard(s) {
         <span class="verdict ${esc(verdict)}">${esc(verdict)}</span>
         <span class="id">${esc(s.id)}</span>
         ${r && r.status === 'planned' ? '<span class="badge idle">checks a planned requirement</span>' : ''}
+        ${r && r.chain ? `<span class="badge ${r.chain.complete ? 'ok' : 'bad'}">chain ${r.chain.complete ? 'complete' : 'incomplete'}</span>` : ''}
         <span class="muted small grow">${esc(r ? r.description : '')}</span>
         ${r ? `<span class="small muted">${esc(r.samples)} samples · ${esc(r.guardian_events)} events</span>` : ''}
       </div>
@@ -900,7 +901,88 @@ function scenarioCard(s) {
     </div>`;
 }
 
-function scenarioReportHtml(r) {
+const LINK_STATE = {
+  present: ['ok', '✓ present'],
+  missing: ['bad', '✗ missing'],
+  not_expected: ['idle', '— not expected'],
+  unexpected: ['warn', '! unexpected'],
+};
+
+function sampleText(s) {
+  return s ? `#${s.sequence} (counter ${s.alive_counter})` : '—';
+}
+
+function dtcStatusBadges(status) {
+  if (!status) return '<span class="badge idle">never shown</span>';
+  const flags = [['testFailed', 'bad', 'testFailed'], ['confirmedDtc', 'bad', 'confirmed'], ['pendingDtc', 'warn', 'pending'],
+    ['testFailedSinceLastClear', 'warn', 'failed since clear'], ['warningIndicatorRequested', 'warn', '⚠ warning lamp']];
+  const set = flags.filter(([key]) => status[key] === true)
+    .map(([, cls, label]) => `<span class="badge ${cls}">${label}</span>`);
+  return (set.length ? set.join(' ') : '<span class="badge ok">no flag set</span>')
+    + ` <span class="small muted mono">mask ${esc(status.mask)}</span>`;
+}
+
+// Hazard → safety goal → fault → detection → mitigation → DTC → verdict,
+// as judged by the campaign tool (evaluate.rs).
+function chainHtml(chain) {
+  if (!chain) {
+    return `<h3>Evidence chain</h3><div class="muted small">This report was written by an older campaign tool and has no
+      evidence chain. Judge it again with <span class="mono">cargo run -p campaign -- evaluate &lt;run-dir&gt;</span>.</div>`;
+  }
+  const flow = chain.links.map((l) => `<span class="chain-step ${esc(l.state)}" title="${esc(l.evidence)}">${esc(l.link)}</span>`)
+    .join('<span class="chain-arrow">→</span>');
+  const links = chain.links.map((l) => {
+    const [cls, text] = LINK_STATE[l.state] || ['idle', l.state];
+    return `<tr><td><b>${esc(l.link)}</b></td><td>${esc(l.evidence)}</td><td><span class="badge ${cls}">${text}</span></td></tr>`;
+  }).join('');
+  const detections = chain.detections.length ? `
+    <h4>Detection</h4>
+    <table><thead><tr><th>Event</th><th>Detection</th><th>After t0</th><th>Guardian time</th><th>Sample</th><th>Recovered</th></tr></thead><tbody>
+    ${chain.detections.map((d) => `<tr><td class="mono">#${esc(d.event_id)}</td><td>${esc(d.event)}</td>
+      <td>${esc(seconds(d.latency_ms))}</td><td class="mono small">${esc(d.guardian_time_ms)} ms</td><td class="mono small">${esc(sampleText(d.sample))}</td>
+      <td>${d.recovered_event_id ? `#${esc(d.recovered_event_id)} at ${esc(seconds(d.recovered_ms))}` : '—'}</td></tr>`).join('')}
+    </tbody></table>` : '';
+  const mitigations = chain.mitigations.length ? `
+    <h4>Mitigation</h4>
+    <table><thead><tr><th>Event</th><th>Mitigation</th><th>After t0</th><th>Cause chain (correlation IDs)</th></tr></thead><tbody>
+    ${chain.mitigations.map((m) => `<tr><td class="mono">#${esc(m.event_id)}</td><td><b>${esc(m.mitigation)}</b></td>
+      <td>${esc(seconds(m.latency_ms))}</td>
+      <td class="small">${m.cause_chain.map(esc).join(' <span class="chain-arrow">→</span> ')}
+        ${m.detection_event_id ? '' : ' <span class="badge bad">not caused by a detection</span>'}</td></tr>`).join('')}
+    </tbody></table>` : '';
+  const diagnostics = chain.diagnostics.length ? `
+    <h4>DTCs in OpenSOVD</h4>
+    <table><thead><tr><th>DTC</th><th>Detection</th><th>Failed in OpenSOVD</th><th>Severity</th><th>Fault type</th><th>Status</th><th>Occ.</th><th>Passed later</th></tr></thead><tbody>
+    ${chain.diagnostics.map((d) => `<tr><td class="mono">${esc(d.dtc)}${d.symptom ? `<div class="small muted">${esc(d.symptom)}</div>` : ''}</td>
+      <td class="mono">#${esc(d.detection_event_id)}</td>
+      <td>${d.latency_ms == null ? '<span class="badge bad">never</span>' : esc(seconds(d.latency_ms)) + ' after the event'}</td>
+      <td>${d.severity ? `<span class="badge sev ${esc(d.severity)}">${esc(d.severity)}</span>` : '—'}</td>
+      <td>${esc(d.fault_type || '—')}</td><td>${dtcStatusBadges(d.status)}</td>
+      <td>${esc(d.occurrence_counter ?? '—')}</td><td>${d.passed_later ? 'yes' : 'no'}</td></tr>
+      ${d.environment_data && Object.keys(d.environment_data).length ? `<tr><td colspan="8" class="detail"><div class="kv small">
+        ${Object.entries(d.environment_data).map(([k, v]) => `<div>${esc(k)}</div><div class="mono">${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`).join('')}
+      </div></td></tr>` : ''}`).join('')}
+    </tbody></table>` : '';
+  return `
+    <h3>Evidence chain <span class="badge ${chain.complete ? 'ok' : 'bad'}">${chain.complete ? 'complete' : 'incomplete'}</span></h3>
+    <div class="chain-flow">${flow}</div>
+    <table><thead><tr><th>Link</th><th>Evidence (linked by session and event IDs)</th><th></th></tr></thead><tbody>${links}</tbody></table>
+    ${detections}${mitigations}${diagnostics}`;
+}
+
+function timelineHtml(timeline, open) {
+  if (!timeline || !timeline.length) return '';
+  const first = timeline[0].session_id;
+  return `<details class="timeline" ${open ? 'open' : ''}><summary>Guardian events (${timeline.length})</summary>
+    <table><thead><tr><th>#</th><th>Cause</th><th>At the tap</th><th>Guardian time</th><th>Event</th><th>Sample</th></tr></thead><tbody>
+    ${timeline.map((e) => `<tr><td class="mono">#${esc(e.event_id)}</td><td class="mono">${e.cause_event_id ? '#' + esc(e.cause_event_id) : '—'}</td>
+      <td>${esc(seconds(e.delivered_ms))}</td><td class="mono small">${esc(e.guardian_time_ms)} ms</td>
+      <td>${esc(e.event)}${e.session_id !== first ? ` <span class="badge bad">session ${esc(e.session_id)}</span>` : ''}</td>
+      <td class="mono small">${esc(sampleText(e.sample))}</td></tr>`).join('')}
+    </tbody></table></details>`;
+}
+
+function scenarioReportHtml(r, forPrint = false) {
   const checks = r.checks || [];
   const violations = r.violations || [];
   const requirements = Object.entries(r.requirements || {});
@@ -915,7 +997,8 @@ function scenarioReportHtml(r) {
       <div>Run</div><div class="mono">${esc(r.manifest && r.manifest.run_id)} · started ${esc(r.manifest && r.manifest.started_at)} · git ${esc((r.manifest && r.manifest.git_revision) || '—')}</div>
       ${r.note ? `<div>Note</div><div>${esc(r.note)}</div>` : ''}
     </div>
-    <h3>Evidence chain</h3>
+    ${chainHtml(r.chain)}
+    <h3>Checks</h3>
     ${checks.length ? `<table><thead><tr><th>Requirement</th><th>Expectation</th><th>Observed</th><th>Latency</th><th>Budget</th><th>Result</th></tr></thead><tbody>
       ${checks.map((c) => `<tr><td>${esc((c.expectation && c.expectation.requirement) || '—')}</td>
         <td class="mono small">${esc(expectationText(c.expectation))}</td>
@@ -925,7 +1008,8 @@ function scenarioReportHtml(r) {
     ${violations.length ? `<h3>Forbidden reactions</h3><table><thead><tr><th>Rule</th><th>Requirement</th><th>Detail</th></tr></thead><tbody>
       ${violations.map((v) => `<tr><td>${esc(v.rule)}</td><td>${esc(v.requirement)}</td><td>${esc(v.detail)}</td></tr>`).join('')}</tbody></table>` : ''}
     ${requirements.length ? `<h3>Result per requirement</h3><div class="row">${requirements.map(([req, v]) =>
-      `<span class="badge ${v === 'PASS' ? 'ok' : v === 'FAIL' ? 'bad' : 'warn'}">${esc(req)}: ${esc(v)}</span>`).join(' ')}</div>` : ''}`;
+      `<span class="badge ${v === 'PASS' ? 'ok' : v === 'FAIL' ? 'bad' : 'warn'}">${esc(req)}: ${esc(v)}</span>`).join(' ')}</div>` : ''}
+    ${timelineHtml(r.timeline, forPrint)}`;
 }
 
 async function loadScenarios() {
@@ -1031,11 +1115,13 @@ function printCampaignReport() {
     <div class="meta">Campaign <b>${esc(c.id)}</b> (${esc(c.mode)}) · ${esc(c.state)} · started ${esc(c.started_at || '—')} ·
       generated ${esc(new Date().toLocaleString())}<br>
       ${k.total} scenarios · ${k.pass} PASS · ${k.fail} FAIL · ${k.inconclusive} INCONCLUSIVE · ${k.running + k.pending} not judged</div>
-    <table><thead><tr><th>Scenario</th><th>Verdict</th><th>Reason</th></tr></thead><tbody>
+    <table><thead><tr><th>Scenario</th><th>Verdict</th><th>Reason</th><th>Evidence chain</th></tr></thead><tbody>
       ${c.scenarios.map((s) => `<tr><td>${esc(s.id)}</td><td><span class="verdict ${esc(scenarioVerdict(s))}">${esc(scenarioVerdict(s))}</span></td>
-        <td>${esc(s.report ? s.report.reason : s.state)}</td></tr>`).join('')}</tbody></table>
+        <td>${esc(s.report ? s.report.reason : s.state)}</td>
+        <td>${s.report && s.report.chain ? (s.report.chain.complete ? 'complete'
+          : 'missing: ' + esc(s.report.chain.links.filter((l) => l.state === 'missing').map((l) => l.link).join(', '))) : '—'}</td></tr>`).join('')}</tbody></table>
     ${c.scenarios.filter((s) => s.report).map((s) => `<div class="scenario-print">
-      <h2>${esc(s.id)} — ${esc(s.report.verdict)}</h2>${scenarioReportHtml(s.report)}</div>`).join('')}`);
+      <h2>${esc(s.id)} — ${esc(s.report.verdict)}</h2>${scenarioReportHtml(s.report, true)}</div>`).join('')}`);
 }
 
 // Fills the print area and opens the browser's print dialog, where
