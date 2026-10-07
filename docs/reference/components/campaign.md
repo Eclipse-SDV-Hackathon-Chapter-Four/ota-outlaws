@@ -39,7 +39,7 @@ code is 0 when every scenario with status `implemented` passed.
 Both parts live in one tool, but the verdict uses only what the evidence part
 observed, never what the stimulus part believes it injected. The fault onset t0
 is the first observation of the fault at the Guardian's input
-([Timing reference](../../explanation/safety-concept.md#timing-reference)). So a
+([Timing reference](../../reference/hara.md#timing-reference)). So a
 fault that is lost on the way is reported as INCONCLUSIVE ("fault not
 delivered"), not as PASS, and the same evidence part can judge runs it did not
 inject, such as the hardware demo.
@@ -159,7 +159,7 @@ A run directory holds the evidence:
 
 ## Verdicts
 
-As defined in the [Safety Concept](../../explanation/safety-concept.md#scenario-verdicts):
+As defined in the [Safety Concept](../../reference/hara.md#scenario-verdicts):
 
 | Verdict | When |
 |---------|------|

@@ -14,7 +14,7 @@
 //! Requirement tests for the Guardian core.
 //!
 //! Each test is named after the functional safety requirement it verifies, as
-//! defined in `docs/explanation/safety-concept.md`. All tests use the shipped
+//! defined in `docs/reference/hara.md`. All tests use the shipped
 //! configuration, so they also check that the configuration file is valid.
 
 use guardian::{

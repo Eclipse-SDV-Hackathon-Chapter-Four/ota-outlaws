@@ -16,7 +16,7 @@ SPDX-License-Identifier: EPL-2.0
 The Battery Thermal Guardian evaluates battery temperatures and the trustworthiness
 of their input, then publishes thermal, monitoring, fault, and mitigation events.
 The [HARA](../hara.md) is authoritative for the item boundary, hazards, safety goals,
-faults, and derived requirements. The [Safety Concept](../../explanation/safety-concept.md)
+faults, and derived requirements. The [Safety Concept](../../reference/hara.md)
 records the current implementation status. Where it conflicts with the HARA, this
 design follows the HARA and records the implementation as a gap rather than changing
 the safety requirement.
@@ -212,7 +212,7 @@ configuration.
 
 The table under [Core and adapters](#core-and-adapters) shows which parts exist.
 Which requirements are implemented is recorded in the status column of the
-[Safety Concept](../../explanation/safety-concept.md#functional-safety-requirements).
+[Safety Concept](../../reference/hara.md#functional-safety-requirements).
 
 ## Verification strategy
 

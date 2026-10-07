@@ -14,7 +14,7 @@
 # Scenario catalog: one test case per scenario, with its stimulus, the fault
 # onset the campaign tool looks for at the Guardian's input, and the expected
 # reactions. Hazardous events (HE) and safety goals (SG) refer to the HARA,
-# docs/reference/hara.md; requirements to docs/explanation/safety-concept.md.
+# docs/reference/hara.md; requirements to docs/reference/hara.md.
 #
 # status = "implemented": every requirement checked here is implemented, so a
 #          failure is a defect.

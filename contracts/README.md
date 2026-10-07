@@ -35,7 +35,7 @@ the same `.proto` file.
 
 One message per Data Broker update of the battery signals. The Guardian relies on
 the assumptions A-1 to A-3 of the
-[Safety Concept](../docs/explanation/safety-concept.md#assumptions). This is how
+[Safety Concept](../docs/reference/hara.md#assumptions). This is how
 the VSS Publisher fulfills them:
 
 | Field | Assumption | Source in the VSS Publisher |

@@ -15,7 +15,7 @@
 #
 # This file is the single source of truth for the values. Their meaning and
 # rationale are in the "Parameters" section of
-# docs/explanation/safety-concept.md. The values are proposals until they are
+# docs/reference/hara.md. The values are proposals until they are
 # tuned with end-to-end measurements.
 
 [thermal]

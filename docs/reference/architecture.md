@@ -117,7 +117,7 @@ uses only what it observed, so it can also judge a hardware demo it did not
 inject. See [Campaign Tool](components/campaign.md).
 
 The requirements behind this split are in the
-[Safety Concept](../explanation/safety-concept.md): FSR requirements for the
+[Safety Concept](../reference/hara.md): FSR requirements for the
 Guardian, EC requirements for the Evidence Collector.
 
 # Data Flow
