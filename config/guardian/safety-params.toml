@@ -39,6 +39,17 @@ timeout_ms = 3000
 # single-step flicker does not count.
 min_reference_change_c = 2.0
 
+[plausibility]
+# θ_min, θ_max: plausible cell temperature range (FSR-3.2, SG-3, SG-4). The CAN
+# signal cannot represent values below 0 °C. θ_max must not be below θ_crit.
+min_c = 0.0
+max_c = 125.0
+# r_max: fastest plausible rise of the maximum, in °C per second (FSR-3.3).
+max_rise_c_per_s = 20.0
+# Resolution of the CAN temperature signal (1 °C per step). A rise of one step is
+# always plausible, even when source timestamps arrive in a burst.
+resolution_c = 1.0
+
 [recovery]
 # Lower thermal severity only below its threshold minus this hysteresis.
 hysteresis_c = 2.0
