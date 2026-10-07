@@ -166,12 +166,12 @@ the approved Safety Concept configuration.
 | F-4: Expected update is dropped before reaching the Guardian | `DriverWarningMonitoringUnavailable`; TS-06 also lists `DiscardSample`. | TS-05, TS-06, TS-15 |
 | F-5: Messages arrive out-of-order | `DriverWarningMonitoringUnavailable` if monitoring degrades; the stale sample must not update thermal assessment. | TS-08 |
 | F-6: One isolated temperature sample is outside the configured interval | No overtemperature mitigation from invalid input alone; preserve an active thermal warning and report `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`. | TS-12, TS-17, TS-18 |
-| F-7: Temperature drifts over time | No dedicated drift mitigation is specified by an existing test. Proposed TS-25 expects a `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | No dedicated fault test; TS-02 tests threshold heating, not drift detection. Proposed TS-25. |
+| F-7: Temperature drifts over time | `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | TS-25 |
 | F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-12, TS-19, TS-20 |
 | F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-15 |
 | F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-22 (termination), TS-23 (hang) |
 | F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-11, TS-16 |
-| F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | No explicit 255 °C test. TS-12 only tests a generic high out-of-range sample; proposed TS-26. |
+| F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | TS-12, TS-26 |
 | F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-21 |
 
 ### Test Template
@@ -583,17 +583,16 @@ RateImplausible.
 whose maximum-temperature rise exceeds `r_max × Δt + Δ_res`; do not inject any
 other invalid field or repeat the spike within `T_suspect`.
 
-**Expected Result:** The sample is rejected and a rate-implausible fault is
-reported. The state rises to at least `WARNING` because real runaway cannot be
-excluded; the invalid sample alone does not cause `CRITICAL` or mitigation.
+**Expected Result:** The sample is rejected and monitoring becomes `SUSPECT`
+(FSR-3.5); the rate-implausible fault is reported only once `N_suspect` spikes
+arrive within `T_suspect` (TS-21). The state rises to at least `WARNING` because
+real runaway cannot be excluded; the invalid sample alone does not cause
+`CRITICAL` or mitigation.
 
-**Expected Mitigations:** No mitigation from this sample alone;
-`DriverWarningMonitoringUnavailable` if the approved response degrades
-monitoring.
+**Expected Mitigations:** No mitigation from this sample alone.
 
 **Evidence and Verdict Focus:** Record old/new values, source timestamps, Δt,
-computed rate, state/status, warning/DTC, mitigation, and latency. Resolve the
-FSR-3.3 versus FSR-3.5 isolated-invalid status rule before final pass/fail.
+computed rate, state/status, warning/DTC, mitigation, and latency.
 
 ### TS-20: Isolated spike
 
@@ -609,17 +608,13 @@ within `T_suspect`.
 
 **Expected Result:** The sample is discarded and monitoring becomes `SUSPECT`
 under FSR-3.5. At least `WARNING` is retained because the rise may be real; no
-invalid-only `CRITICAL` or overtemperature mitigation is allowed. This is a
-planned behavior until FSR-3.5 is implemented and the FSR-3.3 interaction is
-resolved.
+invalid-only `CRITICAL` or overtemperature mitigation is allowed.
 
 **Expected Mitigations:** `DiscardSample` is catalog-proposed; record the
 actual event. No monitoring-unavailable warning for this one isolated spike.
 
 **Evidence and Verdict Focus:** Record the single spike, surrounding valid
-samples, status/state, warning/DTC, and mitigation. A pass requires reconciling
-the immediate `DEGRADED` response in FSR-3.3 with the `SUSPECT` debounce in
-FSR-3.5; until then report the requirement result as blocked/inconclusive.
+samples, status/state, warning/DTC, and mitigation.
 
 ### TS-21: Repeated spikes
 
@@ -645,9 +640,6 @@ overtemperature mitigation from invalid spikes alone.
 
 **Evidence and Verdict Focus:** Record every spike, timestamps, debounce
 window/count, status/state, thermal state, DTC, DFM record, and output events.
-Because FSR-3.5 is planned and FSR-3.3 currently requires immediate
-`DEGRADED`, report the implementation verdict as blocked until that requirement
-conflict is resolved.
 
 ### TS-22: Guardian process termination
 
@@ -730,8 +722,7 @@ below `θ_warn` but satisfies the configured trend criterion for `T_trend`.
 criterion is reached.
 
 **Evidence and Verdict Focus:** Record all valid samples, temperature slope,
-trend window, threshold configuration, state transition, and latency. FSR-1.3
-is planned, so this remains a proposed requirement-gap test until implemented.
+trend window, threshold configuration, state transition, and latency.
 
 ### TS-26: Upper-scale saturation
 
