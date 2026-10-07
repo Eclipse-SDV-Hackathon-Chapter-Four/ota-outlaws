@@ -25,28 +25,15 @@ produces diagnostic events. The Evidence Collector observes the run and assemble
 the evidence and verdict; it is test infrastructure, not part of the vehicle
 Guardian.
 
-```mermaid
-C4Context
-    title OTA Outlaws system context
-    Enterprise_Boundary(team, "OTA Outlaws") {
-        System(ota, "OTA Outlaws Safety Evidence Factory", "Publishes VSS data, evaluates thermal risk, and collects campaign evidence")
-    }
-    System_Ext(canProvider, "KUKSA CAN Provider", "Decodes CAN signals to VSS")
-    SystemDb_Ext(dataBroker, "KUKSA Data Broker", "Stores VSS data")
-    System_Ext(openSovd, "OpenSOVD Server", "Exposes diagnostic records")
-
-    Rel(canProvider, dataBroker, "Publishes decoded VSS data", "KUKSA API")
-    Rel(ota, dataBroker, "Accesses VSS through the VSS Publisher", "Custom API")
-    Rel(ota, openSovd, "Reports faults through DFM", "Interface TBD")
-```
+![](media/system-context.drawio.svg)
 
 **External actors and systems:**
 
-| Name | Role | Interface |
+| Name | Role |
 |---|---|---|
-| KUKSA CAN Provider | Converts CAN frames to VSS signals | KUKSA API; configuration TBD |
-| KUKSA Data Broker | Stores decoded VSS values | Custom API |
-| OpenSOVD Server | Makes diagnostic records visible | DFM/OpenSOVD interface; details TBD |
+| KUKSA CAN Provider | Converts CAN frames to VSS signals |
+| KUKSA Data Broker | Stores decoded VSS values |
+| OpenSOVD Server | Makes diagnostic records visible |
 
 ## 2. Functional Overview
 
@@ -118,31 +105,8 @@ defined in the Safety Concept and linked to HARA identifiers there.
 
 ### Container view
 
-```mermaid
-C4Container
-    title OTA Outlaws containers
-    System_Boundary(ota, "OTA Outlaws Safety Evidence Factory") {
-        Container(sensor, "Temperature Sensor", "C, ThreadX", "Provides battery temperature frames")
-        Container(generator, "Scenario Generator", "Python", "Creates and executes fault campaigns")
-        Container(publisher, "VSS Publisher", "Rust", "Reads VSS data and publishes it over uProtocol")
-        Container(guardian, "Battery Thermal Guardian", "Rust", "Evaluates thermal risk and publishes safety events")
-        Container(collector, "Evidence Collector", "Python", "Observes inputs, events, diagnostics, and creates verdict evidence")
-    }
-    System_Ext(canProvider, "KUKSA CAN Provider", "Decodes CAN to VSS")
-    SystemDb_Ext(dataBroker, "KUKSA Data Broker", "Stores VSS data")
-    System_Ext(openSovd, "OpenSOVD Server", "Exposes DFM records")
 
-    Rel(sensor, canProvider, "Sends CAN frames", "CAN")
-    Rel(canProvider, dataBroker, "Writes VSS", "KUKSA API")
-    Rel(publisher, dataBroker, "Reads VSS", "Custom API")
-    Rel(publisher, guardian, "Publishes temperature service data", "uProtocol")
-    Rel(generator, publisher, "Injects configured faults", "Interface TBD")
-    Rel(collector, publisher, "Observes publisher output", "Tap interface TBD")
-    Rel(collector, guardian, "Observes Guardian events", "uProtocol")
-    Rel(collector, dataBroker, "Observes VSS values", "Custom API")
-    Rel(guardian, openSovd, "Writes faults through DFM", "Interface TBD")
-    Rel(collector, openSovd, "Reads diagnostic evidence", "Interface TBD")
-```
+![](media/container-view.drawio.svg)
 
 ### Component catalog
 
@@ -152,9 +116,10 @@ C4Container
 | Scenario Generator | Python | TODO: link campaign-runner documentation |
 | VSS Publisher | [vss-publisher](../../vss-publisher) | [Battery Thermal Contract](../../contracts/README.md) |
 | Battery Thermal Guardian | [guardian](../../guardian), [guardian-service](../../guardian-service) | [Battery Thermal Guardian](components/battery-thermal-guardian.md) |
-| Evidence Collector | Python (implementation location TBD) | TODO: link collector documentation |
+| Campaign | Rust | TODO: link collector documentation |
 | KUKSA Data Broker | External component | KUKSA documentation/configuration TBD |
 | OpenSOVD Server | External component | OpenSOVD/DFM configuration TBD |
+| Watchdog | Rust | TBD |
 
 ### Component design pattern
 
