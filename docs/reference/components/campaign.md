@@ -94,7 +94,7 @@ requirement = "FSR-2.3"
 | `sovd` | OpenSOVD shows the DTC failed, with this run's session and event ID, within the budget after the Guardian event |
 | `recovery` | The fault recovers (cause: the fault), monitoring returns to OK, and OpenSOVD shows the DTC passed with its history kept |
 | `thermal` | The thermal state reaches the state (or a more severe one) within the budget after t0, or after `after` |
-| `overtemp_warning` | The change to CRITICAL causes the overtemperature warning |
+| `driver_warning_overtemp` | The change to CRITICAL causes `DRIVER_WARNING_OVERTEMP`, published within the budget after t0, or after `after` |
 | `not_thermal` | The thermal state never reaches the state after t0 |
 | `no_fault` | No fault is reported during the scenario |
 | `startup_fault` | With no sample at the input, the Guardian reports the DTC within the budget after its own start, on its own clock |
