@@ -146,6 +146,17 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
     }
     let campaign_id = timestamp_id();
     let campaign_dir = options.out.join(&campaign_id);
+    // The plan lets a viewer such as the dashboard show the progress of a
+    // running campaign: which scenarios are still to come.
+    std::fs::create_dir_all(&campaign_dir)?;
+    write_json(
+        &campaign_dir.join("plan.json"),
+        &serde_json::json!({
+            "campaign_id": campaign_id,
+            "started_at": humantime::format_rfc3339_seconds(SystemTime::now()).to_string(),
+            "scenarios": ids,
+        }),
+    )?;
     let settings = Settings {
         repo: repo.to_path_buf(),
         fault_codes: context.fault_codes.clone(),

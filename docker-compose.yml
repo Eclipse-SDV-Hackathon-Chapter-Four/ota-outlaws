@@ -21,6 +21,7 @@
 #
 #   docker compose up --build
 #   docker compose logs -f guardian
+#   dashboard: http://localhost:8080
 #
 # Flow: BMS_MSG1_CAN.asc → kuksa-can-provider → kuksa-databroker
 #       → vss-publisher → (uProtocol over the zenoh router) → guardian
@@ -139,6 +140,34 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # Web dashboard: state, memory, and settings of every service, start and
+  # stop, input and output logs, OpenSOVD DTCs, and campaign reports.
+  # It controls the other containers through the Docker socket, which gives
+  # it full control of Docker: it listens on localhost only. The repository
+  # is mounted read-only for the fault catalog and the campaign evidence
+  # (runs/). Campaigns started from the dashboard run in a separate
+  # campaign-runner container of the same image (dashboard/src/launcher.rs).
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Containerfile
+    image: ota-outlaws/dashboard:dev
+    container_name: dashboard
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo:ro
+    environment:
+      ZENOH_CONNECT: "tcp/zenoh:7447"
+      SOVD_URL: "http://opensovd-gateway:7690/sovd/v1"
+      SOVD_ENTITY: battery_guardian
+      FAULT_CATALOG: /repo/diagnostics/catalog/battery_guardian.json
+      DATABROKER_ADDR: "http://kuksa-databroker:55555"
+      RUNS_DIR: /repo/runs
+      RUST_LOG: "info"
+    restart: unless-stopped
 
 volumes:
   dfm-storage:
