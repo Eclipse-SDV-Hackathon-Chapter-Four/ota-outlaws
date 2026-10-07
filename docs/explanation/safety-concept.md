@@ -225,12 +225,16 @@ fulfilled when its status is **tested** and it links to the test or campaign
 that proves it. **Implemented** means the behavior exists in the Guardian core and is
 covered by its unit tests; **tested** means an end-to-end campaign proves it.
 
-The diagnostic campaigns ([`diagnostics/smoke_test.py`](../../diagnostics/smoke_test.py),
-scenarios `freshness`, `counter`, `stuck`, `quality`, and `outage`) run the
-Guardian service with a test publisher over uProtocol against the real DFM and
-OpenSOVD. They prove detection, the DEGRADED reaction and its warning, the
-OpenSOVD record, and recovery, but they do not use the CAN chain. A deployed
-Evidence Collector that checks every run is still planned.
+Two kinds of end-to-end campaigns prove requirements:
+
+- The [Campaign Tool](../reference/components/campaign.md) replays CAN traces
+  through the real chain (CAN provider, Data Broker, VSS Publisher, uProtocol,
+  Guardian, DFM, OpenSOVD) and judges every scenario from its own observations.
+  Scenarios and expectations are in
+  [`campaign/scenarios.toml`](../../campaign/scenarios.toml).
+- The diagnostic campaigns ([`diagnostics/smoke_test.py`](../../diagnostics/smoke_test.py))
+  run the Guardian service with a test publisher against the real DFM and
+  OpenSOVD; they also cover the diagnostics outage (FSR-D.1).
 
 | Priority | Meaning |
 |----------|---------|
@@ -242,8 +246,8 @@ Evidence Collector that checks every run is still planned.
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
-| FSR-1.1 | When the maximum cell temperature of a valid sample reaches `θ_warn`, the thermal state shall be WARNING or more severe. | `T_react` | Nominal heating profile | Must | implemented |
-| FSR-1.2 | When the maximum cell temperature of a valid sample reaches `θ_crit`, the thermal state shall be CRITICAL and the Guardian shall publish `DRIVER_WARNING_OVERTEMP`. | `T_react` | Nominal heating profile to the critical limit | Must | implemented |
+| FSR-1.1 | When the maximum cell temperature of a valid sample reaches `θ_warn`, the thermal state shall be WARNING or more severe. | `T_react` | Nominal heating profile | Must | tested |
+| FSR-1.2 | When the maximum cell temperature of a valid sample reaches `θ_crit`, the thermal state shall be CRITICAL and the Guardian shall publish `DRIVER_WARNING_OVERTEMP`. | `T_react` | Nominal heating profile to the critical limit | Must | tested |
 | FSR-1.3 | When valid samples show a temperature rise of at least `r_trend` sustained for `T_trend`, the thermal state shall be WARNING or more severe, even below `θ_warn`. | `T_trend` + `T_react` | Fast heating profile below `θ_warn` | Could | planned |
 | FSR-1.4 | When the maximum cell temperature exceeds the average by more than `Δ_hotspot`, the thermal state shall be WARNING or more severe. A large spread is treated as a real local hot spot, never as a sensor fault. | `T_react` | Single-cell hot spot, upward drift of the maximum | Could | planned |
 | FSR-1.5 | The thermal state shall be lowered only when the triggering criterion has been undercut by the hysteresis `θ_hyst` for `N_recover` consecutive valid samples spanning at least `T_recover`, and only while the monitoring status is OK. It is lowered one level at a time; each level needs its own window. | — | Temperature oscillating around `θ_warn` | Should | implemented |

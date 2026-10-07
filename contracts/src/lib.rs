@@ -14,6 +14,11 @@
 //! uProtocol payloads and topics shared by the VSS Publisher and the Battery
 //! Thermal Guardian. The contract is described in `contracts/README.md`.
 
+/// uProtocol transport over Zenoh, shared by the Guardian service and the
+/// campaign tool. Enabled by the `transport` feature.
+#[cfg(feature = "transport")]
+pub mod transport;
+
 /// Types generated from `contracts/battery_thermal.proto`.
 pub mod v1 {
     include!(concat!(

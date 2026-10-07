@@ -36,10 +36,10 @@ SPDX-License-Identifier: EPL-2.0
 |Component Name|Code|Documentation|
 |---|---|---|
 |Temperature Sensor|||
-|Scenario Generator|[Fault_Injection_CAN_Logs](../../Fault_Injection_CAN_Logs), [diagnostics](../../diagnostics)|[Scenario Generator](components/scenario-generator.md)|
+|Trace Generator|[Fault_Injection_CAN_Logs](../../Fault_Injection_CAN_Logs), [campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
 |VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
 |Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
-|Evidence Collector|planned|[Evidence Collector](components/evidence-collector.md)|
+|Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
 
@@ -50,13 +50,13 @@ C4Context
     
             Container(tempsens, "Temperature Sensor", "C, ThreadX", "Reads temperature sensor values from board")
 
-            Container(sg, "Scenario Generator", "Python", "Generates a sample fault scenario")
+            Container(sg, "Trace Generator", "Python", "Generates faulted CAN traces")
 
             Container(vsspub, "VSS Publisher", "Rust", "Requests data from the KUKSA provider and translates it into uProtocol")
 
             Container(btg, "Battery Thermal Guardian", "Rust", "Detects faults inside the system")
 
-            Container(evc, "Evidence Collector", "Rust", "Collects evidence of faults and creates a log")
+            Container(evc, "Campaign Tool", "Rust", "Runs fault scenarios, collects evidence, decides verdicts")
         }
         SystemDb_Ext(KUKSADataBroker, "KUKSA Data Broker", "Stores data from the CAN")
 
@@ -109,9 +109,10 @@ Anything that protects the occupants stays in the Guardian, even where the
 Evidence Collector could detect it better: the Evidence Collector is not part of
 the vehicle.
 
-The **Scenario Generator** fills the *campaign runner* role: it executes the
-scenarios and writes the manifest. Until it is automated, a person can fill this
-role by following the written scenario.
+The **Campaign Tool** fills both test roles: as *campaign runner* it injects the
+scenario's fault, as *Evidence Collector* it observes and judges. Its verdict
+uses only what it observed, so it can also judge a hardware demo it did not
+inject. See [Campaign Tool](components/campaign.md).
 
 The requirements behind this split are in the
 [Safety Concept](../explanation/safety-concept.md): FSR requirements for the
@@ -121,30 +122,31 @@ Guardian, EC requirements for the Evidence Collector.
 
 ```mermaid
 flowchart LR
-    SG["Scenario Generator<br/>Python, seed"]
-    ASC[".asc + .dbc<br/>faults live in the .asc"]
+    TG["Trace Generator<br/>Python"]
+    CAT["Scenario catalog<br/>stimulus, onset, expectations"]
+    ASC[".asc traces<br/>faults live in the trace"]
     CAN["KUKSA CAN Provider<br/>DBC decode → VSS"]
     DB["KUKSA Data Broker<br/>VSS signal store"]
-    BR["vss-bridge<br/>VSS → uProtocol"]
-    MAN["Scenario manifest<br/>injection time, correlation_id"]
-    COL["Evidence Collector<br/>collects, correlates"]
+    BR["VSS Publisher<br/>VSS → uProtocol"]
     GUARD["Battery Thermal Guardian<br/>states, plausibility"]
-    REP["Verdict + report<br/>JSON + Markdown/HTML"]
-    SOVD["OpenSOVD Server<br/>faults over HTTP"]
     DFM["DFM (fault-lib)<br/>fault storage"]
+    SOVD["OpenSOVD Server<br/>faults over HTTP"]
+    CT["Campaign Tool<br/>stimulus + evidence"]
+    REP["Verdict + report<br/>JSON + Markdown"]
 
-    SG -->|writes| ASC
-    SG -->|inflicts fault| BR
-    ASC -->|replay| CAN
+    TG -->|writes| ASC
+    CAT --> CT
+    CT -->|replays once| CAN
+    ASC --> CAN
     CAN -->|gRPC| DB
     DB -->|gRPC| BR
     BR -->|uProtocol| GUARD
-    MAN --> COL
-    GUARD -->|heartbeat/fault/mitigation| COL
+    BR -.->|tap: Guardian input| CT
+    GUARD -.->|tap: state, fault, mitigation events| CT
     GUARD --> DFM
     DFM --> SOVD
-    SOVD --> COL
-    COL --> REP
+    SOVD -.->|tap: polling| CT
+    CT --> REP
 ```
 
 # Deployment
@@ -152,7 +154,7 @@ flowchart LR
 |Deployment Target|Component Name|
 |---|---|
 |MXCHIP|Temperature Sensor|
-|HPC|Scenario Generator|
+|HPC|Campaign Tool|
 |HPC|KUKSA Data Broker|
 |HPC|VSS Publisher|
 |HPC|Battery Thermal Guardian|
@@ -209,7 +211,7 @@ project-private extension and not part of the VSS standard catalogue.
 ## Manifest Structure
 
 The scenario catalog and the run manifest are described in the
-[Scenario Generator](components/scenario-generator.md#scenario-catalog).
+[Campaign Tool](components/campaign.md#scenario-catalog).
 
 ## AI Assistance
 
@@ -221,6 +223,6 @@ The sections "CAN Signals", "Quality Enum" and "VSS Mapping" were updated to the
 `BMS_MSG1` definition with the assistance of **Claude Code** using the model
 **Claude Opus 5** (`claude-opus-5`).
 
-The "Manifest Structure" section and the Evidence Collector and Scenario
-Generator entries were updated with the assistance of **Claude Code** using the
+The "Manifest Structure" and "Data Flow" sections and the Campaign Tool and
+Trace Generator entries were updated with the assistance of **Claude Code** using the
 model **Claude Opus 5.5** (`claude-opus-5-5`).

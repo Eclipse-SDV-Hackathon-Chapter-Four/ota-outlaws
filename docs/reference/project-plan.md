@@ -33,7 +33,7 @@ We decided to go for [Doctor Whodunit](https://github.com/Eclipse-SDV-Hackathon-
 ## Our Solution
 - Utilize `docker compose` to pull in `OpenSOVD Server`, `KUKSA CAN Provider` and `KUKSA Data Broker`
 - We use rust as a robust and efficient way to implement our solution of the `Battery Thermal Guardian`
-- The `Scenario Generator` is implemented in Python, the `Evidence Collector` in Rust, so that it uses the same uProtocol library and contract as the Guardian 
+- The fault traces are generated in Python. The `Campaign Tool` (campaign runner and evidence collector in one) is implemented in Rust, so that it uses the same uProtocol library and contract as the Guardian 
 - The `TempSensor` implementation on the `MXCHIP` PCB will be done in C++
 - Outline faults and how to react to them (fault catalog)
    - CAN Message Timeout
