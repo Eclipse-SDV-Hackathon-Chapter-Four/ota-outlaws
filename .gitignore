@@ -18,3 +18,4 @@ target/
 diagnostics/reports/
 # Evidence of local campaign runs.
 /runs/
+__pycache__/

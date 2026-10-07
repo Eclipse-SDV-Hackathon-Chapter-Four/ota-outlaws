@@ -86,6 +86,10 @@ pub enum Stimulus {
         isolate: Option<String>,
         isolate_after_ms: Option<u64>,
         isolate_for_ms: Option<u64>,
+        /// Start the Guardian watchdog next to the Guardian. Only the scenarios
+        /// that supervise the Guardian itself (HARA TS-25, TS-26) need it.
+        #[serde(default)]
+        watchdog: bool,
     },
     /// Start the chain without any temperature source and record for
     /// `duration_ms`.
@@ -150,6 +154,20 @@ pub enum Expectation {
     SamplesContinue { requirement: String },
     /// The thermal state is never lowered after the onset.
     NotLowered { requirement: String },
+    /// OpenSOVD shows the DTC as failed within the budget after t0, whoever
+    /// reported it. For faults the Guardian cannot report itself, such as the
+    /// watchdog's heartbeat loss, which has no Guardian event to follow.
+    SovdFault {
+        dtc: String,
+        budget: String,
+        requirement: String,
+    },
+    /// OpenSOVD later shows that DTC as passed, with its history kept.
+    SovdRecovery { dtc: String, requirement: String },
+    /// A sample with this quality (`VALID`, `INVALID`, `NOT_AVAILABLE`) reached
+    /// the Guardian's input after t0: the VSS Publisher mapped the raw CAN
+    /// quality byte as expected.
+    InputQuality { quality: String, requirement: String },
     /// The thermal state reaches `state` from valid data, and OpenSOVD shows
     /// `dtc` failed for that change within the budget, with the catalog's
     /// fault type and severity. If the state is lowered again, OpenSOVD
@@ -176,6 +194,9 @@ impl Expectation {
             | Expectation::StartupFault { requirement, .. }
             | Expectation::SamplesContinue { requirement }
             | Expectation::NotLowered { requirement }
+            | Expectation::SovdFault { requirement, .. }
+            | Expectation::SovdRecovery { requirement, .. }
+            | Expectation::InputQuality { requirement, .. }
             | Expectation::OvertempDtc { requirement, .. } => requirement,
         }
     }
@@ -188,12 +209,15 @@ impl Expectation {
             | Expectation::Sovd { dtc, .. }
             | Expectation::Recovery { dtc, .. }
             | Expectation::StartupFault { dtc, .. }
+            | Expectation::SovdFault { dtc, .. }
+            | Expectation::SovdRecovery { dtc, .. }
             | Expectation::OvertempDtc { dtc, .. } => Some(dtc),
             Expectation::Thermal { .. }
             | Expectation::DriverWarningOvertemp { .. }
             | Expectation::NotThermal { .. }
             | Expectation::NoFault { .. }
             | Expectation::SamplesContinue { .. }
+            | Expectation::InputQuality { .. }
             | Expectation::NotLowered { .. } => None,
         }
     }

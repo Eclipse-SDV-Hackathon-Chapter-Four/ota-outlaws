@@ -252,6 +252,16 @@ impl<'a> Run<'a> {
         }
     }
 
+    /// OpenSOVD records of `dtc`, whoever reported it. For faults without a
+    /// Guardian event, such as the watchdog's heartbeat loss.
+    fn sovd_records_of(&self, dtc: &str) -> Vec<(u64, &'a serde_json::Value)> {
+        self.sovd
+            .iter()
+            .filter(|(_, code, status, _)| *code == dtc && *status == Some(200))
+            .map(|(t, _, _, body)| (*t, *body))
+            .collect()
+    }
+
     /// OpenSOVD records of `dtc` that belong to this run's `event`.
     fn sovd_records(&self, dtc: &str, event: &GuardianEvent) -> Vec<(u64, &'a serde_json::Value)> {
         let event_id = event.event_id.to_string();
@@ -432,6 +442,88 @@ fn check(
     let missing_fault = |dtc: &str| failed(format!("no {dtc} reported after the onset"));
 
     match expectation {
+        Expectation::SovdFault { dtc, budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = if !run.sovd_reachable() {
+                Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                }
+            } else {
+                let failed_record = run
+                    .sovd_records_of(dtc)
+                    .into_iter()
+                    .find(|(t, body)| *t >= t0 && body["status"]["testFailed"] == true);
+                match failed_record {
+                    None => failed(format!("{dtc} never failed in OpenSOVD after the onset")),
+                    Some((t, _)) => {
+                        let latency = t.saturating_sub(t0);
+                        result.t_ms = Some(t);
+                        result.latency_ms = Some(latency);
+                        let text = format!("{dtc} testFailed in OpenSOVD");
+                        if latency <= budget {
+                            Outcome::Met { detail: text }
+                        } else {
+                            failed(format!("{text}, late"))
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::SovdRecovery { dtc, .. } => {
+            result.outcome = if !run.sovd_reachable() {
+                Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                }
+            } else {
+                let records = run.sovd_records_of(dtc);
+                let first_failed = records
+                    .iter()
+                    .find(|(t, body)| *t >= t0 && body["status"]["testFailed"] == true)
+                    .map(|(t, _)| *t);
+                match first_failed {
+                    None => failed(format!("{dtc} never failed in OpenSOVD after the onset")),
+                    Some(t_failed) => {
+                        let passed = records.iter().find(|(t, body)| {
+                            *t > t_failed
+                                && body["status"]["testFailed"] == false
+                                && body["status"]["testFailedSinceLastClear"] == true
+                        });
+                        match passed {
+                            None => failed(format!(
+                                "{dtc} never showed as passed with its history after it failed"
+                            )),
+                            Some((t, _)) => {
+                                result.t_ms = Some(*t);
+                                Outcome::Met {
+                                    detail: format!("{dtc} passed again, history kept"),
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::InputQuality { quality, .. } => {
+            let seen = run
+                .samples
+                .iter()
+                .find(|(t, sample)| *t >= t0 && sample.quality == *quality);
+            result.outcome = match seen {
+                Some((t, sample)) => {
+                    result.t_ms = Some(*t);
+                    Outcome::Met {
+                        detail: format!(
+                            "a sample with quality {quality} reached the input (sequence {})",
+                            sample.sequence
+                        ),
+                    }
+                }
+                None => failed(format!(
+                    "no sample with quality {quality} reached the Guardian's input after the onset"
+                )),
+            };
+        }
         Expectation::Fault { dtc, budget, .. } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);

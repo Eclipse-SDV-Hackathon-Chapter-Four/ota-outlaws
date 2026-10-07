@@ -37,12 +37,14 @@ from), the same message types and fields as host/campaign_bridge.py, but each
 result is sent the moment its scenario has finished, so the display can add one
 line per test:
     {"type":"campaign_ack","id":N}
-    {"type":"campaign_result","id":N,"scenario":"counter_stuck","verdict":"PASS"}
+    {"type":"campaign_result","id":N,"scenario":"timeout","verdict":"PASS",
+         "ts":"TS-05","name":"LateData","line":"TS-05 LateData   PASS"}
     {"type":"campaign_complete","id":N}
     {"type":"campaign_error","id":N}                       (busy, or the run failed)
-verdict is PASS, FAIL or INCONCLUSIVE. With --extended every message also carries
-n, total, hara, planned (a scenario for a requirement the Guardian does not
-implement yet, expected to fail), pass and fail.
+verdict is PASS, FAIL or INCONCLUSIVE. "line" is a ready 21-character display line:
+HARA test ID, short name, result (tools/campaign-trigger/hara_map.json). With
+--extended every message also carries n, total, hara, title, planned (a scenario for
+a requirement the Guardian does not implement yet, expected to fail), pass, fail.
 
     python3 tools/campaign-trigger/trigger.py                 # real run
     python3 tools/campaign-trigger/trigger.py --button-a normal   # quick test
@@ -68,15 +70,41 @@ def now_ms():
     return int(time.time() * 1000)
 
 
-# The fields of host/campaign_bridge.py. By default only these are sent, so that a
-# firmware written for that script gets the same short messages. --extended adds
-# n, total, hara, planned, pass and fail.
+# The fields of host/campaign_bridge.py plus ts, name and line for the display.
+# By default only these are sent. --extended adds n, total, hara, title, planned,
+# pass and fail.
 COMPAT_FIELDS = {
     "campaign_ack": {"type", "id"},
-    "campaign_result": {"type", "id", "scenario", "verdict"},
+    "campaign_result": {"type", "id", "scenario", "verdict", "ts", "name", "line"},
     "campaign_complete": {"type", "id"},
     "campaign_error": {"type", "id"},
 }
+
+
+LINE_WIDTH = 21   # characters of one display line (assumption for the 128x64 OLED)
+
+
+def load_hara_map():
+    """Scenario -> HARA test ID, title and short name (hara_map.json next to this file)."""
+    path = Path(__file__).with_name("hara_map.json")
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {key: value for key, value in data.items() if not key.startswith("_")}
+
+
+def display_fields(hara_map, scenario, verdict):
+    """ts, short name and a ready display line: 'TS-05 LateData   PASS'."""
+    entry = hara_map.get(scenario, {})
+    ts = entry.get("ts", "")
+    short = entry.get("short") or scenario[:10]
+    title = entry.get("title", scenario)
+    result = {"PASS": "PASS", "FAIL": "FAIL"}.get(verdict, "INCO")
+    width = LINE_WIDTH - len(result) - 1
+    prefix = (ts or "--").ljust(5)
+    line = f"{prefix} {short}".ljust(width)[:width] + " " + result
+    return {"ts": ts, "name": short, "title": title, "line": line}
 
 
 def load_catalog():
@@ -111,6 +139,7 @@ class Trigger:
     def __init__(self, args):
         self.args = args
         self.catalog = load_catalog()
+        self.hara = load_hara_map()
         self.known = set(self.catalog)
         self.busy = threading.Lock()
         self.child = None
@@ -226,9 +255,11 @@ class Trigger:
                     info = self.catalog.get(name, {})
                     self.log("result", scenario=name, verdict=verdict, n=len(verdicts), total=total)
                     # Sent now, not at the end: the display adds one line per test.
+                    shown = display_fields(self.hara, name, verdict)
                     self.send(reply, {"type": "campaign_result", "id": request_id,
                                       "n": len(verdicts), "total": total, "scenario": name,
-                                      "hara": info.get("hara", ""), "verdict": verdict,
+                                      "verdict": verdict, **shown,
+                                      "hara": info.get("hara", ""),
                                       "planned": info.get("status") == "planned"})
             code = process.wait()
             self.child = None
