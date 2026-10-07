@@ -35,7 +35,7 @@ Guardian.
 | KUKSA Data Broker | Stores decoded VSS values |
 | DFM and OpenSOVD gateway | Store and expose diagnostic records |
 | Docker Compose | Runs the local signal chain and isolated campaign projects |
-| Ankaios / AutoSD | Intended target runtime; no deployment manifest is currently present |
+| Ankaios | Intended target runtime; no deployment manifest is currently present |
 
 ## 2. Functional Overview
 
