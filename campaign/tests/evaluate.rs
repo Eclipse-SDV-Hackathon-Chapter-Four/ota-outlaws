@@ -17,7 +17,7 @@
 use std::path::Path;
 
 use campaign::catalog::{Expectation, Scenario, ScenarioStatus, Stimulus};
-use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
+use campaign::evaluate::{evaluate, Evaluation, LinkState, Outcome, Verdict};
 use campaign::onset::Onset;
 use campaign::recording::{
     EventKind, GuardianEvent, Observation, SupervisorEvent, SupervisorKind, Tap, Temperature,
@@ -1255,6 +1255,8 @@ fn a_run_that_recorded_nothing_is_inconclusive_not_fail() {
         .values()
         .all(|v| *v == Verdict::Inconclusive));
     assert!(!evaluation.chain.complete);
+}
+
 // --- Guardian supervision (TS-24, TS-25) and the raw input quality ----------------
 
 impl Recording {

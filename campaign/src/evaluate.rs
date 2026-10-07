@@ -926,21 +926,20 @@ pub fn evaluate(
     for v in &violations {
         requirements.insert(v.requirement.clone(), Verdict::Fail);
     }
-    if onset.is_none() || observations.is_empty() {
+    if judged.is_none() || observations.is_empty() {
         requirements.clear();
-    if judged.is_none() {
         for expectation in &scenario.expectations {
             requirements.insert(expectation.requirement().to_owned(), Verdict::Inconclusive);
         }
     }
 
+    let chain = evidence_chain(scenario, &run, judged, verdict, &reason);
     Ok(Evaluation {
         scenario: scenario.id.clone(),
         hara_tests: scenario.hara_tests.clone(),
         status: scenario.status,
         verdict,
-        reason: reason.clone(),
-        onset: early.or(onset),
+        reason,
         session_id: run.session_id.clone(),
         window_end_ms: run.window_end,
         checks,
@@ -948,9 +947,9 @@ pub fn evaluate(
         requirements,
         samples: run.samples.len(),
         guardian_events: run.events.len(),
-        chain: evidence_chain(scenario, &run, onset.as_ref(), verdict, &reason),
+        chain,
         timeline: timeline(&run),
-        onset,
+        onset: early.or(onset),
     })
 }
 
