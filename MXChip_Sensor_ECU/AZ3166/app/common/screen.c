@@ -154,3 +154,23 @@ void screen_print_button_status(char button, const char* action, const char* det
 
     ssd1306_UpdateScreen();
 }
+
+void screen_print_campaign_result(const char* scenario, const char* verdict)
+{
+    char lines[3][22] = {{0}};
+
+    npf_snprintf(lines[0], sizeof(lines[0]), "CAMPAIGN RESULT");
+    npf_snprintf(lines[1], sizeof(lines[1]), "%s", scenario);
+    npf_snprintf(lines[2], sizeof(lines[2]), "%s", verdict);
+
+    ssd1306_Fill(Black);
+    screen_print_header();
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        ssd1306_SetCursor(2, (uint8_t)(24 + i * 8));
+        ssd1306_WriteString(lines[i], Font_6x8, White);
+    }
+
+    ssd1306_UpdateScreen();
+}

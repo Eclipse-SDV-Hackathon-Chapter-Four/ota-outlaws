@@ -237,6 +237,7 @@ TS-01 to TS-29. Each scenario in the catalog names the ones it implements
 | TS-04 Source shutdown | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
 | TS-05 Delayed or withheld update | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
+<<<<<<< HEAD
 | TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign |
 | TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`) |
 | TS-09 Stuck maximum | `max_stuck` | campaign |
@@ -262,6 +263,17 @@ TS-25 and TS-26 start the Guardian watchdog next to the Guardian
 `sovd_recovery`, that OpenSOVD reports `BTG_GuardianHeartbeatLoss` within
 `T_hb + T_diag`. The `input_quality` check compares the raw CAN quality byte
 with the quality the Guardian input shows (TS-13, TS-19).
+=======
+| TS-07 Duplicate, out of order | — | not covered: needs an injection point on the uProtocol channel |
+| TS-08 Stuck maximum | `max_stuck` | campaign |
+| TS-09 All values frozen | `temp_stuck` | campaign, as a known limitation |
+| TS-10 Invalid input during WARNING | `invalid_during_warning` | campaign |
+| TS-11 High out of range, spike | `out_of_range`, `implausible_jump`, `spike` | campaign |
+| TS-12 No mitigation from invalid input | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign, without the duplicate variant |
+| TS-13 HMI for uncertain data | — | blocked in the HARA (needs a driving simulator) |
+| TS-14 Diagnostics delayed or missing | — | [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py) (outage) |
+| TS-15, TS-16, TS-18 Guardian crash or hang, supervisor | — | not covered: no independent supervisor yet (HARA DFR-5) |
+>>>>>>> origin/main
 
 ## Not covered yet
 
