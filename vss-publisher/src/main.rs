@@ -28,12 +28,12 @@
 
 use std::sync::Arc;
 
-use vss_publisher::{
-    make_uri_provider, now_ms, open_up_transport, publish_temperature,
-    vss_battery_temp_uri, BatteryTemperature, Quality,
-};
 use tokio_stream::StreamExt;
 use tracing::{info, warn};
+use vss_publisher::{
+    make_uri_provider, now_ms, open_up_transport, publish_temperature, vss_battery_temp_uri,
+    BatteryTemperature, Quality,
+};
 
 // Generated from proto/kuksa/val/v1/
 mod kuksa {
@@ -44,7 +44,10 @@ mod kuksa {
     }
 }
 
-use kuksa::val::v1::{datapoint::Value, val_client::ValClient, Datapoint, Field, SubscribeEntry, SubscribeRequest, View};
+use kuksa::val::v1::{
+    datapoint::Value, val_client::ValClient, Datapoint, Field, SubscribeEntry, SubscribeRequest,
+    View,
+};
 
 const VSS_TEMP_MAX: &str = "Vehicle.Powertrain.TractionBattery.Temperature.Max";
 const VSS_TEMP_AVG: &str = "Vehicle.Powertrain.TractionBattery.Temperature.Average";
@@ -118,7 +121,10 @@ fn as_u32(value: &Value) -> Option<u32> {
 /// Time the Data Broker received the value, in milliseconds since the epoch.
 fn timestamp_ms(datapoint: &Datapoint) -> Option<u64> {
     let ts = datapoint.timestamp.as_ref()?;
-    let ms = ts.seconds.checked_mul(1000)?.checked_add(i64::from(ts.nanos) / 1_000_000)?;
+    let ms = ts
+        .seconds
+        .checked_mul(1000)?
+        .checked_add(i64::from(ts.nanos) / 1_000_000)?;
     u64::try_from(ms).ok()
 }
 
@@ -133,28 +139,40 @@ async fn main() -> anyhow::Result<()> {
 
     let databroker_addr = std::env::var("DATABROKER_ADDR")
         .unwrap_or_else(|_| "http://kuksa-databroker:55555".to_string());
-    let counter_path = std::env::var("VSS_ALIVE_COUNTER_PATH")
-        .unwrap_or_else(|_| VSS_ALIVE_COUNTER.to_string());
-    let quality_path = std::env::var("VSS_QUALITY_PATH")
-        .unwrap_or_else(|_| VSS_QUALITY.to_string());
+    let counter_path =
+        std::env::var("VSS_ALIVE_COUNTER_PATH").unwrap_or_else(|_| VSS_ALIVE_COUNTER.to_string());
+    let quality_path =
+        std::env::var("VSS_QUALITY_PATH").unwrap_or_else(|_| VSS_QUALITY.to_string());
 
-    info!("[VssBridge] Connecting to databroker at {}", databroker_addr);
-    let mut client = ValClient::connect(databroker_addr.clone()).await
+    info!(
+        "[VssBridge] Connecting to databroker at {}",
+        databroker_addr
+    );
+    let mut client = ValClient::connect(databroker_addr.clone())
+        .await
         .map_err(|e| anyhow::anyhow!("databroker connect failed: {}", e))?;
     info!("[VssBridge] Connected to kuksa-databroker");
 
     let transport = open_up_transport(make_uri_provider("vss-bridge", 0x1002, 0x01)).await?;
-    info!("[VssBridge] uProtocol transport ready, publishing to {}",
-        vss_battery_temp_uri().to_uri(false));
+    info!(
+        "[VssBridge] uProtocol transport ready, publishing to {}",
+        vss_battery_temp_uri().to_uri(false)
+    );
 
-    let entries = [VSS_TEMP_MAX, VSS_TEMP_AVG, VSS_TEMP_MIN, counter_path.as_str(), quality_path.as_str()]
-        .iter()
-        .map(|&path| SubscribeEntry {
-            path: path.to_string(),
-            view: View::CurrentValue as i32,
-            fields: vec![Field::Value as i32],
-        })
-        .collect();
+    let entries = [
+        VSS_TEMP_MAX,
+        VSS_TEMP_AVG,
+        VSS_TEMP_MIN,
+        counter_path.as_str(),
+        quality_path.as_str(),
+    ]
+    .iter()
+    .map(|&path| SubscribeEntry {
+        path: path.to_string(),
+        view: View::CurrentValue as i32,
+        fields: vec![Field::Value as i32],
+    })
+    .collect();
 
     let mut stream = client
         .subscribe(SubscribeRequest { entries })
@@ -185,9 +203,13 @@ async fn main() -> anyhow::Result<()> {
         let mut frame_complete = false;
         for update in response.updates {
             let Some(entry) = update.entry else { continue };
-            let Some(datapoint) = entry.value else { continue };
+            let Some(datapoint) = entry.value else {
+                continue;
+            };
             source_timestamp_ms = source_timestamp_ms.max(timestamp_ms(&datapoint));
-            let Some(value) = datapoint.value else { continue };
+            let Some(value) = datapoint.value else {
+                continue;
+            };
 
             let path = entry.path.as_str();
             if path == VSS_TEMP_MAX {
@@ -216,11 +238,17 @@ async fn main() -> anyhow::Result<()> {
 
         info!(
             "[VssBridge] #{} TempMax={:.1} TempAvg={:.1} TempMin={:.1} counter={} quality={}",
-            message.sequence, message.max_c, message.avg_c, message.min_c,
-            message.alive_counter, message.quality
+            message.sequence,
+            message.max_c,
+            message.avg_c,
+            message.min_c,
+            message.alive_counter,
+            message.quality
         );
 
-        if let Err(status) = publish_temperature(Arc::clone(&transport), vss_battery_temp_uri(), &message).await {
+        if let Err(status) =
+            publish_temperature(Arc::clone(&transport), vss_battery_temp_uri(), &message).await
+        {
             warn!("[VssBridge] publish failed: {:?}", status);
         }
     }
@@ -245,9 +273,18 @@ mod tests {
 
     #[test]
     fn no_message_until_all_signals_are_known() {
-        let without_counter = Frame { alive_counter: None, ..complete_frame() };
-        let without_quality = Frame { quality: None, ..complete_frame() };
-        let without_min = Frame { temp_min: None, ..complete_frame() };
+        let without_counter = Frame {
+            alive_counter: None,
+            ..complete_frame()
+        };
+        let without_quality = Frame {
+            quality: None,
+            ..complete_frame()
+        };
+        let without_min = Frame {
+            temp_min: None,
+            ..complete_frame()
+        };
 
         assert!(without_counter.to_message(1, 0).is_none());
         assert!(without_quality.to_message(1, 0).is_none());
@@ -275,7 +312,10 @@ mod tests {
     #[test]
     fn converts_datapoint_timestamp_to_milliseconds() {
         let datapoint = Datapoint {
-            timestamp: Some(prost_types::Timestamp { seconds: 12, nanos: 345_678_901 }),
+            timestamp: Some(prost_types::Timestamp {
+                seconds: 12,
+                nanos: 345_678_901,
+            }),
             value: None,
         };
 
@@ -284,7 +324,10 @@ mod tests {
 
     #[test]
     fn missing_timestamp_is_none() {
-        let datapoint = Datapoint { timestamp: None, value: None };
+        let datapoint = Datapoint {
+            timestamp: None,
+            value: None,
+        };
 
         assert_eq!(timestamp_ms(&datapoint), None);
     }

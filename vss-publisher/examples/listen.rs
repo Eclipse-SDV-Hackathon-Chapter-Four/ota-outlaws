@@ -19,9 +19,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use up_rust::{UListener, UMessage};
 use prost::Message;
-use vss_publisher::{make_uri_provider, open_up_transport, vss_battery_temp_uri, BatteryTemperature};
+use up_rust::{UListener, UMessage};
+use vss_publisher::{
+    make_uri_provider, open_up_transport, vss_battery_temp_uri, BatteryTemperature,
+};
 
 struct PrintListener;
 
@@ -44,7 +46,10 @@ async fn main() -> anyhow::Result<()> {
     transport
         .register_listener(&vss_battery_temp_uri(), None, Arc::new(PrintListener))
         .await?;
-    println!("[listen] waiting for events on {}", vss_battery_temp_uri().to_uri(false));
+    println!(
+        "[listen] waiting for events on {}",
+        vss_battery_temp_uri().to_uri(false)
+    );
     tokio::signal::ctrl_c().await?;
     Ok(())
 }
