@@ -15,6 +15,17 @@ SPDX-License-Identifier: EPL-2.0
 
 Project plan: [Project Plan](docs/reference/project-plan.md)
 
+## Run the tests
+
+```sh
+cargo test                                # all components, no Docker needed
+cargo run -p campaign -- run --all        # fault campaigns through the real chain
+```
+
+The campaigns need Docker and the diagnostics image built below. All test
+levels, from unit tests to the hardware demo, are described in
+[Run the Tests](docs/how-to/run-tests.md).
+
 Compose runs KUKSA plus separate `opensovd-dfm` and `opensovd-gateway` containers.
 Both services use the single local image `local/opensovd-demo-fork:verified`.
 The image also contains legacy example tools; the campaign suite uses Guardian.
@@ -213,4 +224,6 @@ input while diagnostics are paused, then verifies the final Passed state after r
 ## AI Assistance
 
 This document was created with the assistance of **Codex** using the model
-**GPT-6.1 Sol** (`gpt-6.1-sol`).
+**GPT-6.1 Sol** (`gpt-6.1-sol`). The section "Run the tests" was added with the
+assistance of **Claude Code** using the model **Claude Opus 5.5**
+(`claude-opus-5-5`).
