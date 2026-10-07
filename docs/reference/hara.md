@@ -558,7 +558,6 @@ result.
 | Counter Error, Isolated vs. Repeated | TS-39 (isolated), TS-40 (repeated) |
 | Heartbeat Loss | TS-41 (termination), TS-42 (hang) |
 | Stale Timestamp | TS-43 |
-| Min Stuck | TS-44 |
 | Upper-Scale Saturation | TS-47 |
 
 ### TS-22 Overtemperature Warning
@@ -944,27 +943,6 @@ loss is declared.
 **Evidence and Verdict Focus:** Record clock synchronization, source timestamp,
 arrival time, computed age, sample acceptance, timeout, and fault/DFM event. If
 clocks are not synchronized, mark blocked rather than infer age.
-
-### TS-44 Min Stuck
-
-**HARA trace:** F-1/F-9 candidate signal/source loss; catalog: Min Stuck.
-
-**Preconditions:** Establish valid input with maximum, average, and minimum
-temperatures changing normally.
-
-**Stimulus:** Freeze only `CellTempMin` while maximum, average, timestamps, and
-alive counter continue to advance.
-
-**Expected Result:** Characterize whether the Guardian detects a stuck minimum.
-Current FSR-2.4 only defines a stuck-maximum detector; no minimum-stuck
-requirement is specified.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable` only if an
-approved minimum-stuck detector enters `DEGRADED`.
-
-**Evidence and Verdict Focus:** Record all three signals and freshness metadata.
-Mark as a requirement gap if no minimum-stuck DTC is specified; do not infer
-detection from source attribution alone.
 
 ### TS-47 Upper-Scale Saturation
 

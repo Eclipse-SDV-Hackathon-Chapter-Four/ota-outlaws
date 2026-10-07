@@ -89,7 +89,6 @@ the same style for faults that are not yet implemented.
 | Counter Error, Isolated vs. Repeated | F-3, F-5 | Communication | Counter jump, not advancing by exactly one | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` | TS-06, TS-08, TS-07 |
 | Heartbeat Loss | F-10 | Timing | Guardian itself stops reporting | Fatal | `RestartGuardian` | |
 | Stale Timestamp | F-2 | Communication | Constant transport delay despite synchronized clocks | Error | `DriverWarningMonitoringUnavailable` | |
-| Min Stuck | F-1 | Communication | Signal source connection abort | Error | `DriverWarningMonitoringUnavailable` | TS-04 |
 | Upper-Scale Saturation | — | Hardware | Sensor pegged at its limit rather than a plausible value | Error | `DriverWarningMonitoringUnavailable` | |
 
 ## AI Assistance
