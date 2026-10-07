@@ -170,7 +170,7 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
    events that arrived without delay. When the event reaches the tap much
    later, for example because the Guardian was cut off the network, the
    report says so. In that case the warning reached nobody either, which is
-   the gap the HARA's independent supervisor (DFR-5) closes.
+   the gap the Guardian watchdog (DFR-5) closes.
 
 A run directory holds the evidence:
 
@@ -210,8 +210,8 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 ## Traces
 
 All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
-`generate_asc_logs.py` generates the fault traces of the original fault list;
-`generate_traces.py` adds the ones the safety concept needs on top:
+`generate_traces.py` generates all of them: the fault traces of the original
+fault list and the ones the safety concept needs on top:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).
@@ -234,45 +234,55 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-01 Baseline | `normal` | campaign |
 | TS-02 Thresholds | `heating` | campaign |
 | TS-03 No data after startup | `startup_without_source` | campaign |
-| TS-04 Source shut down | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
-| TS-05 Update delayed or withheld | `timeout` | campaign |
+| TS-04 Source shutdown | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
+| TS-05 Delayed or withheld update | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
-| TS-07 Duplicate message | `counter_stuck` (persistent repeats only) | campaign for the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
-| TS-08 Out-of-order message | — | Guardian core tests only: needs an injection point on the uProtocol channel |
+| TS-07 Duplicate message | `duplicate_message`, `counter_stuck` | campaign for the CAN-level duplicate and the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
+| TS-08 Out-of-order message | `out_of_order` | planned: needs a transport fault injector (`observe`); Guardian core tests |
 | TS-09 Stuck maximum | `max_stuck` | campaign |
 | TS-10 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning` | campaign |
+| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning`, `invalid_during_critical` | campaign |
 | TS-12 High anomalous samples, mitigation gating | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign |
 | TS-13 Overtemperature warning | `heating` | campaign |
 | TS-14 Overtemperature critical | `heating` | campaign |
-| TS-15 Freshness lost | `timeout` | campaign |
-| TS-16 Quality invalid | `invalid_quality` | campaign |
-| TS-17 Out-of-range low | — | Guardian core tests only |
+| TS-15 Freshness lost | `timeout`, `transport_dropout` | campaign |
+| TS-16 Quality invalid | `invalid_quality`, `quality_single_invalid` | campaign |
+| TS-17 Out-of-range low | — | Guardian core tests only: a value below `min_c` = 0 cannot be sent, the CAN signals are unsigned |
 | TS-18 Out-of-range high | `out_of_range`, `implausible_jump` | campaign |
 | TS-19 Rate-implausible sample | `isolated_spike` | campaign |
 | TS-20 Isolated spike | `isolated_spike` | campaign |
 | TS-21 Repeated spikes | `spike` | campaign |
-| TS-22, TS-23 Guardian termination, hang | — | manual runs with the [watchdog](guardian-watchdog.md); no independent occupant warning yet (HARA DFR-5) |
-| TS-24 Late-arriving stale message | — | not implemented: needs synchronized clocks (FSR-2.8) |
+| TS-22 Guardian termination | `guardian_crash` | campaign, with the watchdog |
+| TS-23 Guardian hang | `guardian_hang` | campaign, with the watchdog |
+| TS-24 Late-arriving stale message | `late_message` | planned: needs synchronized clocks (FSR-2.8) and a transport fault injector |
 | TS-25 Gradual drift | `drift` | campaign |
-| TS-26 Upper-scale saturation | — | Guardian core tests only |
+| TS-26 Upper-scale saturation | `saturation_255` | campaign |
+
+TS-22 and TS-23 start the Guardian watchdog next to the Guardian
+(`watchdog = true` in the stimulus) and check, with `sovd_fault` and
+`sovd_recovery`, that OpenSOVD reports `BTG_GuardianHeartbeatLoss` within
+`T_hb + T_diag`. The `input_quality` check compares the raw CAN quality byte
+with the quality the Guardian input shows (TS-11, TS-16). No independent
+occupant warning exists yet (HARA DFR-5).
 
 ## Not covered yet
 
-- **Transport faults** (delay, duplicate, reorder on the uProtocol channel):
-  needs an injection point between the VSS Publisher and the Guardian.
+- **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
+  channel): needs an injection point between the VSS Publisher and the
+  Guardian. The scenarios exist as `external` and `planned`.
 - **Diagnostics outage**: still covered by
   [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
   `pause` stimulus exists, but its OpenSOVD budget would have to count from the
   resume.
 - **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
   behind the tap (`samples_continue`) exists; sequence diagnosis and delay
-  measurement do not. The Guardian heartbeat is missing too.
+  measurement do not.
 
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
-**Claude Opus 5.5** (`claude-opus-5-5`).
+**Claude Opus 5.5** (`claude-opus-5-5`) and **Claude Sonnet 5.5**
+(`claude-sonnet-5-5`).
 
 The OpenSOVD evidence interface was added with the assistance of **GitHub
 Copilot** using the model **GPT-6 Luna**.

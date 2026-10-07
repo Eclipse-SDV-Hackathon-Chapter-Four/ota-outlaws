@@ -128,7 +128,7 @@ fn free_port() -> anyhow::Result<u16> {
 /// campaign, not per scenario.
 pub async fn build(repo: &Path) -> anyhow::Result<()> {
     let status = Command::new("docker")
-        .args(["compose", "build", "guardian", "vss-publisher"])
+        .args(["compose", "build", "guardian", "vss-publisher", "watchdog"])
         .current_dir(repo)
         .status()
         .await?;
@@ -151,6 +151,8 @@ struct Plan {
     /// Recording time without a source.
     no_source_for: Duration,
     actions: Vec<(Duration, Action)>,
+    /// Start the Guardian watchdog right after the Guardian.
+    watchdog: bool,
 }
 
 fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
@@ -164,6 +166,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
             trace: None,
             no_source_for: Duration::from_millis(*duration_ms),
             actions: Vec::new(),
+            watchdog: false,
         }),
         Stimulus::CanTrace {
             trace,
@@ -175,6 +178,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
             isolate,
             isolate_after_ms,
             isolate_for_ms,
+            watchdog,
         } => {
             let path = repo.join(trace);
             if !path.is_file() {
@@ -201,6 +205,7 @@ fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
                 trace: Some((trace.clone(), trace_duration(&path)?)),
                 no_source_for: Duration::ZERO,
                 actions,
+                watchdog: *watchdog,
             })
         }
     }
@@ -339,6 +344,16 @@ async fn drive(
         crate::evaluate::GUARDIAN_READY,
         "the Guardian has subscribed".to_owned(),
     );
+    if plan.watchdog {
+        // Only now: the watchdog counts the silence from its own start, so
+        // started earlier it would report the Guardian as lost before it began.
+        compose.run(&["up", "-d", "--no-build", "watchdog"]).await?;
+        injection(
+            &recorder,
+            "start_watchdog",
+            "the watchdog starts".to_owned(),
+        );
+    }
 
     let Some((_, trace_duration)) = plan.trace else {
         tokio::time::sleep(plan.no_source_for).await;

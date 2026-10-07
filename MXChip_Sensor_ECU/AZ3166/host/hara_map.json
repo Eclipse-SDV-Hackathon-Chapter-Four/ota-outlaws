@@ -1,0 +1,153 @@
+{
+  "_comment": "Scenario of campaign/scenarios.toml -> HARA test (docs/reference/hara.md). 'ts' is the first entry of hara_tests, 'title' the HARA title, 'short' at most 10 characters for the board display. Scenarios without a HARA test have an empty ts.",
+  "normal": {
+    "ts": "TS-01",
+    "title": "Baseline nominal monitoring",
+    "short": "Baseline"
+  },
+  "heating": {
+    "ts": "TS-02",
+    "title": "Thermal warning and critical thresholds",
+    "short": "Heating"
+  },
+  "timeout": {
+    "ts": "TS-05",
+    "title": "Delayed or withheld update",
+    "short": "LateData"
+  },
+  "counter_stuck": {
+    "ts": "TS-07",
+    "title": "Duplicate message",
+    "short": "CntStuck"
+  },
+  "invalid_quality": {
+    "ts": "TS-11",
+    "title": "Invalid source quality",
+    "short": "BadQuality"
+  },
+  "max_stuck": {
+    "ts": "TS-09",
+    "title": "Stuck maximum temperature",
+    "short": "MaxStuck"
+  },
+  "temp_stuck": {
+    "ts": "TS-10",
+    "title": "All temperature values frozen probe",
+    "short": "AllFrozen"
+  },
+  "startup_without_source": {
+    "ts": "TS-03",
+    "title": "No data after startup",
+    "short": "NoSource"
+  },
+  "source_shutdown": {
+    "ts": "TS-04",
+    "title": "Temperature source shutdown",
+    "short": "SrcOff"
+  },
+  "transport_dropout": {
+    "ts": "TS-06",
+    "title": "Publisher-to-Guardian transport dropout",
+    "short": "TrDropout"
+  },
+  "invalid_during_warning": {
+    "ts": "TS-11",
+    "title": "Invalid source quality",
+    "short": "InvInWarn"
+  },
+  "out_of_range": {
+    "ts": "TS-12",
+    "title": "High anomalous samples and mitigation gating",
+    "short": "OutRange"
+  },
+  "implausible_jump": {
+    "ts": "TS-12",
+    "title": "High anomalous samples and mitigation gating",
+    "short": "BigJump"
+  },
+  "spike": {
+    "ts": "TS-12",
+    "title": "High anomalous samples and mitigation gating",
+    "short": "RateSpike"
+  },
+  "isolated_spike": {
+    "ts": "TS-19",
+    "title": "Rate-implausible sample",
+    "short": "IsoSpike"
+  },
+  "drift": {
+    "ts": "TS-25",
+    "title": "Gradual temperature drift",
+    "short": "Drift"
+  },
+  "min_gt_avg": {
+    "ts": "",
+    "title": "Minimum above average",
+    "short": "MinGtAvg"
+  },
+  "avg_gt_max": {
+    "ts": "",
+    "title": "Average above maximum",
+    "short": "AvgGtMax"
+  },
+  "min_gt_max": {
+    "ts": "",
+    "title": "Minimum above maximum",
+    "short": "MinGtMax"
+  },
+  "counter_error": {
+    "ts": "",
+    "title": "Alive counter error (planned)",
+    "short": "CntError"
+  },
+  "high_delta": {
+    "ts": "",
+    "title": "High delta (planned)",
+    "short": "HighDelta"
+  },
+  "source_dropout": {
+    "ts": "TS-04",
+    "title": "Temperature source shutdown",
+    "short": "source_dro"
+  },
+  "invalid_during_critical": {
+    "ts": "TS-11",
+    "title": "Invalid source quality",
+    "short": "InvInCrit"
+  },
+  "guardian_crash": {
+    "ts": "TS-22",
+    "title": "Guardian process termination",
+    "short": "GrdCrash"
+  },
+  "guardian_hang": {
+    "ts": "TS-23",
+    "title": "Guardian evaluation hang",
+    "short": "GrdHang"
+  },
+  "duplicate_message": {
+    "ts": "TS-07",
+    "title": "Duplicate message",
+    "short": "Duplicate"
+  },
+  "out_of_order": {
+    "ts": "TS-08",
+    "title": "Out-of-order message",
+    "short": "OutOfOrd"
+  },
+  "quality_single_invalid": {
+    "ts": "TS-16",
+    "title": "Quality invalid",
+    "short": "1BadQual"
+  },
+  "saturation_255": {
+    "ts": "TS-26",
+    "title": "Upper-scale saturation",
+    "short": "Sat255"
+  },
+  "late_message": {
+    "ts": "TS-24",
+    "title": "Late-arriving stale message",
+    "short": "LateMsg"
+  }
+}
