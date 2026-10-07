@@ -73,6 +73,8 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 | F-9 | Source disconnects or replay stops | Source/Transport | Guardian fails to identify loss of connection |
 | F-10 | Guardian process terminates or its evaluation loop hangs/stops making progress | Application | Guardian stops evaluating temperature and publishing safety events/heartbeat; termination and hang are separate injection variants |
 | F-11 | CAN source marks a fresh temperature frame `INVALID` (`0x00`) or `ERROR_NOT_AVAILABLE` (`0xFF`) | Source/Signal | Guardian fails to reject the sample, mark monitoring unavailable, or report the quality fault; invalid temperature data may be treated as trustworthy or its loss may go unnoticed |
+| F-12 | Temperature signal saturates at the upper representable value (255 °C) | Signal/Source | Guardian cannot distinguish sensor saturation from a genuinely extreme temperature; failure to apply high out-of-range handling could produce an unsafe assessment, while a conservative warning may be spurious if actual temperature is lower |
+| F-13 | Temperature below the lower representable value is clipped to 0 °C | Signal/Source | Guardian receives a plausible boundary value and cannot observe the true subzero value or its trend; a safety impact is conditional on validated thermal profiles showing this masks a safety-relevant rise or delays warning |
 
 > NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility should be tracked separately as evidence-chain faults. They test whether a scenario is observable and its verdict is supportable; they are not temperature-input malfunctions by themselves.
 
@@ -94,12 +96,12 @@ The events below group faults by the unsafe outcome they can produce, rather tha
 
 | ID | Malfunctioning behavior and related faults | Operational situation | Hazardous event and potential harm | S | E | C | ASIL |
 |---|---|---|---|---|---|---|---|
-| HE-1 | Guardian misses or delays detection because it accepts stale samples (F-1), samples arriving after the warning deadline (F-2), accepts duplicated samples (F-3), continues using data after an upstream omitted update (F-4), derives a misleading trend from reordered samples (F-5), accepts a low out-of-range value (F-6), accepts a downward temperature drift or spike (F-7, F-8), fails to detect source loss (F-9), stops evaluating and publishing safety events after process termination or hang (F-10), or treats a fresh sample with invalid source quality as trustworthy or fails to report monitoring loss (F-11). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | Battery fire or smoke develops before occupants receive a usable warning and can stop in a safe place or evacuate; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
-| HE-2 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11) and Guardian termination or hang (F-10) | OS-2: Occupied vehicle manoeuvring at low speed near other vehicles or pedestrians | Battery fire or smoke develops before occupants can safely stop or move away; occupants or nearby people may be exposed to smoke or heat while the vehicle is manoeuvring. | S3 | - | - | ASIL-D |
-| HE-3 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11) and Guardian termination or hang (F-10) | OS-3: Vehicle parked or charging with occupants in or immediately beside it | Battery fire or smoke develops before occupants receive a usable warning and can leave the vehicle or nearby area; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
+| HE-1 | Guardian misses or delays detection because it accepts stale samples (F-1), samples arriving after the warning deadline (F-2), accepts duplicated samples (F-3), continues using data after an upstream omitted update (F-4), derives a misleading trend from reordered samples (F-5), accepts a low out-of-range value (F-6), accepts a downward temperature drift or spike (F-7, F-8), fails to detect source loss (F-9), stops evaluating and publishing safety events after process termination or hang (F-10), treats invalid source quality as trustworthy or fails to report monitoring loss (F-11), or cannot detect a safety-relevant rise because a lower-bound-clipped value is treated as valid (F-13; conditional on thermal-profile evidence). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | Battery fire or smoke develops before occupants receive a usable warning and can stop in a safe place or evacuate; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
+| HE-2 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10), and conditionally lower-bound clipping (F-13). | OS-2: Occupied vehicle manoeuvring at low speed near other vehicles or pedestrians | Battery fire or smoke develops before occupants can safely stop or move away; occupants or nearby people may be exposed to smoke or heat while the vehicle is manoeuvring. | S3 | - | - | ASIL-D |
+| HE-3 | Same missed/delayed-detection effects and fault conditions as HE-1, including invalid source quality (F-11), Guardian termination or hang (F-10), and conditionally lower-bound clipping (F-13). | OS-3: Vehicle parked or charging with occupants in or immediately beside it | Battery fire or smoke develops before occupants receive a usable warning and can leave the vehicle or nearby area; occupants may be exposed to smoke or heat. | S3 | - | - | ASIL-D |
 | HE-4 | Guardian issues an unintended mitigation request because it counts a duplicate as a new sample (F-3), accepts a high out-of-range value (F-6), or treats a high spike as valid/critical (F-8). | OS-1: Occupied vehicle moving in road traffic | The unintended request changes vehicle response or interrupts propulsion, preventing the driver from maintaining a safe trajectory and creating a collision risk for occupants or other road users. | S3 | - | - | ASIL-D |
 | HE-5 | Same unintended-mitigation effects and conditions as HE-4 | OS-2: Occupied vehicle manoeuvring near other vehicles or pedestrians | The unintended request changes vehicle response during a manoeuvre, creating a collision risk for occupants or nearby road users. | S3 | - | - | ASIL-D |
-| HE-6 | Temperature drifts upwards (F-7), temperature is outside upper limit of defined intervale (F-6), temperature unplausible spike appears (F-8) | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | False positive warning is issued, driver get's distracted and risk of collision with other vehicles rises | S3 | - | - | ASIL-D |  
+| HE-6 | Temperature drifts upwards (F-7), temperature is outside upper limit of defined interval (F-6), temperature spike appears (F-8), or an upper-bound-saturated sample triggers a warning although actual temperature is below the dangerous range (F-12). | OS-1: Occupied vehicle moving in road traffic, with limited opportunity to stop immediately | A warning that is not supported by actual thermal danger distracts the driver and may increase collision risk; an upper-bound reading must still be treated cautiously because it may represent real danger. | S3 | - | - | ASIL-D |
 
 F-11 maps to HE-1 through HE-3 because it can make thermal monitoring
 unavailable during the same hazardous vehicle situations; it does not create a
@@ -110,6 +112,13 @@ only when a real thermal event coincides with the loss of monitoring. E and C
 remain unassessed, so the displayed ASIL-D values are not fully derived or
 confirmed for F-11 until exposure and controllability are supported for each
 operating situation.
+
+F-12 maps to HE-6 only for the conditional false-warning path; the correct
+high-out-of-range response remains a warning because real danger cannot be
+excluded. F-13 maps conditionally to HE-1 through HE-3 only if battery thermal
+profiles show that subzero clipping can delay a safety-relevant warning. No
+separate HE or ASIL is assigned to either saturation fault in this draft; E/C
+and the under-range safety significance remain unassessed.
 
 ## Risk classification and safety goals
 
@@ -136,13 +145,14 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | ID | HARA trace | Derived functional requirement | Safety Concept mapping | Coverage assessment |
 |---|---|---|---|---|
 | DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and issue the corresponding occupant warning and mitigation response within its approved (`T_react = 100ms`). | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. | **Partial Missing:** safety concept does not take `T_react` into account. |
-| DFR-2 | SG-2; HE-1 to HE-3; F-11 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE` as unusable, enter `DEGRADED`, and report a quality fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. | FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. | **Specified/implemented in the Safety Concept** for the Guardian response. Vehicle-level warning independence remains the separate DFR-5 gap. |
+| DFR-2 | SG-2; HE-1 to HE-3; F-11, F-12 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE`, or whose value is outside the configured range, as unusable, enter `DEGRADED`, and report the corresponding fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. A high out-of-range value shall still raise at least `WARNING`. | FSR-3.2 and FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. | **Specified/implemented in the Safety Concept** for range and quality handling. A distinct saturation diagnosis is not specified; do not claim it. |
 | DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input, including a CAN quality flag other than `VALID`, shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. | **Covered at Guardian behavior level**, subject to testing the stated valid-sample and recovery conditions. |
-| DFR-4 | SG-3; HE-4, HE-5 | An invalid, stale, duplicated, or out-of-order sample shall not by itself cause CRITICAL state or a mitigation request. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** these FSRs limit invalid-input state escalation, but no FSR explicitly states the output invariant that mitigation is issued only for a valid critical condition. Add that invariant to the Safety Concept and test it. |
-| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Partial:** the [watchdog](../../watchdog/README.md) is a separate process that detects termination and hang (heartbeat from the evaluation loop, `T_hb` = 1500 ms) and reports `BTG_GuardianHeartbeatLoss` to DFM/OpenSOVD. **Missing:** the occupant warning; the watchdog does not request `DRIVER_WARNING_MONITORING_UNAVAILABLE`. |
+| DFR-4 | SG-3; HE-4, HE-5, HE-6; F-12 | An invalid, stale, duplicated, out-of-order, or saturated high sample shall not by itself cause `CRITICAL` or a mitigation request. A saturated/high out-of-range value shall still cause at least `WARNING` because real danger cannot be excluded. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** existing FSRs define cautious warning and limit invalid escalation, but no FSR explicitly states the mitigation-gating invariant. F-12 saturation cannot be distinguished from genuinely high temperature using the current fields. |
+| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Missing:** Independent implementation of a watchdog, that reports a crashed guardian has to be implemented |
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
 | DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| | **Missing** |
 | DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| | **Missing** |
+| DFR-9 (proposed) | SG-1, SG-2; HE-1 to HE-3; F-13 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. | **Missing / Not currently detectable:** raw value `0 °C`, valid quality, and advancing counters do not reveal whether the physical temperature is below range. |
 
 ### Safety Concept contradictions and missing requirements
 
@@ -160,6 +170,12 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 	criterion is observable. They do not establish that occupants are warned a
 	defined time before a real battery event becomes dangerous. That requirement
 	and its thermal validation basis are missing.
+- **Saturation bounds (DFR-2, DFR-4, DFR-9):** upper saturation is observable as
+	a high out-of-range value and should retain the fail-toward-warning response;
+	the current interface cannot distinguish it from a genuinely high value.
+	Lower saturation is not observable: `0 °C` is representable and considered
+	valid, so no Guardian-only test can prove under-range detection without source
+	metadata or a justified operating assumption.
 - **Goal-set mismatch:** this HARA defines SG-4, while the Safety Concept defines
 	only SG-1 to SG-3. The mappings above are provisional until SG-4 and its
 	allocation are reconciled there.
@@ -805,26 +821,61 @@ hang detection/recovery is specified and implemented.
 
 ### TS-47 Upper-Scale Saturation
 
-**HARA trace:** HE-1 to HE-3; SG-1/SG-2; catalog: Upper-Scale Saturation.
+**HARA trace:** F-12; HE-6; SG-4; DFR-2 and DFR-4; FSR-3.2 and FSR-3.6.
 
-**Preconditions:** Establish valid input and confirm raw encoding maximum and
-configured plausible range.
+**Preconditions:** Establish valid input with a known pre-saturation
+temperature below the configured `θ_max`. Record the CAN raw encoding maximum
+and configured plausible range.
 
-**Stimulus:** Peg one temperature channel at its encoding maximum over fresh
-samples while other channels and counters remain nominal.
+**Stimulus:** Inject only an upper-saturation fault: force one fresh
+temperature channel to the maximum representable CAN value (`255 °C`) while
+the test source's known pre-saturation temperature remains below `θ_max`.
+Keep quality valid and counters/timestamps advancing.
 
-**Expected Result:** Apply the defined high out-of-range behavior: reject the
-sample, report the fault, and raise at least `WARNING` because real danger
-cannot be excluded. Do not claim a saturation-specific detection unless a
-separate saturation rule exists.
+**Expected Result:** The Guardian rejects the value as out of range, reports
+the range fault, and raises at least `WARNING` because the reading could still
+represent real danger. The invalid sample alone does not cause `CRITICAL` or
+mitigation. This verifies conservative handling, not a distinct diagnosis that
+the sensor saturated.
 
-**Expected Mitigations:** No invalid-only `CRITICAL`/overtemperature
-mitigation; monitoring-unavailable warning if the approved range response
-degrades monitoring.
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` if the range
+fault degrades monitoring; no invalid-only `CRITICAL`/overtemperature
+mitigation.
 
-**Evidence and Verdict Focus:** Record raw value, scaling, plausible limit,
-quality, counter, state, DTC, and mitigation. If indistinguishable from generic
-OutOfRange, record saturation-specific coverage as missing.
+**Evidence and Verdict Focus:** Record known pre-saturation value, raw CAN
+value, scaling, `θ_max`, quality, counter, source timestamp, state/status,
+DTC, and mitigation. If the Guardian only reports generic `OutOfRange`, record
+F-12-specific saturation diagnosis as uncovered.
+
+### TS-48 Lower-Scale Saturation
+
+**HARA trace:** F-13; conditionally HE-1 to HE-3; SG-1 and SG-2; DFR-2 and
+DFR-9.
+
+**Preconditions:** Use a source or simulator with a known physical temperature
+below the CAN representation minimum (`0 °C`), while the encoded signal reports
+`0 °C`. Keep quality `VALID`, timestamps fresh, and the alive counter advancing.
+
+**Stimulus:** Vary the known physical temperature within the subzero range so
+the source output remains clipped at `0 °C`; inject no other signal or transport
+fault.
+
+**Expected Result:** Characterize the current interface behavior. Because
+`0 °C` is within the configured range and the contract carries no lower-clipped
+indicator, the Guardian is expected to treat the samples as valid and cannot
+diagnose the hidden subzero trend. Do not claim a pass for under-range detection.
+Whether this delayed trend can delay a safety warning remains conditional on
+validated battery thermal profiles.
+
+**Expected Mitigations:** None is expected from the current Guardian behavior
+for valid, fresh `0 °C` samples. An active thermal warning must not be lowered
+from invalid input; this stimulus alone does not mark the quality invalid.
+
+**Evidence and Verdict Focus:** Record ground-truth temperature, encoded CAN
+value, mapped VSS/uProtocol value and quality, source timestamp, alive counter,
+Guardian state/status, and warning timing. Mark the test as a coverage gap until
+the source exposes under-range saturation or the safety analysis justifies
+excluding this operating condition.
 
 ## AI Assistance
 
