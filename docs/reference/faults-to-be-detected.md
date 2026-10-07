@@ -33,13 +33,16 @@ or advisory condition that raises attention without changing Guardian output;
 monitoring is marked unavailable; `Fatal` means the battery itself is in a
 dangerous state and requires an active protective response.
 
-Faults marked *(implemented)* exist as a `FaultCode` and DTC in the Guardian
-today. The exception is Heartbeat Loss (`BTG_GuardianHeartbeatLoss`): a crashed
-or hung Guardian cannot report its own failure, so the separate
-[watchdog](../../watchdog/README.md) reports it, to the same DFM entity. The
-rest are derivable from the same four signals and are either specified in the
-Safety Concept as `planned`, or proposed here as not yet specified at all; none
-of those are implemented.
+Faults marked *(implemented)* exist as a DTC in the Guardian today: the input
+faults as a `FaultCode` of the core, the two overtemperature faults as DTCs the
+Guardian service derives from thermal state changes. The exception is Heartbeat
+Loss (`BTG_GuardianHeartbeatLoss`): a crashed or hung Guardian cannot report its
+own failure, so the separate [watchdog](../../watchdog/README.md) reports it, to
+the same DFM entity. Every DTC carries its fault type and severity in the DFM's
+environment data (the DFM keeps only the severity in its records). The campaign
+checks both in OpenSOVD. The rest are derivable from the same four signals and
+are either specified in the Safety Concept as `planned`, or proposed here as not
+yet specified at all; none of those are implemented.
 
 The HARA ID column traces each fault to the
 [preliminary HARA](hara.md#candidate-faults-and-malfunctions)'s candidate faults
@@ -63,26 +66,28 @@ or validation rule, `Timing` for an internal deadline the Guardian itself owns
 the faults below use `Power` or `Custom`.
 
 Mitigation is the actual Guardian `Mitigation` value, not a description of it.
+Overtemperature Warning has none today: reaching WARNING requests no mitigation
+(`DriverWarning` is proposed).
 `DriverWarningOvertemp` and `DriverWarningMonitoringUnavailable` are the two
 values that exist in the Guardian today. The rest are short names proposed in
 the same style for faults that are not yet implemented.
 
 | Fault | HARA ID | Fault Type | Description | Severity | Mitigation |
 |---|---|---|---|---|---|
-| Overtemperature Warning *(implemented)* | HE-1, HE-2, HE-3 | Hardware | Max cell temperature crossed the WARNING threshold (≥45°C) | Warn | `DriverWarning` |
+| Overtemperature Warning *(implemented)* | HE-1, HE-2, HE-3 | Hardware | Max cell temperature crossed the WARNING threshold (≥45°C) | Warn | — |
 | Overtemperature Critical *(implemented)* | HE-1, HE-2, HE-3 | Hardware | Max cell temperature crossed the CRITICAL threshold (≥55°C) | Fatal | `DriverWarningOvertemp` |
 | Undertemperature | — | Hardware | Temperature drops below a safe charging/operating threshold (no dedicated threshold implemented yet) | Warn | `BlockCharging` |
 | FreshnessLost *(implemented)* | F-4, F-9 | Communication | No fresh data arriving anymore | Error | `DriverWarningMonitoringUnavailable` |
 | CounterStuck *(implemented)* | F-1 | Communication | ECU frozen, keeps sending the same frame | Error | `DriverWarningMonitoringUnavailable` |
 | SignalStuck *(implemented)* | F-1 | Communication | Max frozen while Avg/Min keep moving | Error | `DriverWarningMonitoringUnavailable` |
-| QualityInvalid *(implemented)* | — | Communication | Source marks the value as unusable | Error | `DriverWarningMonitoringUnavailable` |
-| OrderImplausible | — | Configuration | Min/Avg/Max not in the correct order | Error | `DriverWarningMonitoringUnavailable` |
-| OutOfRange | F-6 | Configuration | Value outside the plausible range | Error | `DriverWarningMonitoringUnavailable` |
-| RateImplausible | F-8 | Configuration | Rise faster than physically plausible | Error | `DriverWarningMonitoringUnavailable` |
+| QualityInvalid *(implemented)* | TS-10 | Communication | Source marks the value as unusable | Error | `DriverWarningMonitoringUnavailable` |
+| OrderImplausible *(implemented)* | — | Configuration | Min/Avg/Max not in the correct order | Error | `DriverWarningMonitoringUnavailable` |
+| OutOfRange *(implemented)* | F-6, TS-11 | Configuration | Value outside the plausible range | Error | `DriverWarningMonitoringUnavailable` |
+| RateImplausible *(implemented)* | F-8, TS-11 | Configuration | Rise faster than physically plausible | Error | `DriverWarningMonitoringUnavailable` |
 | Fast-Heating Trend | F-7 | Hardware | Rise below θ_warn sustained over time, early warning | Warn | `DriverWarning` |
 | Hot Spot | — | Hardware | Max significantly above Avg, single cell overheating | Warn | `DriverWarning` |
 | Mitigation Failed | — | Timing | Temperature keeps rising despite requested mitigation | Fatal | `EscalateProtectiveAction` |
-| Startup Without Source | — | Communication | No valid sample since Guardian start | Error | `DriverWarningMonitoringUnavailable` |
+| Startup Without Source *(implemented)* | F-9, TS-03 | Communication | No valid sample since Guardian start | Error | `DriverWarningMonitoringUnavailable` |
 | Isolated vs. Repeated Spike | F-8 | Configuration | Single occurrence sets SUSPECT, repeated sets DEGRADED | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` |
 | Counter Error, Isolated vs. Repeated | F-3, F-5 | Communication | Counter jump, not advancing by exactly one | Warn / Error | `DiscardSample` / `DriverWarningMonitoringUnavailable` |
 | Heartbeat Loss *(implemented)* | F-10 | Software | Guardian itself stops reporting | Error | `RestartGuardian` |
@@ -101,3 +106,7 @@ This document was revised with the assistance of **Claude Code** using the model
 The section "Battery Thermal Guardian Fault Catalog" was added with the
 assistance of **Claude Code** using the model **Claude Sonnet 5**
 (`claude-sonnet-5`).
+
+The implementation markers and the overtemperature DTCs were updated with the
+assistance of **Claude Code** using the model **Claude Opus 5.5**
+(`claude-opus-5-5`).

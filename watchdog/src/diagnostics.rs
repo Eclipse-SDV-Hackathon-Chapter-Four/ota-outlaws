@@ -164,7 +164,10 @@ pub fn record_content(
 ) -> (LifecycleStage, BTreeMap<String, String>) {
     let mut env = BTreeMap::from([
         ("requirement".to_owned(), REQUIREMENT.to_owned()),
-        ("watchdog_session_id".to_owned(), watchdog_session.to_owned()),
+        (
+            "watchdog_session_id".to_owned(),
+            watchdog_session.to_owned(),
+        ),
     ]);
     let stage = match report {
         Report::TestPassed { guardian } | Report::Recovered { guardian } => {

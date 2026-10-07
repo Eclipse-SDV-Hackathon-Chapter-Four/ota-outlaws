@@ -90,6 +90,26 @@ pub struct Evaluation {
     pub guardian_events: usize,
 }
 
+/// Fault type and severity of each DTC, from the DFM catalog.
+pub type Classes = BTreeMap<String, (String, String)>;
+
+/// Whether an OpenSOVD record carries the catalog's fault type and severity
+/// in its environment data.
+fn classified(body: &serde_json::Value, dtc: &str, classes: &Classes) -> Result<(), String> {
+    let Some((fault_type, severity)) = classes.get(dtc) else {
+        return Err(format!("{dtc} is not in the DFM catalog"));
+    };
+    let env = &body["environment_data"];
+    if env["fault_type"] == fault_type.as_str() && env["severity"] == severity.as_str() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{dtc} has fault type {} and severity {} in OpenSOVD, expected {fault_type} and {severity}",
+            env["fault_type"], env["severity"]
+        ))
+    }
+}
+
 /// Values for budget expressions such as `T_stale + T_react`.
 pub type Budgets = BTreeMap<String, u64>;
 
@@ -203,6 +223,17 @@ impl<'a> Run<'a> {
             .find(|(_, e)| e.cause_event_id == cause.event_id && matches(&e.kind))
     }
 
+    /// Where a latency is measured from: the first `after` at the Guardian's
+    /// input, or t0 without one. `None` if `after` never showed.
+    fn reference(&self, after: &Option<Onset>, t0: u64, params: &OnsetParams) -> Option<u64> {
+        match after {
+            Some(onset) => onset
+                .find(&self.samples, &self.injections, params)
+                .map(|f| f.t_ms),
+            None => Some(t0),
+        }
+    }
+
     /// OpenSOVD records of `dtc` that belong to this run's `event`.
     fn sovd_records(&self, dtc: &str, event: &GuardianEvent) -> Vec<(u64, &'a serde_json::Value)> {
         let event_id = event.event_id.to_string();
@@ -234,6 +265,7 @@ pub fn evaluate(
     observations: &[Observation],
     budgets: &Budgets,
     params: &OnsetParams,
+    classes: &Classes,
 ) -> Result<Evaluation, String> {
     let run = Run::new(observations, params.cycle_ms);
     let onset = scenario.onset.find(&run.samples, &run.injections, params);
@@ -241,7 +273,14 @@ pub fn evaluate(
     let mut checks = Vec::new();
     if let Some(found) = &onset {
         for expectation in &scenario.expectations {
-            checks.push(check(expectation, found.t_ms, &run, budgets, params)?);
+            checks.push(check(
+                expectation,
+                found.t_ms,
+                &run,
+                budgets,
+                params,
+                classes,
+            )?);
         }
     }
     let violations = match &onset {
@@ -314,12 +353,23 @@ pub fn evaluate(
     })
 }
 
+/// The onset cannot be judged because it never reached the Guardian's input.
+fn never_showed(after: &Option<Onset>) -> Outcome {
+    Outcome::Unobservable {
+        detail: format!(
+            "'{}' never showed at the Guardian's input",
+            after.clone().unwrap_or(Onset::None)
+        ),
+    }
+}
+
 fn check(
     expectation: &Expectation,
     t0: u64,
     run: &Run<'_>,
     budgets: &Budgets,
     params: &OnsetParams,
+    classes: &Classes,
 ) -> Result<Check, String> {
     let mut result = Check {
         expectation: expectation.clone(),
@@ -420,6 +470,10 @@ fn check(
                             "{dtc} of event #{} never failed in OpenSOVD",
                             fault.event_id
                         )),
+                        Some((t, body)) if classified(body, dtc, classes).is_err() => {
+                            result.t_ms = Some(t);
+                            failed(classified(body, dtc, classes).unwrap_err())
+                        }
                         Some((t, _)) => {
                             let latency = t.saturating_sub(t_fault);
                             result.t_ms = Some(t);
@@ -499,19 +553,8 @@ fn check(
         } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);
-            let reference = match after {
-                Some(onset) => onset
-                    .find(&run.samples, &run.injections, params)
-                    .map(|f| f.t_ms),
-                None => Some(t0),
-            };
-            result.outcome = match reference {
-                None => Outcome::Unobservable {
-                    detail: format!(
-                        "'{}' never showed at the Guardian's input",
-                        after.clone().unwrap_or(Onset::None)
-                    ),
-                },
+            result.outcome = match run.reference(after, t0, params) {
+                None => never_showed(after),
                 Some(reference) => {
                     let reached = run.events.iter().find(|(t, e)| {
                         *t >= reference
@@ -539,30 +582,42 @@ fn check(
                 }
             };
         }
-        Expectation::OvertempWarning { .. } => {
-            let critical = run.events.iter().find(|(t, e)| {
-                *t >= t0
-                    && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if current == "CRITICAL")
-            });
-            result.outcome = match critical {
-                None => failed("thermal state never reached CRITICAL".to_owned()),
-                Some((_, change)) => match run.caused_by(change, |k| {
-                    matches!(k, EventKind::MitigationRequested { mitigation } if mitigation == "DRIVER_WARNING_OVERTEMP")
-                }) {
-                    None => failed(format!(
-                        "no overtemperature warning caused by event #{}",
-                        change.event_id
-                    )),
-                    Some((t, warning)) => {
-                        result.t_ms = Some(t);
-                        Outcome::Met {
-                            detail: format!(
-                                "event #{} overtemperature warning (cause #{})",
-                                warning.event_id, change.event_id
-                            ),
-                        }
+        Expectation::DriverWarningOvertemp { budget, after, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = match run.reference(after, t0, params) {
+                None => never_showed(after),
+                Some(reference) => {
+                    let critical = run.events.iter().find(|(t, e)| {
+                        *t >= reference
+                            && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if current == "CRITICAL")
+                    });
+                    match critical {
+                        None => failed("thermal state never reached CRITICAL".to_owned()),
+                        Some((_, change)) => match run.caused_by(change, |k| {
+                            matches!(k, EventKind::MitigationRequested { mitigation } if mitigation == "DRIVER_WARNING_OVERTEMP")
+                        }) {
+                            None => failed(format!(
+                                "no DRIVER_WARNING_OVERTEMP caused by event #{}",
+                                change.event_id
+                            )),
+                            Some((t, warning)) => {
+                                let latency = t.saturating_sub(reference);
+                                result.t_ms = Some(t);
+                                result.latency_ms = Some(latency);
+                                let text = format!(
+                                    "event #{} DRIVER_WARNING_OVERTEMP (cause #{})",
+                                    warning.event_id, change.event_id
+                                );
+                                if latency <= budget {
+                                    Outcome::Met { detail: text }
+                                } else {
+                                    failed(format!("{text}, late"))
+                                }
+                            }
+                        },
                     }
-                },
+                }
             };
         }
         Expectation::NotThermal { state, .. } => {
@@ -645,6 +700,78 @@ fn check(
                         "event #{} lowered the thermal state",
                         event.event_id
                     ))
+                }
+            };
+        }
+        Expectation::OvertempDtc {
+            dtc, state, budget, ..
+        } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            // The change to `state` from valid data: no fault as its cause.
+            let change = run.events.iter().copied().find(|(t, e)| {
+                *t >= t0
+                    && e.cause_event_id == 0
+                    && matches!(&e.kind, EventKind::ThermalStateChanged { previous, current }
+                        if severity(current) >= severity(state) && severity(previous) < severity(state))
+            });
+            result.outcome = match change {
+                None => failed(format!(
+                    "thermal state never reached {state} from valid data"
+                )),
+                Some(_) if !run.sovd_reachable() => Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                },
+                Some((t_change, event)) => {
+                    let records = run.sovd_records(dtc, event);
+                    let visible = records
+                        .iter()
+                        .find(|(_, body)| body["status"]["testFailed"] == true);
+                    match visible {
+                        None => failed(format!(
+                            "{dtc} of event #{} never failed in OpenSOVD",
+                            event.event_id
+                        )),
+                        Some((t, body)) => {
+                            let latency = t.saturating_sub(t_change);
+                            result.t_ms = Some(*t);
+                            result.latency_ms = Some(latency);
+                            let lowered = run.events.iter().any(|(_, e)| {
+                                e.event_id > event.event_id
+                                    && matches!(&e.kind, EventKind::ThermalStateChanged { previous, current }
+                                        if severity(previous) >= severity(state) && severity(current) < severity(state))
+                            });
+                            let passed = records.iter().any(|(_, b)| {
+                                b["status"]["testFailed"] == false
+                                    && b["status"]["testFailedSinceLastClear"] == true
+                            });
+                            if let Err(detail) = classified(body, dtc, classes) {
+                                failed(detail)
+                            } else if latency > budget {
+                                failed(format!(
+                                    "{dtc} of event #{} failed in OpenSOVD, late",
+                                    event.event_id
+                                ))
+                            } else if lowered && !passed {
+                                failed(format!(
+                                    "the thermal state was lowered below {state}, but OpenSOVD never showed {dtc} as passed"
+                                ))
+                            } else {
+                                let (fault_type, sev) = &classes[dtc.as_str()];
+                                Outcome::Met {
+                                    detail: format!(
+                                        "{dtc} failed for event #{} ({fault_type}, {sev}){}",
+                                        event.event_id,
+                                        if lowered {
+                                            ", passed after cooling, history kept"
+                                        } else {
+                                            ""
+                                        }
+                                    ),
+                                }
+                            }
+                        }
+                    }
                 }
             };
         }

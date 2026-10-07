@@ -845,6 +845,65 @@ fn fsr_3_3_spike_raises_warning_not_critical() {
 }
 
 #[test]
+fn fsr_3_6_warning_from_invalid_data_is_caused_by_its_fault() {
+    // The evidence chain must show that this WARNING comes from a sensor
+    // fault, not from a real overtemperature.
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+
+    run.sample(250.0, 80.0, 10.0);
+
+    let fault = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::FaultDetected {
+                    fault: FaultCode::OutOfRange,
+                    ..
+                }
+            )
+        })
+        .expect("out of range");
+    let warning = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::ThermalStateChanged {
+                    to: ThermalState::Warning,
+                    ..
+                }
+            )
+        })
+        .expect("warning");
+    assert_eq!(warning.cause, Some(fault.id));
+}
+
+#[test]
+fn fsr_1_1_warning_from_valid_data_has_no_fault_cause() {
+    let mut run = Run::new();
+    ramp_to(&mut run, 46.0);
+
+    let warning = run
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.kind,
+                EventKind::ThermalStateChanged {
+                    to: ThermalState::Warning,
+                    ..
+                }
+            )
+        })
+        .expect("warning");
+    assert_eq!(warning.cause, None);
+}
+
+#[test]
 fn fsr_3_3_fast_plausible_rise_is_valid() {
     // 1.5 °C per 100 ms is 15 °C/s, below r_max.
     let mut run = Run::new();

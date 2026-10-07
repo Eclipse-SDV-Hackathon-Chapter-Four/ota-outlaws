@@ -57,7 +57,7 @@ fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"            # or "planned": expected to fail until implemented
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/counter_stuck.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
 
 [[scenario.expect]]
@@ -94,7 +94,7 @@ requirement = "FSR-2.3"
 | `sovd` | OpenSOVD shows the DTC failed, with this run's session and event ID, within the budget after the Guardian event |
 | `recovery` | The fault recovers (cause: the fault), monitoring returns to OK, and OpenSOVD shows the DTC passed with its history kept |
 | `thermal` | The thermal state reaches the state (or a more severe one) within the budget after t0, or after `after` |
-| `overtemp_warning` | The change to CRITICAL causes the overtemperature warning |
+| `driver_warning_overtemp` | The change to CRITICAL causes `DRIVER_WARNING_OVERTEMP`, published within the budget after t0, or after `after` |
 | `not_thermal` | The thermal state never reaches the state after t0 |
 | `no_fault` | No fault is reported during the scenario |
 | `startup_fault` | With no sample at the input, the Guardian reports the DTC within the budget after its own start, on its own clock |
@@ -172,10 +172,9 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 
 ## Traces
 
-Most traces come from
-[`Fault_Injection_CAN_Logs/`](../../../Fault_Injection_CAN_Logs/README.txt).
-[`campaign/traces/generate_traces.py`](../../../campaign/traces/generate_traces.py)
-adds the ones the safety concept needs and that do not exist there yet:
+All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
+`generate_asc_logs.py` generates the fault traces of the original fault list;
+`generate_traces.py` adds the ones the safety concept needs on top:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).

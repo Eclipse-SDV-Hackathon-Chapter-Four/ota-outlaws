@@ -20,3 +20,4 @@ pub mod runtime;
 pub mod transport;
 
 pub mod diagnostics;
+pub mod dtc;

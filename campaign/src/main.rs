@@ -250,8 +250,14 @@ fn judge(repo: &Path, context: &Context, run_dir: &Path) -> anyhow::Result<Evalu
         .scenario(&manifest.scenario)
         .with_context(|| format!("scenario {} not in the catalog", manifest.scenario))?;
     let observations = campaign::recording::read(&run_dir.join("recording.jsonl"))?;
-    let evaluation = evaluate(scenario, &observations, &context.budgets, &context.onset)
-        .map_err(|error| anyhow::anyhow!(error))?;
+    let evaluation = evaluate(
+        scenario,
+        &observations,
+        &context.budgets,
+        &context.onset,
+        &context.classes,
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
     let _ = repo;
     let report = Report {
         manifest: &manifest,

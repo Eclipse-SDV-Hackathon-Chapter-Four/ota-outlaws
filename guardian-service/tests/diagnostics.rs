@@ -113,7 +113,7 @@ async fn diagnostic_campaign() {
             if let Ok(json) = response.json::<serde_json::Value>().await {
                 if json["items"]
                     .as_array()
-                    .is_some_and(|a| a.len() == guardian_service::diagnostics::FAULTS.len())
+                    .is_some_and(|a| a.len() >= guardian_service::diagnostics::codes().len())
                 {
                     break;
                 }
@@ -168,9 +168,9 @@ async fn diagnostic_campaign() {
     let poll_session = session.clone();
     let poller = tokio::spawn(async move {
         loop {
-            for code in guardian_service::diagnostics::FAULTS {
+            for code in guardian_service::diagnostics::codes() {
                 if let Ok(response) = poll_client
-                    .get(format!("{}/{}", poll_url, code.dtc()))
+                    .get(format!("{}/{}", poll_url, code))
                     .send()
                     .await
                 {
@@ -221,7 +221,7 @@ async fn diagnostic_campaign() {
                     Some(pb::guardian_event::Kind::FaultTestPassed(_))
                 ))
                 .count(),
-            4
+            guardian::FaultCode::ALL.len()
         );
         std::fs::write(evidence.join("ready"), "healthy baseline established").unwrap();
         wait_for_runner(&evidence.join("inject"), &source_transport, &mut sequence).await;
@@ -377,17 +377,17 @@ async fn diagnostic_campaign() {
     );
     let sample = detail.last_sample.as_ref().unwrap();
     assert_eq!(
-        diagnostic["environment_data"]["sequence"],
-        sample.sequence.to_string()
+        diagnostic["environment_data"]["sample"],
+        format!(
+            "seq={} src={} ctr={}",
+            sample.sequence, sample.source_timestamp_ms, sample.alive_counter
+        )
     );
     assert_eq!(
-        diagnostic["environment_data"]["source_time_ms"],
-        sample.source_timestamp_ms.to_string()
+        diagnostic["environment_data"]["fault_type"],
+        "Communication"
     );
-    assert_eq!(
-        diagnostic["environment_data"]["alive_counter"],
-        sample.alive_counter.to_string()
-    );
+    assert_eq!(diagnostic["environment_data"]["severity"], "Error");
     if scenario != "outage" {
         restore_healthy_input(&source_transport, &mut sequence, 55).await;
     }
@@ -433,10 +433,12 @@ async fn diagnostic_campaign() {
         "DFM retains original failure provenance on Passed"
     );
     // Verify real service thermal recovery in addition to input-fault recovery.
-    for i in 0..60 {
+    // Heat plausibly to 55 °C (1 °C per 100 ms, below r_max; FSR-3.3 rejects a
+    // jump as a spike), then cool to 35 °C.
+    for i in 0..90 {
         sequence += 1;
         let sample = pb::BatteryTemperature {
-            max_c: if i == 0 { 55.0 } else { 35.0 },
+            max_c: if i <= 20 { 35.0 + i as f32 } else { 35.0 },
             avg_c: 25.0,
             min_c: 20.0,
             source_timestamp_ms: sequence * 100,

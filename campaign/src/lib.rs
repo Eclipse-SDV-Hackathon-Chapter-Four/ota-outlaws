@@ -43,6 +43,8 @@ pub struct Context {
     pub onset: OnsetParams,
     /// Diagnostic trouble codes the Guardian can report, from the DFM catalog.
     pub fault_codes: Vec<String>,
+    /// Fault type and severity of each code, from the DFM catalog.
+    pub classes: evaluate::Classes,
 }
 
 impl Context {
@@ -67,6 +69,20 @@ impl Context {
         let faults: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(repo.join(FAULT_CATALOG)).context(FAULT_CATALOG)?,
         )?;
+        let classes = faults["faults"]
+            .as_array()
+            .context("DFM catalog without faults")?
+            .iter()
+            .filter_map(|fault| {
+                Some((
+                    fault["id"]["Text"].as_str()?.to_owned(),
+                    (
+                        fault["category"].as_str()?.to_owned(),
+                        fault["severity"].as_str()?.to_owned(),
+                    ),
+                ))
+            })
+            .collect();
         let fault_codes = faults["faults"]
             .as_array()
             .context("DFM catalog without faults")?
@@ -78,6 +94,7 @@ impl Context {
             budgets,
             onset,
             fault_codes,
+            classes,
         })
     }
 }
