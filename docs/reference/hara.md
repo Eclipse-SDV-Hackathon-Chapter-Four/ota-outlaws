@@ -168,9 +168,7 @@ gap checks, not evidence that the requirement is satisfied. Until the requiremen
 is approved and implemented, record the result as blocked or failed against the
 safety objective; do not convert missing behavior into a passing test.
 
-### Reviewed
-
-#### Template
+### Test Template
 
 **HARA trace:** 
 
