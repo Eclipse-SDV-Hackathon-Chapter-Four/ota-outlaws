@@ -118,8 +118,8 @@ impl ThermalState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MonitoringStatus {
     Ok,
-    /// Isolated invalid samples were discarded. Not reachable yet: belongs to
-    /// FSR-3.5.
+    /// The source may be frozen: repeated frames arrived (FSR-2.3). Isolated
+    /// invalid samples (FSR-3.5) will also lead here once implemented.
     Suspect,
     Degraded,
 }

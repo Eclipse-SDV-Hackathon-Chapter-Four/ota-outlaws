@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::{GuardianConfig, PlausibilityConfig, RecoveryConfig, ThermalConfig};
-use crate::detectors::{FreshnessMonitor, StuckDetector};
+use crate::detectors::{FreshnessMonitor, Repetition, StuckDetector};
 use crate::model::{
     Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,
     SampleRef, ThermalState,
@@ -95,7 +95,8 @@ impl Guardian {
     ///
     /// Samples that are not fresh are ignored: repeated or older source
     /// timestamps, an unchanged alive counter, and non-finite values. If only
-    /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data.
+    /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data:
+    /// repeated frames set SUSPECT and, once `N_stuck` arrived, DEGRADED.
     /// Fresh samples whose quality is not `Valid` (FSR-3.4) or that are
     /// implausible (FSR-3.1 to FSR-3.3) are reported, but not evaluated. Invalid
     /// samples never lower the thermal state and never raise it to CRITICAL
@@ -106,7 +107,13 @@ impl Guardian {
         if !self.is_fresh(&sample) {
             self.reset_recovery();
             if self.is_repeated_frame(&sample) {
-                self.freshness.record_repeated_frame();
+                match self.freshness.record_repeated_frame(now) {
+                    Repetition::Isolated => {}
+                    Repetition::Suspect => self.set_suspect(true, now, &mut events),
+                    Repetition::Stuck => {
+                        self.report_fault(FaultCode::CounterStuck, now, &mut events)
+                    }
+                }
             }
             return events;
         }
@@ -116,6 +123,7 @@ impl Guardian {
         }
         self.last_fresh_sample = Some(sample.reference());
         self.freshness.record_fresh_sample(now);
+        self.set_suspect(false, now, &mut events);
 
         if sample.quality != Quality::Valid {
             self.reset_recovery();
@@ -157,12 +165,7 @@ impl Guardian {
         }
         if self.freshness.is_stale(now) {
             self.reset_recovery();
-            let fault = if self.freshness.source_repeats_itself() {
-                FaultCode::CounterStuck
-            } else {
-                FaultCode::FreshnessLost
-            };
-            self.report_fault(fault, now, &mut events);
+            self.report_fault(FaultCode::FreshnessLost, now, &mut events);
         }
         events
     }
@@ -339,6 +342,26 @@ impl Guardian {
             EventKind::MitigationRequested {
                 mitigation: Mitigation::DriverWarningMonitoringUnavailable,
             },
+            events,
+        );
+    }
+
+    /// Switches between OK and SUSPECT (FSR-2.3). SUSPECT requests no
+    /// mitigation; DEGRADED is left alone.
+    fn set_suspect(&mut self, suspect: bool, now: Millis, events: &mut Vec<Event>) {
+        let (from, to) = if suspect {
+            (MonitoringStatus::Ok, MonitoringStatus::Suspect)
+        } else {
+            (MonitoringStatus::Suspect, MonitoringStatus::Ok)
+        };
+        if self.monitoring != from {
+            return;
+        }
+        self.monitoring = to;
+        self.emit(
+            None,
+            now,
+            EventKind::MonitoringStatusChanged { from, to },
             events,
         );
     }

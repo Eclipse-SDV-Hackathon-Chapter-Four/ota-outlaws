@@ -59,10 +59,16 @@ impl Context {
         budgets.insert("T_stale".into(), config.freshness.stale_timeout_ms);
         budgets.insert("T_stuck".into(), config.stuck.timeout_ms);
         budgets.insert("T_recover".into(), config.recovery.min_duration_ms);
+        let cycle_ms = *budgets
+            .get("cycle")
+            .context("the catalog's [budgets] needs 'cycle'")?;
+        // N_stuck repeated frames at the signal cycle (FSR-2.3).
+        budgets.insert(
+            "T_counter_stuck".into(),
+            u64::from(config.freshness.stuck_repeated_frames) * cycle_ms,
+        );
         let onset = OnsetParams {
-            cycle_ms: *budgets
-                .get("cycle")
-                .context("the catalog's [budgets] needs 'cycle'")?,
+            cycle_ms,
             stale_ms: config.freshness.stale_timeout_ms,
             stuck_reference_change_c: config.stuck.min_reference_change_c,
         };
