@@ -24,11 +24,20 @@ use serde::{Deserialize, Serialize};
 use crate::recording::Temperature;
 
 /// How to find the onset in the recorded `BatteryTemperature` stream.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum Onset {
     /// Nominal scenario: the onset is the first sample.
     None,
+    /// No sample at all reaches the Guardian's input; the onset is the start
+    /// of the recording.
+    NoInput,
+    /// The stream stops for good; t0 is the last sample plus one cycle.
+    StreamEnd,
+    /// The tool's own injection with this action, for a fault behind the tap
+    /// that the tap cannot observe, such as cutting the Guardian off the
+    /// network. The only onset taken from the tool instead of the tap.
+    Injection(String),
     /// A gap longer than `T_stale`; t0 is the last sample before it plus one
     /// signal cycle (the first sample that is missing).
     Gap,
@@ -66,13 +75,35 @@ pub struct Found {
 impl Onset {
     /// Finds the onset in samples ordered by time. `None` if the fault never
     /// showed at the Guardian's input.
-    pub fn find(&self, samples: &[(u64, &Temperature)], params: &OnsetParams) -> Option<Found> {
+    pub fn find(
+        &self,
+        samples: &[(u64, &Temperature)],
+        injections: &[(u64, &str)],
+        params: &OnsetParams,
+    ) -> Option<Found> {
         let pairs = samples.windows(2).map(|w| (w[0], w[1]));
-        match *self {
+        match self {
             Onset::None => samples.first().map(|(t, s)| Found {
                 t_ms: *t,
                 description: format!("first sample, sequence {}", s.sequence),
             }),
+            Onset::NoInput => samples.is_empty().then(|| Found {
+                t_ms: 0,
+                description: "no sample reached the Guardian's input".to_owned(),
+            }),
+            Onset::StreamEnd => samples.last().map(|(t, s)| Found {
+                t_ms: t + params.cycle_ms,
+                description: format!("stream ended after sequence {}", s.sequence),
+            }),
+            Onset::Injection(action) => {
+                injections
+                    .iter()
+                    .find(|(_, a)| a == action)
+                    .map(|(t, a)| Found {
+                        t_ms: *t,
+                        description: format!("injection '{a}' by the tool"),
+                    })
+            }
             Onset::Gap => pairs
                 .clone()
                 .find(|((t0, _), (t1, _))| t1 - t0 > params.stale_ms)
@@ -129,7 +160,7 @@ impl Onset {
             Onset::MaxAtLeast(limit) => {
                 samples
                     .iter()
-                    .find(|(_, s)| s.max_c >= limit)
+                    .find(|(_, s)| s.max_c >= *limit)
                     .map(|(t, s)| Found {
                         t_ms: *t,
                         description: format!("maximum {} °C ≥ {limit} °C", s.max_c),
@@ -168,6 +199,9 @@ impl fmt::Display for Onset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Onset::None => write!(f, "none"),
+            Onset::NoInput => write!(f, "no_input"),
+            Onset::StreamEnd => write!(f, "stream_end"),
+            Onset::Injection(action) => write!(f, "injection:{action}"),
             Onset::Gap => write!(f, "gap"),
             Onset::AliveCounterRepeats => write!(f, "alive_counter_repeats"),
             Onset::AliveCounterJumps => write!(f, "alive_counter_jumps"),
@@ -185,20 +219,27 @@ impl FromStr for Onset {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Ok(match text {
             "none" => Onset::None,
+            "no_input" => Onset::NoInput,
+            "stream_end" => Onset::StreamEnd,
             "gap" => Onset::Gap,
             "alive_counter_repeats" => Onset::AliveCounterRepeats,
             "alive_counter_jumps" => Onset::AliveCounterJumps,
             "quality_not_valid" => Onset::QualityNotValid,
             "max_frozen_while_reference_moves" => Onset::MaxFrozenWhileReferenceMoves,
             "order_violated" => Onset::OrderViolated,
-            other => match other.strip_prefix("max_at_least:") {
-                Some(limit) => Onset::MaxAtLeast(
-                    limit
-                        .parse()
-                        .map_err(|_| format!("invalid temperature in onset {other}"))?,
-                ),
-                None => return Err(format!("unknown onset {other}")),
-            },
+            other => {
+                if let Some(action) = other.strip_prefix("injection:") {
+                    Onset::Injection(action.to_owned())
+                } else if let Some(limit) = other.strip_prefix("max_at_least:") {
+                    Onset::MaxAtLeast(
+                        limit
+                            .parse()
+                            .map_err(|_| format!("invalid temperature in onset {other}"))?,
+                    )
+                } else {
+                    return Err(format!("unknown onset {other}"));
+                }
+            }
         })
     }
 }

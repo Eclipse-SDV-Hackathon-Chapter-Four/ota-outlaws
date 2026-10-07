@@ -69,12 +69,16 @@ requirement = "FSR-2.3"
 
 | Stimulus | Effect |
 |----------|--------|
-| `can_trace` | Replays the trace once through the KUKSA CAN Provider; optionally pauses services (`pause`, `pause_after_ms`, `pause_for_ms`) |
+| `can_trace` | Replays the trace once through the KUKSA CAN Provider. Optionally, after the source started: pauses services for a while (`pause`, `pause_after_ms`, `pause_for_ms`), stops services for good (`stop`, `stop_after_ms`), or cuts one service off the network for a while (`isolate`, `isolate_after_ms`, `isolate_for_ms`) |
+| `no_source` | Starts the chain without any temperature source and records for `duration_ms` |
 | `external` | No injection; someone else injects (for example by unplugging the hardware source). Only with `observe`. |
 
 | Onset | t0 = first recorded sample … |
 |-------|------------------------------|
 | `none` | of the run (nominal scenarios) |
+| `no_input` | — none at all reaches the Guardian; t0 is the start of the recording |
+| `stream_end` | — the stream stops for good; t0 is the last sample plus one cycle |
+| `injection:<action>` | — the tool's own injection, for a fault behind the tap that the tap cannot observe (the only onset not taken from the tap) |
 | `gap` | before a gap longer than `T_stale`, plus one cycle |
 | `alive_counter_repeats` | whose alive counter equals the previous one |
 | `alive_counter_jumps` | whose alive counter jumps by 3 or more (a single lost frame is not a fault) |
@@ -93,6 +97,9 @@ requirement = "FSR-2.3"
 | `overtemp_warning` | The change to CRITICAL causes the overtemperature warning |
 | `not_thermal` | The thermal state never reaches the state after t0 |
 | `no_fault` | No fault is reported during the scenario |
+| `startup_fault` | With no sample at the input, the Guardian reports the DTC within the budget after its own start, on its own clock |
+| `samples_continue` | Samples keep reaching the tap after t0: source and publisher are alive, so a loss at the Guardian lies behind the tap (attribution, EC-1) |
+| `not_lowered` | The thermal state is never lowered after t0 |
 
 In every scenario these reactions are **forbidden**: lowering the thermal state
 while monitoring is DEGRADED (FSR-2.5), a fault before the onset (a false
@@ -110,7 +117,11 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
 2. The taps start: uProtocol listeners on `BatteryTemperature` and
    `GuardianEvent`, and OpenSOVD polling every 25 ms. Every observation goes
    into `recording.jsonl`, stamped with the tool's own clock.
-3. The KUKSA CAN Provider replays the scenario's trace **once**.
+3. The KUKSA CAN Provider replays the scenario's trace **once**. The Guardian
+   starts only when the first sample reaches the tap: started earlier, it would
+   rightly report that no data arrived after its start (FSR-2.1). Samples before
+   its start are not judged. Faults in traces should therefore come no earlier
+   than about 4 s into the trace.
 4. When the samples have stopped after the trace's duration, the tool records
    3 s more, so OpenSOVD can catch up, then removes the project.
 5. The evaluation judges the recording. The judged window ends with the last
@@ -164,9 +175,37 @@ adds the ones the safety concept needs and that do not exist there yet:
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).
 
+The campaign's own traces start with 5 s of nominal data. `nominal.asc` (20 s)
+carries faults the tool injects itself.
+
 `temp_stuck` freezes all temperatures together, which looks like a battery at
 constant temperature; it is kept as a test of that known limitation and expects
 no fault.
+
+## HARA test scenarios
+
+The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
+TS-01 to TS-18. Each scenario in the catalog names the ones it implements
+(`hara_tests`); reports show them.
+
+| HARA test | Scenario | Status |
+|-----------|----------|--------|
+| TS-01 Baseline | `normal` | campaign |
+| TS-02 Thresholds | `heating` | campaign |
+| TS-03 No data after startup | `startup_without_source` | campaign |
+| TS-04 Source shut down | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
+| TS-05 Update delayed or withheld | `timeout` | campaign |
+| TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
+| TS-07 Duplicate, out of order | — | not covered: needs an injection point on the uProtocol channel |
+| TS-08 Stuck maximum | `max_stuck` | campaign |
+| TS-09 All values frozen | `temp_stuck` | campaign, as a known limitation |
+| TS-10 Invalid input during WARNING | `invalid_during_warning` | campaign |
+| TS-11 High out of range, spike | `out_of_range`, `implausible_jump`, `spike` | campaign |
+| TS-12 No mitigation from invalid input | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign, without the duplicate variant |
+| TS-13 HMI for uncertain data | — | blocked in the HARA (needs a driving simulator) |
+| TS-14 Diagnostics delayed or missing | — | [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py) (outage) |
+| TS-15, TS-16, TS-18 Guardian crash or hang, supervisor | — | not covered: no independent supervisor yet (HARA DFR-5) |
+| TS-17 Warning lead time | — | blocked in the HARA (no approved lead time) |
 
 ## Not covered yet
 
@@ -176,8 +215,9 @@ no fault.
   [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
   `pause` stimulus exists, but its OpenSOVD budget would have to count from the
   resume.
-- **EC-1 to EC-3** of the Safety Concept (attribution, sequence diagnosis,
-  delay measurement) and the Guardian heartbeat.
+- **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
+  behind the tap (`samples_continue`) exists; sequence diagnosis and delay
+  measurement do not. The Guardian heartbeat is missing too.
 
 ## AI Assistance
 

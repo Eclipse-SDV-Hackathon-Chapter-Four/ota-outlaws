@@ -75,6 +75,9 @@ pub fn markdown(manifest: &Manifest, scenario: &Scenario, evaluation: &Evaluatio
     let _ = writeln!(out, "| | |\n|---|---|");
     let _ = writeln!(out, "| Run | `{}` ({}) |", manifest.run_id, manifest.mode);
     let _ = writeln!(out, "| Started | {} |", manifest.started_at);
+    if !scenario.hara_tests.is_empty() {
+        let _ = writeln!(out, "| HARA test | {} |", scenario.hara_tests.join(", "));
+    }
     let _ = writeln!(
         out,
         "| Hazard → safety goal | {} → {} |",
@@ -171,7 +174,7 @@ pub fn campaign_markdown(campaign_id: &str, summaries: &[Summary<'_>]) -> String
     let _ = writeln!(out, "# Campaign {campaign_id}\n");
     let _ = writeln!(
         out,
-        "| Scenario | Requirements | Verdict | Reason | Report |\n|---|---|---|---|---|"
+        "| Scenario | HARA test | Requirements | Verdict | Reason | Report |\n|---|---|---|---|---|---|"
     );
     for summary in summaries {
         let e = summary.evaluation;
@@ -182,8 +185,9 @@ pub fn campaign_markdown(campaign_id: &str, summaries: &[Summary<'_>]) -> String
         let requirements: Vec<_> = e.requirements.keys().cloned().collect();
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | [report]({}/report.md) |",
+            "| {} | {} | {} | {} | {} | [report]({}/report.md) |",
             e.scenario,
+            e.hara_tests.join(", "),
             requirements.join(", "),
             verdict,
             e.reason,

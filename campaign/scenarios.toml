@@ -35,14 +35,22 @@ T_diag = 2000
 id = "normal"
 description = "Nominal data, 40 degC, incrementing alive counter"
 fault_class = "None"
+hara_tests = ["TS-01"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/normal.asc" }
 onset = "none"
 
+# The Guardian starts while the source is already running, so this budget
+# includes its start. TS-01 sets no time limit.
 [[scenario.expect]]
 kind = "thermal"
 state = "MONITORING"
-budget = "T_react"
+budget = "5000"
+requirement = "baseline"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "WARNING"
 requirement = "baseline"
 
 [[scenario.expect]]
@@ -55,6 +63,7 @@ description = "Heating through 45 degC and 55 degC, hold, cool down"
 fault_class = "Thermal"
 hazard = "HE-1"
 safety_goal = "SG-1"
+hara_tests = ["TS-02", "TS-12"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/heating.asc" }
 onset = "max_at_least:45"
@@ -88,6 +97,7 @@ description = "A 1.8 s gap without frames between normal sections"
 fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-05"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/timeout.asc" }
 onset = "gap"
@@ -186,6 +196,7 @@ description = "Maximum frozen at 42 degC for 5 s while average and minimum rise"
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-08"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/max_stuck.asc" }
 onset = "max_frozen_while_reference_moves"
@@ -218,6 +229,7 @@ description = "Maximum, average, and minimum all fixed at 39 degC for 2 s"
 fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-09"]
 status = "implemented"
 note = "Known limitation: all temperatures frozen together look like a battery at constant temperature, so FSR-2.4 does not apply and no fault is expected. max_stuck tests FSR-2.4."
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/temp_stuck.asc" }
@@ -227,6 +239,135 @@ onset = "none"
 kind = "no_fault"
 requirement = "FSR-2.4"
 
+# --- HARA test scenarios for loss of data at startup, at the source, and in transport
+
+[[scenario]]
+id = "startup_without_source"
+description = "The Guardian starts, but no temperature source runs"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-03"]
+status = "implemented"
+stimulus = { type = "no_source", duration_ms = 4000 }
+onset = "no_input"
+
+[[scenario.expect]]
+kind = "startup_fault"
+dtc = "BTG_TempNoDataAtStartup"
+budget = "T_stale + T_react"
+requirement = "FSR-2.1"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempNoDataAtStartup"
+requirement = "FSR-2.1"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempNoDataAtStartup"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario]]
+id = "source_shutdown"
+description = "The CAN source shuts down after 6 s of valid data and stays down"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-04"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", stop = ["kuksa-can-provider"], stop_after_ms = 6000 }
+onset = "stream_end"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario]]
+id = "transport_dropout"
+description = "The Guardian is cut off the network for 2 s while source and publisher keep sending"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-06"]
+status = "implemented"
+note = "The dropout lies behind the tap, so the tap cannot observe it; t0 is the tool's injection time. The tap still receiving samples places the loss between the publisher and the Guardian."
+stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", isolate = "guardian", isolate_after_ms = 6000, isolate_for_ms = 2000 }
+onset = "injection:isolate"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "samples_continue"
+requirement = "EC-1"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "invalid_during_warning"
+description = "In WARNING, 1 s of low readings marked INVALID, then valid WARNING-level data"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-4"
+hara_tests = ["TS-10"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/invalid_during_warning.asc" }
+onset = "quality_not_valid"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+after = "max_at_least:45"
+requirement = "FSR-1.1"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_react"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-2.6"
+
 # --- Invalid input: plausibility and mitigation gating (FSR-3.1 to FSR-3.3, FSR-3.6) ---
 
 [[scenario]]
@@ -235,6 +376,7 @@ description = "CellTempMax 250 degC, beyond the plausible range"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
+hara_tests = ["TS-11", "TS-12"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/out_of_range.asc" }
 onset = "max_at_least:126"
@@ -278,6 +420,7 @@ description = "All temperatures jump from about 40 degC to 160 degC"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
+hara_tests = ["TS-11", "TS-12"]
 status = "implemented"
 note = "160 degC is above the plausible range, so FSR-3.2 rejects it before the rise rate is checked. spike tests FSR-3.3."
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/implausible_jump.asc" }
@@ -322,6 +465,7 @@ description = "In-range spike from 40 degC to 100 degC for 1 s"
 fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
+hara_tests = ["TS-11", "TS-12"]
 status = "implemented"
 stimulus = { type = "can_trace", trace = "campaign/traces/spike.asc" }
 onset = "max_at_least:100"
@@ -514,6 +658,7 @@ description = "The temperature source stops sending, for example the board is un
 fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
+hara_tests = ["TS-04"]
 status = "implemented"
 stimulus = { type = "external" }
 onset = "gap"

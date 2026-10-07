@@ -73,6 +73,8 @@ pub struct Violation {
 #[derive(Debug, Clone, Serialize)]
 pub struct Evaluation {
     pub scenario: String,
+    /// HARA test scenarios this scenario implements.
+    pub hara_tests: Vec<String>,
     pub status: ScenarioStatus,
     pub verdict: Verdict,
     pub reason: String,
@@ -108,15 +110,21 @@ struct Run<'a> {
     samples: Vec<(u64, &'a Temperature)>,
     events: Vec<(u64, &'a GuardianEvent)>,
     sovd: Vec<(u64, &'a str, Option<u16>, &'a serde_json::Value)>,
+    injections: Vec<(u64, &'a str)>,
     session_id: Option<String>,
     window_end: Option<u64>,
 }
+
+/// The tool logs this injection right before it starts the Guardian. Samples
+/// before it cannot have reached the Guardian and are not judged.
+pub const GUARDIAN_START: &str = "start_guardian";
 
 impl<'a> Run<'a> {
     fn new(observations: &'a [Observation], cycle_ms: u64) -> Self {
         let mut samples = Vec::new();
         let mut events = Vec::new();
         let mut sovd = Vec::new();
+        let mut injections = Vec::new();
         for observation in observations {
             match &observation.tap {
                 Tap::BatteryTemperature(sample) => samples.push((observation.t_ms, sample)),
@@ -126,8 +134,13 @@ impl<'a> Run<'a> {
                     http_status,
                     body,
                 } => sovd.push((observation.t_ms, code.as_str(), *http_status, body)),
-                Tap::Injection { .. } => {}
+                Tap::Injection { action, .. } => {
+                    injections.push((observation.t_ms, action.as_str()))
+                }
             }
+        }
+        if let Some((start, _)) = injections.iter().rev().find(|(_, a)| *a == GUARDIAN_START) {
+            samples.retain(|(t, _)| t >= start);
         }
         let session_id = events.first().map(|(_, e)| e.session_id.clone());
         let window_end = samples.last().map(|(t, _)| t + cycle_ms);
@@ -135,6 +148,7 @@ impl<'a> Run<'a> {
             samples,
             events,
             sovd,
+            injections,
             session_id,
             window_end,
         }
@@ -200,7 +214,7 @@ pub fn evaluate(
     params: &OnsetParams,
 ) -> Result<Evaluation, String> {
     let run = Run::new(observations, params.cycle_ms);
-    let onset = scenario.onset.find(&run.samples, params);
+    let onset = scenario.onset.find(&run.samples, &run.injections, params);
 
     let mut checks = Vec::new();
     if let Some(found) = &onset {
@@ -213,7 +227,7 @@ pub fn evaluate(
         None => Vec::new(),
     };
 
-    let (verdict, reason) = if run.samples.is_empty() {
+    let (verdict, reason) = if run.samples.is_empty() && scenario.onset != Onset::NoInput {
         (
             Verdict::Inconclusive,
             "no sample reached the Guardian's input".to_owned(),
@@ -263,6 +277,7 @@ pub fn evaluate(
 
     Ok(Evaluation {
         scenario: scenario.id.clone(),
+        hara_tests: scenario.hara_tests.clone(),
         status: scenario.status,
         verdict,
         reason,
@@ -452,14 +467,16 @@ fn check(
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);
             let reference = match after {
-                Some(onset) => onset.find(&run.samples, params).map(|f| f.t_ms),
+                Some(onset) => onset
+                    .find(&run.samples, &run.injections, params)
+                    .map(|f| f.t_ms),
                 None => Some(t0),
             };
             result.outcome = match reference {
                 None => Outcome::Unobservable {
                     detail: format!(
                         "'{}' never showed at the Guardian's input",
-                        after.unwrap_or(Onset::None)
+                        after.clone().unwrap_or(Onset::None)
                     ),
                 },
                 Some(reference) => {
@@ -528,6 +545,73 @@ fn check(
                 Some((t, event)) => {
                     result.t_ms = Some(*t);
                     failed(format!("event #{} reached {state}", event.event_id))
+                }
+            };
+        }
+        Expectation::StartupFault { dtc, budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = if !run.samples.is_empty() {
+                Outcome::Unobservable {
+                    detail: format!("{} samples reached the Guardian's input", run.samples.len()),
+                }
+            } else {
+                match run.first_fault(dtc, 0) {
+                    None => failed(format!("no {dtc} reported")),
+                    Some((t, event)) => {
+                        // Measured on the Guardian's own clock from its start:
+                        // the tool cannot observe the start itself.
+                        result.t_ms = Some(t);
+                        result.latency_ms = Some(event.guardian_time_ms);
+                        let text = format!(
+                            "event #{} {dtc} {} ms after the Guardian started",
+                            event.event_id, event.guardian_time_ms
+                        );
+                        if event.guardian_time_ms <= budget {
+                            Outcome::Met { detail: text }
+                        } else {
+                            failed(format!("{text}, late"))
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::SamplesContinue { .. } => {
+            let within = run
+                .samples
+                .iter()
+                .filter(|(t, _)| *t > t0 && *t <= t0 + 1000)
+                .count();
+            result.outcome = if within >= 5 {
+                Outcome::Met {
+                    detail: format!(
+                        "{within} samples reached the tap in the second after the onset: source and publisher alive"
+                    ),
+                }
+            } else {
+                Outcome::Unobservable {
+                    detail: format!(
+                        "only {within} samples at the tap after the onset: the loss cannot be placed behind the tap"
+                    ),
+                }
+            };
+        }
+        Expectation::NotLowered { .. } => {
+            let lowered = run.events.iter().find(|(t, e)| {
+                *t >= t0
+                    && run.in_window(*t)
+                    && matches!(&e.kind, EventKind::ThermalStateChanged { previous, current } if severity(current) < severity(previous))
+            });
+            result.outcome = match lowered {
+                None => Outcome::Met {
+                    detail: "thermal state not lowered".to_owned(),
+                },
+                Some((t, event)) => {
+                    result.t_ms = Some(*t);
+                    failed(format!(
+                        "event #{} lowered the thermal state",
+                        event.event_id
+                    ))
                 }
             };
         }

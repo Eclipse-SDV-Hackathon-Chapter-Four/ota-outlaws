@@ -28,13 +28,14 @@ use crate::catalog::{Scenario, Stimulus};
 use crate::record::{self, Recorder, SovdTap};
 use crate::recording::Tap;
 
-/// Services started before the stimulus.
+/// Services started before the stimulus. The Guardian follows once the
+/// source delivers data: started earlier, it would rightly report that no
+/// data arrived after its start (FSR-2.1).
 const CHAIN: &[&str] = &[
     "zenoh",
     "kuksa-databroker",
     "opensovd-dfm",
     "opensovd-gateway",
-    "guardian",
     "vss-publisher",
 ];
 
@@ -92,6 +93,28 @@ impl Compose {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned()
             + &String::from_utf8_lossy(&output.stderr))
     }
+
+    /// Disconnects a service's container from the project network, or
+    /// reconnects it.
+    async fn network(&self, verb: &str, service: &str) -> anyhow::Result<()> {
+        let container = self.output(&["ps", "-q", service]).await?;
+        let container = container.lines().next().unwrap_or_default().trim();
+        if container.is_empty() {
+            bail!("service {service} is not running");
+        }
+        let network = format!("{}_default", self.project);
+        let output = Command::new("docker")
+            .args(["network", verb, &network, container])
+            .output()
+            .await?;
+        if !output.status.success() {
+            bail!(
+                "docker network {verb} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    }
 }
 
 fn free_port() -> anyhow::Result<u16> {
@@ -114,6 +137,74 @@ pub async fn build(repo: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// One injection beyond the trace, scheduled after the source started.
+enum Action {
+    Pause(Vec<String>, Duration),
+    Stop(Vec<String>),
+    Isolate(String, Duration),
+}
+
+struct Plan {
+    /// Trace path in the repository, and its duration. `None`: no source.
+    trace: Option<(String, Duration)>,
+    /// Recording time without a source.
+    no_source_for: Duration,
+    actions: Vec<(Duration, Action)>,
+}
+
+fn plan(scenario: &Scenario, repo: &Path) -> anyhow::Result<Plan> {
+    let ms = |value: Option<u64>| Duration::from_millis(value.unwrap_or(0));
+    match &scenario.stimulus {
+        Stimulus::External => bail!(
+            "scenario {} has an external stimulus; use `campaign observe`",
+            scenario.id
+        ),
+        Stimulus::NoSource { duration_ms } => Ok(Plan {
+            trace: None,
+            no_source_for: Duration::from_millis(*duration_ms),
+            actions: Vec::new(),
+        }),
+        Stimulus::CanTrace {
+            trace,
+            pause,
+            pause_after_ms,
+            pause_for_ms,
+            stop,
+            stop_after_ms,
+            isolate,
+            isolate_after_ms,
+            isolate_for_ms,
+        } => {
+            let path = repo.join(trace);
+            if !path.is_file() {
+                bail!("trace {} not found", path.display());
+            }
+            let mut actions = Vec::new();
+            if !pause.is_empty() {
+                actions.push((
+                    ms(*pause_after_ms),
+                    Action::Pause(pause.clone(), ms(*pause_for_ms)),
+                ));
+            }
+            if !stop.is_empty() {
+                actions.push((ms(*stop_after_ms), Action::Stop(stop.clone())));
+            }
+            if let Some(service) = isolate {
+                actions.push((
+                    ms(*isolate_after_ms),
+                    Action::Isolate(service.clone(), ms(*isolate_for_ms)),
+                ));
+            }
+            actions.sort_by_key(|(after, _)| *after);
+            Ok(Plan {
+                trace: Some((trace.clone(), trace_duration(&path)?)),
+                no_source_for: Duration::ZERO,
+                actions,
+            })
+        }
+    }
+}
+
 /// Runs the scenario and records it into `recording`. Returns when the
 /// recording is complete and the Compose project is removed.
 pub async fn run(
@@ -122,26 +213,23 @@ pub async fn run(
     run_dir: &Path,
     recorder: Arc<Recorder>,
 ) -> anyhow::Result<()> {
-    let Stimulus::CanTrace {
-        trace,
-        pause,
-        pause_after_ms,
-        pause_for_ms,
-    } = &scenario.stimulus
-    else {
-        bail!(
-            "scenario {} has an external stimulus; use `campaign observe`",
-            scenario.id
-        );
-    };
-    let trace_path = settings.repo.join(trace);
-    if !trace_path.is_file() {
-        bail!("trace {} not found", trace_path.display());
-    }
-    let trace_duration = trace_duration(&trace_path)?;
-
+    let plan = plan(scenario, &settings.repo)?;
     let zenoh_port = free_port()?;
     let sovd_port = free_port()?;
+    let provider = match &plan.trace {
+        Some((trace, _)) => format!(
+            "\x20 kuksa-can-provider:\n\
+             \x20   container_name: !reset null\n\
+             \x20   restart: \"no\"\n\
+             \x20   environment:\n\
+             \x20     CANDUMP_FILE: \"/campaign/{trace}\"\n\
+             \x20   command: [\"--dumpfile\", \"/campaign/{trace}\"]\n\
+             \x20   volumes:\n\
+             \x20     - \"{repo}:/campaign:ro\"\n",
+            repo = settings.repo.display(),
+        ),
+        None => "\x20 kuksa-can-provider:\n\x20   container_name: !reset null\n".to_owned(),
+    };
     let override_file = run_dir.join("compose.campaign.yml");
     std::fs::write(
         &override_file,
@@ -157,16 +245,8 @@ pub async fn run(
              \x20   container_name: !reset null\n\
              \x20 guardian:\n\
              \x20   container_name: !reset null\n\
-             \x20 kuksa-can-provider:\n\
-             \x20   container_name: !reset null\n\
-             \x20   restart: \"no\"\n\
-             \x20   environment:\n\
-             \x20     CANDUMP_FILE: \"/campaign/{trace}\"\n\
-             \x20   command: [\"--dumpfile\", \"/campaign/{trace}\"]\n\
-             \x20   volumes:\n\
-             \x20     - \"{repo}:/campaign:ro\"\n",
+             {provider}",
             id = scenario.id,
-            repo = settings.repo.display(),
         ),
     )?;
     let compose = Compose {
@@ -180,16 +260,7 @@ pub async fn run(
     };
 
     let result = drive(
-        scenario,
-        settings,
-        &compose,
-        recorder,
-        zenoh_port,
-        sovd_port,
-        trace_duration,
-        pause,
-        *pause_after_ms,
-        *pause_for_ms,
+        scenario, settings, &compose, recorder, zenoh_port, sovd_port, plan,
     )
     .await;
 
@@ -202,7 +273,13 @@ pub async fn run(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
+fn injection(recorder: &Recorder, action: &str, detail: String) {
+    recorder.log(Tap::Injection {
+        action: action.to_owned(),
+        detail,
+    });
+}
+
 async fn drive(
     scenario: &Scenario,
     settings: &Settings,
@@ -210,10 +287,7 @@ async fn drive(
     recorder: Arc<Recorder>,
     zenoh_port: u16,
     sovd_port: u16,
-    trace_duration: Duration,
-    pause: &[String],
-    pause_after_ms: Option<u64>,
-    pause_for_ms: Option<u64>,
+    plan: Plan,
 ) -> anyhow::Result<()> {
     let mut chain = vec!["up", "-d", "--no-build"];
     chain.extend_from_slice(CHAIN);
@@ -221,7 +295,6 @@ async fn drive(
 
     let sovd_url = format!("http://127.0.0.1:{sovd_port}/sovd/v1");
     wait_for_sovd(&sovd_url, &settings.entity).await?;
-    wait_for_log(compose, "guardian", "subscribed to battery temperature").await?;
 
     let taps = record::start(
         Arc::clone(&recorder),
@@ -240,41 +313,74 @@ async fn drive(
     // Let the subscriptions reach the router before the first sample.
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    recorder.log(Tap::Injection {
-        action: "start_can_provider".to_owned(),
-        detail: format!("scenario {}", scenario.id),
-    });
-    compose
-        .run(&["up", "-d", "--no-build", "kuksa-can-provider"])
-        .await?;
-    let started = Instant::now();
+    let source_started = Instant::now();
+    if plan.trace.is_some() {
+        injection(
+            &recorder,
+            "start_can_provider",
+            format!("scenario {}", scenario.id),
+        );
+        compose
+            .run(&["up", "-d", "--no-build", "kuksa-can-provider"])
+            .await?;
+        wait_for_samples(&recorder).await?;
+    }
 
-    if !pause.is_empty() {
-        tokio::time::sleep(Duration::from_millis(pause_after_ms.unwrap_or(0))).await;
-        let mut args = vec!["pause"];
-        args.extend(pause.iter().map(String::as_str));
-        compose.run(&args).await?;
-        recorder.log(Tap::Injection {
-            action: "pause".to_owned(),
-            detail: pause.join(", "),
-        });
-        tokio::time::sleep(Duration::from_millis(pause_for_ms.unwrap_or(0))).await;
-        args[0] = "unpause";
-        compose.run(&args).await?;
-        recorder.log(Tap::Injection {
-            action: "unpause".to_owned(),
-            detail: pause.join(", "),
-        });
+    injection(
+        &recorder,
+        crate::evaluate::GUARDIAN_START,
+        "the Guardian starts".to_owned(),
+    );
+    compose.run(&["up", "-d", "--no-build", "guardian"]).await?;
+    wait_for_log(compose, "guardian", "subscribed to battery temperature").await?;
+
+    let Some((_, trace_duration)) = plan.trace else {
+        tokio::time::sleep(plan.no_source_for).await;
+        tokio::time::sleep(TAIL).await;
+        drop(taps);
+        return Ok(());
+    };
+
+    for (after, action) in plan.actions {
+        let elapsed = source_started.elapsed();
+        if after > elapsed {
+            tokio::time::sleep(after - elapsed).await;
+        }
+        match action {
+            Action::Pause(services, duration) => {
+                let mut args = vec!["pause"];
+                args.extend(services.iter().map(String::as_str));
+                compose.run(&args).await?;
+                injection(&recorder, "pause", services.join(", "));
+                tokio::time::sleep(duration).await;
+                args[0] = "unpause";
+                compose.run(&args).await?;
+                injection(&recorder, "unpause", services.join(", "));
+            }
+            Action::Stop(services) => {
+                let mut args = vec!["stop", "-t", "0"];
+                args.extend(services.iter().map(String::as_str));
+                compose.run(&args).await?;
+                injection(&recorder, "stop", services.join(", "));
+            }
+            Action::Isolate(service, duration) => {
+                compose.network("disconnect", &service).await?;
+                injection(&recorder, "isolate", service.clone());
+                tokio::time::sleep(duration).await;
+                compose.network("connect", &service).await?;
+                injection(&recorder, "reconnect", service);
+            }
+        }
     }
 
     // The trace has ended when samples stopped for a while after its
     // duration, or at the latest well after it.
-    let deadline = started + trace_duration + Duration::from_secs(30);
+    let deadline = source_started + trace_duration + Duration::from_secs(30);
     loop {
         let quiet = recorder
             .since_last_sample()
             .is_some_and(|since| since > Duration::from_millis(1500));
-        if started.elapsed() > trace_duration && quiet {
+        if source_started.elapsed() > trace_duration && quiet {
             break;
         }
         if Instant::now() > deadline {
@@ -286,6 +392,17 @@ async fn drive(
     drop(taps);
     if recorder.samples() == 0 {
         eprintln!("warning: no sample reached the taps");
+    }
+    Ok(())
+}
+
+async fn wait_for_samples(recorder: &Recorder) -> anyhow::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while recorder.samples() == 0 {
+        if Instant::now() > deadline {
+            bail!("no sample reached the tap after starting the source");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Ok(())
 }
