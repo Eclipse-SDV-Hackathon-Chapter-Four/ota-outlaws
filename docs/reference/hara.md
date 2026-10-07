@@ -130,6 +130,8 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | DFR-4 | SG-3; HE-4, HE-5 | An invalid, stale, duplicated, or out-of-order sample shall not by itself cause CRITICAL state or a mitigation request. | FSR-1.2, FSR-3.2, FSR-3.3, and FSR-3.6. | **Partial / Missing:** these FSRs limit invalid-input state escalation, but no FSR explicitly states the output invariant that mitigation is issued only for a valid critical condition. Add that invariant to the Safety Concept and test it. |
 | DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. | **Partial:** the [watchdog](../../watchdog/README.md) is a separate process that detects termination and hang (heartbeat from the evaluation loop, `T_hb` = 1500 ms) and reports `BTG_GuardianHeartbeatLoss` to DFM/OpenSOVD. **Missing:** the occupant warning; the watchdog does not request `DRIVER_WARNING_MONITORING_UNAVAILABLE`. |
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
+| DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| | **Missing** |
+| DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| | **Missing** |
 
 ### Safety Concept contradictions and missing requirements
 
@@ -295,15 +297,110 @@ tap-point differences to attribute the dropout to the publisher-to-Guardian
 path. Mark attribution inconclusive if the observations cannot distinguish it
 from source loss.
 
+### TS-07 Duplicate message
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.2,
+FSR-3.7, and EC-2.
+
+**Preconditions:** Start the CAN source, VSS Publisher, Guardian, and Evidence
+Collector. Publish valid, in-range samples until monitoring is `OK` and the
+collector observes the Guardian-input sequence.
+
+**Stimulus:** Deliver the same published message twice with the same publisher
+sequence counter, signal quality and payload.
+
+**Expected Result:** The Guardian does not accept the duplicate as a fresh
+sample or advance its thermal assessment from it. The Evidence Collector flags
+the repeated publisher sequence. A single duplicate followed by fresh samples
+does not cause a freshness timeout. If more than two messages with the same 
+counter are received, the Guardian reports `SUSPECT` monitoring state. 
+After ten messages with the same counter, the Guardian reports `DEGRADED`.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable`
+
+**Evidence and Verdict Focus:** Capture publisher sequence, source timestamp,
+alive counter, Guardian-input arrival order, Guardian state/fault events, DFM
+record, and collector attribution. A duplicate not visible at the Guardian-
+input tap is an inconclusive injection, not a pass.
+
+### TS-08 Out-of-order message
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.4.
+
+**Preconditions:** Start the CAN source, VSS Publisher, Guardian, and Evidence
+Collector. Publish valid samples with increasing publisher sequence and source
+timestamps until monitoring is `OK`.
+
+**Stimulus:** Deliver a previously published sample after a newer sample, so
+the publisher counter decreases at the Guardian input.
+
+**Expected Result:** After one decreasing counter, the Evidence Collector flags the sequence regression as `SUSPECT`. The Guardian ignores the sample as non-fresh because its source timestamp is older,
+and does not use it to update thermal assessment. After ten messages with the same counter, the Guardian reports `DEGRADED`.
+
+**Expected Mitigations:**  `DriverWarningMonitoringUnavailable`
+
+**Evidence and Verdict Focus:** Capture publisher sequence, source timestamp,
+alive counter, arrival order, Guardian-input acceptance/state, collector
+sequence-regression report, and any freshness fault/DFM record. If only the
+publisher sequence regresses while source timestamp and alive counter remain
+fresh, record that the current Guardian freshness contract does not reject it;
+do not claim Guardian-side out-of-order rejection for that variant.
+
 ---
+
+### TS-09 Stuck maximum temperature
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.4.
+
+**Preconditions:** Start the source and Guardian with valid, steadily updated
+maximum, average, and minimum temperatures. Record the configured `T_stuck` and
+`Δ_stuck`.
+
+**Stimulus:** Hold the maximum-temperature value constant while changing the
+average or minimum by at least `Δ_stuck`. Repeat using both fast and slow heating
+profiles. Include a slow nominal heating profile where the maximum is not stuck
+as a negative control.
+
+**Expected Result:** Once the maximum has remained unchanged for `T_stuck` and
+the other signal has moved by at least `Δ_stuck`, the Guardian enters `DEGRADED`
+and reports a signal-stuck fault within the specified hidden-error bound. The
+negative control does not produce a stuck fault.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` when the stuck
+fault causes monitoring to become `DEGRADED`.
+
+**Evidence and Verdict Focus:** Record all three temperature signals, source
+timestamps, detection time, the movement of average/minimum at detection,
+`T_stuck`, `Δ_stuck`, Guardian status/fault, and diagnostic record. Confirm the
+hidden temperature error remains within `Δ_stuck` plus one CAN step.
+
+### TS-10 All temperature values frozen probe
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2; F-1 limitation probe.
+
+**Preconditions:** Start the source and Guardian with fresh timestamps and an
+advancing source alive counter. Establish normal monitoring before the probe.
+
+**Stimulus:** Keep all temperature values constant while continuing to advance
+timestamps and the source alive counter.
+
+**Expected Result:** Characterize whether the current design can distinguish a
+genuinely constant battery temperature from a fully frozen set of temperature
+signals. The currently specified stuck-maximum check requires another
+temperature channel to change, so it is not expected to identify this case by
+itself.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable`
+
+**Evidence and Verdict Focus:** Record all temperature values, timestamps,
+alive-counter values, monitoring status, and emitted faults. Treat this as a
+coverage/limitation result, not a passing detection test; do not claim F-1 is
+detected unless an implemented mechanism actually detects it.
 
 ### To be reviewed
 
 | ID | HARA trace | Preconditions and Stimulus | Expected result | Evidence and verdict focus |
 |---|---|---|---|---|
-| TS-07 | HE-1 to HE-3; SG-2; DFR-2, DFR-6; FSR-2.2, FSR-3.7, EC-2 | In separate runs, inject a duplicate sample and an out-of-order sample; optionally continue each fault until freshness timeout. | Non-fresh samples are ignored and do not advance thermal assessment. Persistent loss of fresh samples causes DEGRADED. The collector identifies sequence anomalies. | Capture timestamps, alive counter, publisher sequence, Guardian input/state, diagnostic trace, and collector attribution. |
-| TS-08 | HE-1 to HE-3; SG-2; DFR-2, DFR-6; FSR-2.4 | Hold the maximum-temperature value constant while average or minimum changes by at least `Δ_stuck`; repeat with fast and slow heating profiles. | After both stuck criteria hold, enter DEGRADED and report a signal-stuck fault within the specified hidden-error bound. | Record all three signals, detection error, and diagnostic trace. Include slow nominal heating as a negative test. |
-| TS-09 | HE-1 to HE-3; SG-2; DFR-2; F-1 limitation probe | Keep all temperature values constant while timestamps and source alive counter continue to advance. | Characterize whether the current design can distinguish a genuinely constant battery from a fully frozen signal. Do not claim detection unless an implemented mechanism detects it. | Record as a limitation/coverage result, not a passing FSR-2.4 test; the current stuck-maximum check requires another temperature channel to move. |
 | TS-10 | HE-1 to HE-3; SG-2, SG-4; DFR-3; FSR-1.5, FSR-2.5, FSR-2.6, FSR-3.6 | First reach WARNING (repeat at CRITICAL). Inject a low out-of-range or invalid-quality sample, then restore valid samples. | Invalid input does not lower or clear the active thermal state. Lowering/recovery occurs only under valid-sample, hysteresis, and recovery conditions. | Capture validity, state before/after injection, monitoring status, recovery count, and de-escalation point. |
 | TS-11 | HE-1, HE-4, HE-5; SG-1, SG-3; DFR-1, DFR-4; FSR-3.2, FSR-3.3, FSR-3.6 | Separately inject a high out-of-range sample and a one-sample rise exceeding `r_max` while below CRITICAL. | Raise at least WARNING because the sample may indicate real danger; do not enter CRITICAL or request mitigation from the invalid sample alone. | Verify state, warning event, absence of mitigation, fault record, and latency. Do not label the expected WARNING a false positive solely because input was anomalous. |
 | TS-12 | HE-4, HE-5; SG-3; DFR-4 | While below CRITICAL, inject duplicate, high out-of-range, and high-spike variants separately; then provide valid critical input as a positive control. | Invalid/repeated input alone causes no mitigation. Valid critical input produces the defined mitigation request. | This directly tests DFR-4, for which no explicit FSR exists. Record as a requirement gap until the mitigation-gating invariant is added to the Safety Concept. |
