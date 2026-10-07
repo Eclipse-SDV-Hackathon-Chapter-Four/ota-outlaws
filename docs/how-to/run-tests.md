@@ -21,7 +21,7 @@ the first needs only Rust, the others need Docker.
 | 1. Unit and integration tests | `cargo test` | every component on its own, including the Guardian's requirements | Rust |
 | 2. Format and lint | `cargo fmt --all --check`<br>`cargo clippy --all-targets -- -D warnings` | code quality, as in CI | Rust |
 | 3. Fault campaigns | `cargo run -p campaign -- run --all` | the Guardian's reaction to real faults through the whole chain, with a verdict per scenario | Docker, diagnostics image |
-| 4. Diagnostic campaigns | `python3 diagnostics/smoke_test.py` | the DFM and OpenSOVD path, including a diagnostics outage | Docker, diagnostics image |
+| 4. Diagnostic campaigns | `python3 deploy/diagnostics/smoke_test.py` | the DFM and OpenSOVD path, including a diagnostics outage | Docker, diagnostics image |
 | 5. Hardware demo | `cargo run -p campaign -- observe source_dropout` | the same verdict for a fault injected by hand | running stack |
 
 ## Prerequisites
@@ -32,7 +32,7 @@ the first needs only Rust, the others need Docker.
   levels 3 to 5:
 
   ```sh
-  sh diagnostics/build-images.sh /path/to/Doctor-Whodunit
+  sh deploy/diagnostics/build-images.sh /path/to/Doctor-Whodunit
   ```
 
   See [Build from clean committed source](../../README.md#build-from-clean-committed-source).
@@ -89,18 +89,18 @@ cargo run -p campaign -- evaluate runs/<campaign>/<scenario>
 ```
 
 The scenarios and their expectations are in
-[`campaign/scenarios.toml`](../../campaign/scenarios.toml); the tool is
+[`components/campaign/scenarios.toml`](../../components/campaign/scenarios.toml); the tool is
 described in [Campaign Tool](../reference/components/campaign.md).
 
 ## 4. Diagnostic campaigns
 
 ```sh
-python3 diagnostics/smoke_test.py
+python3 deploy/diagnostics/smoke_test.py
 ```
 
 Runs the Guardian service with a test publisher against the real DFM and
 OpenSOVD, including a DFM and gateway outage. Reports go to
-`diagnostics/reports/`. Details are in the
+`deploy/diagnostics/reports/`. Details are in the
 [README](../../README.md#verification).
 
 ## 5. Hardware demo

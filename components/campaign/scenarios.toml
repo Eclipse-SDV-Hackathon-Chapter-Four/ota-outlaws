@@ -1,0 +1,1007 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+# Scenario catalog: one test case per scenario, with its stimulus, the fault
+# onset the campaign tool looks for at the Guardian's input, and the expected
+# reactions. Hazardous events (HE) and safety goals (SG) refer to the HARA,
+# docs/reference/hara.md; requirements to docs/reference/hara.md.
+#
+# status = "implemented": every requirement checked here is implemented, so a
+#          failure is a defect.
+# status = "planned":     the scenario checks a planned requirement. It runs
+#          and is reported, and fails until the requirement is implemented.
+
+# Budget parameters in milliseconds that are not in
+# config/guardian/safety-params.toml. T_stale, T_stuck, T_recover, T_suspect,
+# and T_trend come from there; T_counter_stuck is N_stuck repeated frames
+# times the cycle.
+[budgets]
+cycle = 100
+T_react = 100  # HARA DFR-1
+T_diag = 2000
+T_hb = 1500    # Guardian heartbeat timeout of the watchdog
+
+# --- Nominal ------------------------------------------------------------------
+
+[[scenario]]
+id = "normal"
+description = "Nominal data, 40 degC, incrementing alive counter"
+fault_class = "None"
+hara_tests = ["TS-01"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/normal.asc" }
+onset = "none"
+
+# The Guardian starts while the source is already running; t0 is the first
+# sample after it has subscribed. TS-01 sets no time limit.
+[[scenario.expect]]
+kind = "thermal"
+state = "MONITORING"
+budget = "5000"
+requirement = "baseline"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "WARNING"
+requirement = "baseline"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
+
+[[scenario]]
+id = "heating"
+description = "Heating through 45 degC and 55 degC, hold, cool down"
+fault_class = "Thermal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+hara_tests = ["TS-02", "TS-13", "TS-14"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/heating.asc" }
+onset = "max_at_least:45"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-1.1"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "CRITICAL"
+budget = "T_react"
+after = "max_at_least:55"
+requirement = "FSR-1.2"
+
+[[scenario.expect]]
+kind = "driver_warning_overtemp"
+budget = "T_react"
+after = "max_at_least:55"
+requirement = "FSR-1.2"
+
+[[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempWarning"
+state = "WARNING"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempCritical"
+state = "CRITICAL"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
+
+# --- Transport and source: loss of fresh data -----------------------------------
+
+[[scenario]]
+id = "timeout"
+description = "A 1.8 s gap without frames between normal sections"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-05", "TS-15"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/timeout.asc" }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "counter_stuck"
+description = "AliveCounter remains fixed for 2 s while frames keep arriving"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-07"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/counter_stuck.asc" }
+onset = "alive_counter_repeats"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempCounterStuck"
+budget = "T_counter_stuck + T_react"
+requirement = "FSR-2.3"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempCounterStuck"
+requirement = "FSR-2.3"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempCounterStuck"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempCounterStuck"
+requirement = "FSR-2.6"
+
+# --- Signal ---------------------------------------------------------------------
+
+[[scenario]]
+id = "invalid_quality"
+description = "Quality alternates between invalid (0x00) and not available (0xFF) for 2 s"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-11", "TS-16"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/invalid_quality.asc" }
+onset = "quality_not_valid"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_react"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "max_stuck"
+description = "Maximum frozen at 42 degC for 5 s while average and minimum rise"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-09"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/max_stuck.asc" }
+onset = "max_frozen_while_reference_moves"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempSignalStuck"
+budget = "T_stuck + T_react"
+requirement = "FSR-2.4"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempSignalStuck"
+requirement = "FSR-2.4"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempSignalStuck"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempSignalStuck"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "temp_stuck"
+description = "Maximum, average, and minimum all fixed at 39 degC for 2 s"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-10"]
+status = "implemented"
+note = "Known limitation: all temperatures frozen together look like a battery at constant temperature, so FSR-2.4 does not apply and no fault is expected. max_stuck tests FSR-2.4."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/temp_stuck.asc" }
+onset = "none"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "FSR-2.4"
+
+# --- HARA test scenarios for loss of data at startup, at the source, and in transport
+
+[[scenario]]
+id = "startup_without_source"
+description = "The Guardian starts, but no temperature source runs"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-03"]
+status = "implemented"
+stimulus = { type = "no_source", duration_ms = 4000 }
+onset = "no_input"
+
+[[scenario.expect]]
+kind = "startup_fault"
+dtc = "BTG_TempNoDataAtStartup"
+budget = "T_stale + T_react"
+requirement = "FSR-2.1"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempNoDataAtStartup"
+requirement = "FSR-2.1"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempNoDataAtStartup"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario]]
+id = "source_shutdown"
+description = "The CAN source shuts down after 6 s of valid data and stays down"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-04"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/nominal.asc", stop = ["kuksa-can-provider"], stop_after_ms = 6000 }
+onset = "stream_end"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario]]
+id = "transport_dropout"
+description = "The Guardian is cut off the network for 2 s while source and publisher keep sending"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-06"]
+status = "implemented"
+note = "The dropout lies behind the tap, so the tap cannot observe it; t0 is the tool's injection time. The tap still receiving samples places the loss between the publisher and the Guardian."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/nominal.asc", isolate = "guardian", isolate_after_ms = 6000, isolate_for_ms = 2000 }
+onset = "injection:isolate"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "samples_continue"
+requirement = "EC-1"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "invalid_during_warning"
+description = "In WARNING, 1 s of low readings marked INVALID, then valid WARNING-level data"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-4"
+hara_tests = ["TS-11"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/invalid_during_warning.asc" }
+onset = "quality_not_valid"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+after = "max_at_least:45"
+requirement = "FSR-1.1"
+
+[[scenario.expect]]
+kind = "input_quality"
+quality = "INVALID"
+requirement = "TS-11 (quality byte 0x00 is mapped to INVALID)"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_react"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-2.6"
+
+# --- Invalid input: plausibility and mitigation gating (FSR-3.1 to FSR-3.3, FSR-3.6) ---
+
+[[scenario]]
+id = "out_of_range"
+description = "CellTempMax 250 degC, beyond the plausible range"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-12", "TS-18"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/out_of_range.asc" }
+onset = "max_at_least:126"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOutOfRange"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOutOfRange"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "implausible_jump"
+description = "All temperatures jump from about 40 degC to 160 degC"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-12", "TS-18"]
+status = "implemented"
+note = "160 degC is above the plausible range, so FSR-3.2 rejects it before the rise rate is checked. spike tests FSR-3.3."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/implausible_jump.asc" }
+onset = "max_at_least:126"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOutOfRange"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOutOfRange"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "spike"
+description = "In-range spike from 40 degC to 100 degC for 1 s"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-12", "TS-21"]
+status = "implemented"
+note = "Every frame at 100 degC is a spike against the last valid 40 degC, so N_suspect spikes arrive within T_suspect (HARA F-13)."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/spike.asc" }
+onset = "max_at_least:100"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempRateImplausible"
+budget = "T_suspect + T_react"
+requirement = "FSR-3.5"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempRateImplausible"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempRateImplausible"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempRateImplausible"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "isolated_spike"
+description = "One frame spiking from 40 degC to 70 degC, then nominal data"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+hara_tests = ["TS-19", "TS-20"]
+status = "implemented"
+note = "An isolated spike only sets SUSPECT (FSR-3.5): no fault and no monitoring-unavailable warning, but WARNING because a real runaway cannot be excluded."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/isolated_spike.asc" }
+onset = "max_at_least:70"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "FSR-3.5"
+
+[[scenario]]
+id = "drift"
+description = "Sustained rise of about 1.7 degC/s from 30 degC to 42 degC, below the WARNING threshold"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+hara_tests = ["TS-25"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/drift.asc" }
+onset = "max_at_least:31"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_trend + T_react"
+requirement = "FSR-1.3"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "SG-4"
+
+[[scenario]]
+id = "min_gt_avg"
+description = "CellTempMin 60 degC above CellTempAvg 40 degC"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+status = "implemented"
+note = "The maximum of 70 degC would raise CRITICAL if the sample were taken as valid."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/min_gt_avg.asc" }
+onset = "order_violated"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_react"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "avg_gt_max"
+description = "CellTempAvg 90 degC above CellTempMax 70 degC"
+fault_class = "Signal"
+hazard = "HE-4"
+safety_goal = "SG-3"
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/avg_gt_max.asc" }
+onset = "order_violated"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_react"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "min_gt_max"
+description = "CellTempMin 70 degC above CellTempMax 40 degC"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-4"
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/min_gt_max.asc" }
+onset = "order_violated"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_react"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-3.1"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOrderImplausible"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOrderImplausible"
+requirement = "FSR-2.6"
+
+# --- Planned requirements: expected to fail until implemented ---------------------
+
+[[scenario]]
+id = "counter_error"
+description = "AliveCounter skips ahead by 7, then resumes"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+status = "planned"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/counter_error.asc" }
+onset = "alive_counter_jumps"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempCounterError"
+budget = "T_react"
+requirement = "FSR-3.7"
+
+[[scenario]]
+id = "high_delta"
+description = "CellTempMax 100 degC and CellTempMin 10 degC, a 90 degC spread"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-1"
+status = "planned"
+note = "100 degC appears within 100 ms, so FSR-3.3 rejects it as a spike and raises WARNING. A hot spot that builds up plausibly (FSR-1.4) is not tested by this trace."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/high_delta.asc" }
+onset = "max_at_least:100"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-1.4"
+
+# --- External stimulus: hardware demo, judged with `campaign observe` -------------
+
+[[scenario]]
+id = "source_dropout"
+description = "The temperature source stops sending, for example the board is unplugged, and comes back"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-04"]
+status = "implemented"
+stimulus = { type = "external" }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
+# --- Guardian supervision by the watchdog (HARA TS-22, TS-23) ---
+
+[[scenario]]
+id = "invalid_during_critical"
+description = "In CRITICAL, 1 s of low readings marked ERROR_NOT_AVAILABLE (0xFF), then valid CRITICAL-level data"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-4"
+hara_tests = ["TS-11"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/invalid_during_critical.asc" }
+onset = "quality_not_valid"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "CRITICAL"
+budget = "T_react"
+after = "max_at_least:55"
+requirement = "FSR-1.1"
+
+[[scenario.expect]]
+kind = "input_quality"
+quality = "NOT_AVAILABLE"
+requirement = "TS-11 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_react"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-2.6"
+
+# is min_c = 0.0, so a value of 8 degC is plausible and no fault is raised.
+
+[[scenario]]
+id = "guardian_crash"
+description = "The Guardian process is terminated once while valid input keeps arriving"
+fault_class = "Guardian"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-22"]
+status = "implemented"
+note = "The watchdog must report the lost heartbeat. Restart is the runtime's job and not checked; no occupant warning exists."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/nominal.asc", watchdog = true, stop = ["guardian"], stop_after_ms = 6000 }
+onset = "injection:stop"
+
+[[scenario.expect]]
+kind = "sovd_fault"
+dtc = "BTG_GuardianHeartbeatLoss"
+budget = "T_hb + T_diag"
+requirement = "F-10"
+
+[[scenario]]
+id = "guardian_hang"
+description = "The Guardian is frozen for 4 s while its process stays alive"
+fault_class = "Guardian"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-23"]
+status = "implemented"
+note = "Pause stops the evaluation loop and the heartbeat; the watchdog reports the loss and the recovery after the unpause."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/nominal.asc", watchdog = true, pause = ["guardian"], pause_after_ms = 6000, pause_for_ms = 4000 }
+onset = "injection:pause"
+
+[[scenario.expect]]
+kind = "sovd_fault"
+dtc = "BTG_GuardianHeartbeatLoss"
+budget = "T_hb + T_diag"
+requirement = "F-10"
+
+[[scenario.expect]]
+kind = "sovd_recovery"
+dtc = "BTG_GuardianHeartbeatLoss"
+requirement = "F-10"
+
+# TS-17 (out-of-range low value) has no scenario: the plausibility minimum is 0 degC and the CAN
+# signals are unsigned (UINT16, offset 0), so a value below it cannot be sent.
+
+# --- Further HARA tests (HARA TS-07, TS-08, TS-16, TS-24, TS-26) ---
+
+[[scenario]]
+id = "duplicate_message"
+description = "One frame is delivered twice with the same AliveCounter, then fresh frames"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-07"]
+status = "implemented"
+note = "One duplicate (two messages with the same counter) sets SUSPECT but must not cause a fault or a freshness timeout. Ten messages with the same counter (DEGRADED) are covered by counter_stuck."
+stimulus = { type = "can_trace", trace = "components/campaign/traces/duplicate_message.asc" }
+onset = "alive_counter_repeats"
+
+[[scenario.expect]]
+kind = "no_fault"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "samples_continue"
+requirement = "EC-1"
+
+[[scenario]]
+id = "out_of_order"
+description = "A previously published sample is delivered after a newer one"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-08"]
+status = "planned"
+note = "The CAN trace cannot reorder publisher messages; needs a transport fault injector (fault_send on branch feature/transport-fault-injection) that reorders messages while the campaign observes. The SUSPECT state and the sequence-regression report of the Evidence Collector are not yet checked."
+stimulus = { type = "external" }
+onset = "none"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-2.4"
+
+[[scenario.expect]]
+kind = "samples_continue"
+requirement = "EC-1"
+
+[[scenario]]
+id = "quality_single_invalid"
+description = "One fresh frame with quality ERROR_NOT_AVAILABLE (0xFF), then valid frames"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-16"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/quality_single.asc" }
+onset = "quality_not_valid"
+
+[[scenario.expect]]
+kind = "input_quality"
+quality = "NOT_AVAILABLE"
+requirement = "TS-16 (quality byte 0xFF is mapped to NOT_AVAILABLE)"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempQualityInvalid"
+budget = "T_react"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-3.4"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempQualityInvalid"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "saturation_255"
+description = "One frame with CellTempMax at the representable maximum of 255 degC"
+fault_class = "Signal"
+hazard = "HE-1"
+safety_goal = "SG-3"
+hara_tests = ["TS-26"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "components/campaign/traces/saturation_255.asc" }
+onset = "max_at_least:255"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempOutOfRange"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "thermal"
+state = "WARNING"
+budget = "T_react"
+requirement = "FSR-3.2"
+
+[[scenario.expect]]
+kind = "not_thermal"
+state = "CRITICAL"
+requirement = "FSR-3.6"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempOutOfRange"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-2.6"
+
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempOutOfRange"
+requirement = "FSR-2.6"
+
+[[scenario]]
+id = "late_message"
+description = "One sample is held back until it is older than T_age, other fresh samples are withheld"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-24"]
+status = "planned"
+note = "Needs FSR-2.8 (T_age with synchronised clocks), which is planned. Needs a transport fault injector (fault_send on branch feature/transport-fault-injection) that delays one message while the campaign observes."
+stimulus = { type = "external" }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.8"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.8"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"

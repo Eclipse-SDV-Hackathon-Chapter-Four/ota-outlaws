@@ -16,13 +16,13 @@ resolver = "2"
 # One lockfile for every component on the uProtocol bus, so both ends of
 # the wire use the same uProtocol and Zenoh versions.
 members = [
-    "guardian",
-    "guardian-service",
-    "contracts",
-    "vss-publisher",
-    "campaign",
-    "dashboard",
-    "watchdog",
+    "components/guardian",
+    "components/guardian-service",
+    "components/contracts",
+    "components/vss-publisher",
+    "components/campaign",
+    "components/dashboard",
+    "components/watchdog",
     "third-party/fault-lib",
 ]
 

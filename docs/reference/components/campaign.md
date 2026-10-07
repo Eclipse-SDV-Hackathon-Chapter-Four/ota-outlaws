@@ -39,7 +39,7 @@ code is 0 when every scenario with status `implemented` passed.
 Both parts live in one tool, but the verdict uses only what the evidence part
 observed, never what the stimulus part believes it injected. The fault onset t0
 is the first observation of the fault at the Guardian's input
-([Timing reference](../../reference/hara.md#timing-reference)). So a
+([Timing reference](../hara.md#timing-reference)). So a
 fault that is lost on the way is reported as INCONCLUSIVE ("fault not
 delivered"), not as PASS, and the same evidence part can judge runs it did not
 inject, such as the hardware demo.
@@ -68,12 +68,12 @@ Guardian's session/event and requirement. A recovered DTC may have
 `testFailed: false` while `testFailedSinceLastClear: true` remains set. The
 collector matches `environment_data.session_id` and `event_id` to Guardian
 events. The exercised endpoint and response fields are shown in the
-[diagnostic integration test](../../../guardian-service/tests/diagnostics.rs)
+[diagnostic integration test](../../../components/guardian-service/tests/diagnostics.rs)
 and [signal-chain guide](../../how-to/run-signal-chain.md).
 
 ## Scenario catalog
 
-[`campaign/scenarios.toml`](../../../campaign/scenarios.toml) holds one test
+[`components/campaign/scenarios.toml`](../../../components/campaign/scenarios.toml) holds one test
 case per scenario:
 
 ```toml
@@ -84,7 +84,7 @@ fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"            # or "planned": expected to fail until implemented
-stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
+stimulus = { type = "can_trace", trace = "components/campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
 
 [[scenario.expect]]
@@ -96,7 +96,7 @@ requirement = "FSR-2.3"
 
 The tool refuses to load the catalog if an `implemented` scenario expects a
 `dtc` that is not in the DFM catalog
-([`battery_guardian.json`](../../../diagnostics/catalog/battery_guardian.json)):
+([`battery_guardian.json`](../../../deploy/diagnostics/catalog/battery_guardian.json)):
 a misspelt DTC would otherwise look like a missing reaction of the Guardian.
 A `planned` scenario may name a DTC that does not exist yet.
 
@@ -186,7 +186,7 @@ A run directory holds the evidence:
 
 ## Verdicts
 
-As defined in the [Safety Concept](../../reference/hara.md#scenario-verdicts):
+As defined in the [Safety Concept](../hara.md#scenario-verdicts):
 
 | Verdict | When |
 |---------|------|
@@ -239,7 +239,7 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 
 ## Traces
 
-All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
+All traces are in [`components/campaign/traces/`](../../../components/campaign/traces/README.md).
 `generate_traces.py` generates all of them: the fault traces of the original
 fault list and the ones the safety concept needs on top:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
@@ -301,7 +301,7 @@ occupant warning exists yet (HARA DFR-5).
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
 - **Diagnostics outage**: still covered by
-  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
+  [`deploy/diagnostics/smoke_test.py`](../../../deploy/diagnostics/smoke_test.py). The
   `pause` stimulus exists, but its OpenSOVD budget would have to count from the
   resume.
 - **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss

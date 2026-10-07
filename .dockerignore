@@ -13,5 +13,9 @@
 .git
 **/target
 
-diagnostics/reports
+deploy/diagnostics/reports
 diagnostic-source
+
+.vscode
+start
+runs

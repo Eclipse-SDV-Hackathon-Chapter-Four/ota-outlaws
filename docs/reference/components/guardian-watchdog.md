@@ -19,7 +19,7 @@ because it crashed or because it hangs, and reports this to DFM, so that
 OpenSOVD shows it next to the Guardian's own faults. Its required behavior is
 FSR-2.7 in the [Safety Concept](../../explanation/safety-concept.md). This
 document explains how the watchdog is built. How to run it is in the
-[watchdog README](../../../watchdog/README.md).
+[watchdog README](../../../components/watchdog/README.md).
 
 ## Heartbeat and watchdog
 
@@ -41,11 +41,11 @@ publishes a heartbeat, and a separate process watches it.
 
 | Part | Status | Responsibility |
 |------|--------|----------------|
-| Heartbeat ([`guardian-service`](../../../guardian-service/src/runtime.rs)) | **Implemented** | Publish a `Heartbeat` every `T_hb_period` (500 ms) from the loop that also runs the core |
-| Heartbeat monitor ([`watchdog/src/lib.rs`](../../../watchdog/src/lib.rs)) | **Implemented** | Decide from the arrival times whether the Guardian is healthy or lost |
-| Listener and timeout check ([`watchdog/src/main.rs`](../../../watchdog/src/main.rs)) | **Implemented** | Subscribe to the heartbeat over uProtocol, check the timeout every 100 ms |
-| DFM reporter ([`watchdog/src/diagnostics.rs`](../../../watchdog/src/diagnostics.rs)) | **Implemented** | Report `BTG_GuardianHeartbeatLoss` to DFM without blocking the watchdog |
-| Restart of a crashed Guardian | **Implemented** (by Docker) | `restart: unless-stopped` in [`docker-compose.yml`](../../../docker-compose.yml) |
+| Heartbeat ([`guardian-service`](../../../components/guardian-service/src/runtime.rs)) | **Implemented** | Publish a `Heartbeat` every `T_hb_period` (500 ms) from the loop that also runs the core |
+| Heartbeat monitor ([`components/watchdog/src/lib.rs`](../../../components/watchdog/src/lib.rs)) | **Implemented** | Decide from the arrival times whether the Guardian is healthy or lost |
+| Listener and timeout check ([`components/watchdog/src/main.rs`](../../../components/watchdog/src/main.rs)) | **Implemented** | Subscribe to the heartbeat over uProtocol, check the timeout every 100 ms |
+| DFM reporter ([`components/watchdog/src/diagnostics.rs`](../../../components/watchdog/src/diagnostics.rs)) | **Implemented** | Report `BTG_GuardianHeartbeatLoss` to DFM without blocking the watchdog |
+| Restart of a crashed Guardian | **Implemented** (by Docker) | `restart: unless-stopped` in [`deploy/docker-compose.yml`](../../../deploy/docker-compose.yml) |
 | Restart of a hung Guardian | Not implemented | A hung Guardian is only reported |
 | Occupant warning (HARA DFR-5) | Not implemented | The watchdog does not request `DRIVER_WARNING_MONITORING_UNAVAILABLE` |
 
@@ -69,7 +69,7 @@ publishes a heartbeat, and a separate process watches it.
 ## Heartbeat interface
 
 The `Heartbeat` message and its topic are defined in the
-[Battery Thermal Contract](../../../contracts/README.md#heartbeat).
+[Battery Thermal Contract](../../../components/contracts/README.md#heartbeat).
 
 | Field | Meaning |
 |-------|---------|
@@ -119,7 +119,7 @@ delay.
 | Mitigation | `RestartGuardian` |
 
 The catalog entry is in
-[`diagnostics/catalog/battery_guardian.json`](../../../diagnostics/catalog/battery_guardian.json).
+[`deploy/diagnostics/catalog/battery_guardian.json`](../../../deploy/diagnostics/catalog/battery_guardian.json).
 The [Faults to Be Detected](../faults-to-be-detected.md) list has it as F-10.
 
 Every record carries `requirement` (`FSR-2.7`) and `watchdog_session_id` as
@@ -135,7 +135,7 @@ watching and retries.
 ## Deployment
 
 The watchdog runs as the `watchdog` service in
-[`docker-compose.yml`](../../../docker-compose.yml). Like the Guardian, it
+[`deploy/docker-compose.yml`](../../../deploy/docker-compose.yml). Like the Guardian, it
 shares DFM's IPC namespace (iceoryx2 shared memory) and also DFM's PID
 namespace.
 
@@ -151,7 +151,7 @@ nodes before it connects.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `HEARTBEAT_TIMEOUT_MS` | `1500` | `T_hb` |
-| `FAULT_CATALOG` | `diagnostics/catalog/battery_guardian.json` | DFM fault catalog |
+| `FAULT_CATALOG` | `deploy/diagnostics/catalog/battery_guardian.json` | DFM fault catalog |
 | `SOVD_ENTITY` | `battery_guardian` | SOVD entity to report under |
 | `ZENOH_CONNECT`, `ZENOH_LISTEN` | — | Zenoh endpoints |
 

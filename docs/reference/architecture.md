@@ -36,12 +36,12 @@ SPDX-License-Identifier: EPL-2.0
 |Component Name|Code|Documentation|
 |---|---|---|
 |Temperature Sensor|||
-|Trace Generator|[campaign/traces](../../campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
-|VSS Publisher|[vss-publisher](../../vss-publisher)|[Battery Thermal Contract](../../contracts/README.md)|
-|Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
-|Guardian Watchdog|[watchdog](../../watchdog)|[Guardian Watchdog](components/guardian-watchdog.md)|
-|Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|
-|Dashboard|[dashboard](../../dashboard)|[Dashboard](components/dashboard.md)|
+|Trace Generator|[components/campaign/traces](../../components/campaign/traces)|[Campaign Tool: traces](components/campaign.md#traces)|
+|VSS Publisher|[vss-publisher](../../components/vss-publisher)|[Battery Thermal Contract](../../components/contracts/README.md)|
+|Battery Thermal Guardian|[guardian](../../components/guardian), [guardian-service](../../components/guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
+|Guardian Watchdog|[watchdog](../../components/watchdog)|[Guardian Watchdog](components/guardian-watchdog.md)|
+|Campaign Tool (campaign runner and evidence collector)|[campaign](../../components/campaign)|[Campaign Tool](components/campaign.md)|
+|Dashboard|[dashboard](../../components/dashboard)|[Dashboard](components/dashboard.md)|
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
 
@@ -117,7 +117,7 @@ uses only what it observed, so it can also judge a hardware demo it did not
 inject. See [Campaign Tool](components/campaign.md).
 
 The requirements behind this split are in the
-[Safety Concept](../reference/hara.md): FSR requirements for the
+[Safety Concept](hara.md): FSR requirements for the
 Guardian, EC requirements for the Evidence Collector.
 
 # Data Flow
@@ -183,8 +183,8 @@ Celsius, factor 1 and offset 0.
 counter that stops advancing marks the data as stale even while the last value
 still looks plausible.
 
-The authoritative definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
-[can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace of this message.
+The authoritative definition is [config/can/BMS_MSG1_CAN.dbc](../../config/can/BMS_MSG1_CAN.dbc);
+[config/can/BMS_MSG1_CAN.asc](../../config/can/BMS_MSG1_CAN.asc) is a sample trace of this message.
 
 ## Quality Enum
 
@@ -197,7 +197,7 @@ ERROR_NOT_AVAILABLE = 0xFF
 ## VSS Mapping
 
 The KUKSA CAN Provider maps the CAN signals to the VSS paths below, as defined in
-[can/vss_dbc.json](../../can/vss_dbc.json):
+[config/can/vss_dbc.json](../../config/can/vss_dbc.json):
 
 | CAN signal | VSS path | Datatype |
 |---|---|---|
