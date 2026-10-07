@@ -145,8 +145,8 @@ pub const GUARDIAN_START: &str = "start_guardian";
 
 /// The tool logs this injection once the Guardian has logged its
 /// subscription. Samples before it may not have reached the Guardian and are
-/// not judged. The tool polls the log, so the marker can come late, never
-/// early.
+/// not judged. Docker delivers the log line with a delay, so the marker can
+/// come late, never early.
 pub const GUARDIAN_READY: &str = "guardian_ready";
 
 /// A delivery this much later than the detection is shown in the report.
