@@ -115,8 +115,7 @@ minutes to limit recurring request logs.
 
 ## Guardian reporting
 
-The Guardian service (`guardian-service`) writes ten diagnostic codes to DFM,
-as defined in [Faults to Be Detected](docs/reference/faults-to-be-detected.md):
+The Guardian service (`guardian-service`) writes ten diagnostic codes to DFM.
 
 - the input faults of `guardian::FaultCode`: `BTG_TempFreshnessLost`,
   `BTG_TempCounterStuck`, `BTG_TempSignalStuck`, `BTG_TempQualityInvalid`,

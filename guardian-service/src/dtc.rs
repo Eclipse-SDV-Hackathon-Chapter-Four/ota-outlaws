@@ -13,7 +13,7 @@
 
 //! Which DFM records a Guardian event produces: the input faults of the core,
 //! and the overtemperature DTCs derived from thermal state changes
-//! (`docs/reference/faults-to-be-detected.md`). Pure, so it is unit-tested
+//! (`docs/reference/hara.md`). Pure, so it is unit-tested
 //! without a DFM.
 
 use guardian::{Event, EventId, EventKind, FaultCode, ThermalState};

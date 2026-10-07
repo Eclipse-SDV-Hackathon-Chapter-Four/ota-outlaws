@@ -180,9 +180,6 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 	Lower saturation is not observable: `0 °C` is representable and considered
 	valid, so no Guardian-only test can prove under-range detection without source
 	metadata or a justified operating assumption.
-- **Goal-set mismatch:** this HARA defines SG-4, while the Safety Concept defines
-	only SG-1 to SG-3. The mappings above are provisional until SG-4 and its
-	allocation are reconciled there.
 - **ASIL input inconsistency:** the hazardous-event table currently assigns
 	ASIL-D while E and C are shown as `-`. ASIL cannot be derived from S alone;
 	record justified E/C values and the applicable classification basis before
