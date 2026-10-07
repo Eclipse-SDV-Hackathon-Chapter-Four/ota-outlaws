@@ -113,7 +113,7 @@ async fn diagnostic_campaign() {
             if let Ok(json) = response.json::<serde_json::Value>().await {
                 if json["items"]
                     .as_array()
-                    .is_some_and(|a| a.len() == guardian_service::diagnostics::FAULTS.len())
+                    .is_some_and(|a| a.len() == guardian_service::diagnostics::codes().len())
                 {
                     break;
                 }
@@ -168,9 +168,9 @@ async fn diagnostic_campaign() {
     let poll_session = session.clone();
     let poller = tokio::spawn(async move {
         loop {
-            for code in guardian_service::diagnostics::FAULTS {
+            for code in guardian_service::diagnostics::codes() {
                 if let Ok(response) = poll_client
-                    .get(format!("{}/{}", poll_url, code.dtc()))
+                    .get(format!("{}/{}", poll_url, code))
                     .send()
                     .await
                 {
@@ -377,17 +377,17 @@ async fn diagnostic_campaign() {
     );
     let sample = detail.last_sample.as_ref().unwrap();
     assert_eq!(
-        diagnostic["environment_data"]["sequence"],
-        sample.sequence.to_string()
+        diagnostic["environment_data"]["sample"],
+        format!(
+            "seq={} src={} ctr={}",
+            sample.sequence, sample.source_timestamp_ms, sample.alive_counter
+        )
     );
     assert_eq!(
-        diagnostic["environment_data"]["source_time_ms"],
-        sample.source_timestamp_ms.to_string()
+        diagnostic["environment_data"]["fault_type"],
+        "Communication"
     );
-    assert_eq!(
-        diagnostic["environment_data"]["alive_counter"],
-        sample.alive_counter.to_string()
-    );
+    assert_eq!(diagnostic["environment_data"]["severity"], "Error");
     if scenario != "outage" {
         restore_healthy_input(&source_transport, &mut sequence, 55).await;
     }
