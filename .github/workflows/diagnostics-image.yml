@@ -15,13 +15,6 @@ name: Diagnostics image
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [ci/publish-diagnostics-image]
-    paths:
-      - diagnostics/Dockerfile
-      - diagnostics/build-images.sh
-      - diagnostics/image.env
-      - .github/workflows/diagnostics-image.yml
 
 permissions:
   contents: read
