@@ -167,6 +167,10 @@ pub struct DtcEvidence {
     pub failed_ms: Option<u64>,
     /// From the event reaching the tap to `failed_ms`.
     pub latency_ms: Option<u64>,
+    /// The first poll that showed the failure only in the DTC's history
+    /// (passed, `testFailedSinceLastClear`), when no poll caught it failed,
+    /// for example because diagnostics were paused while it failed.
+    pub history_ms: Option<u64>,
     pub fault_type: Option<String>,
     pub severity: Option<String>,
     /// Status bits and counters of the last record of this event.
@@ -663,6 +667,7 @@ fn evidence_chain(
                     symptom: None,
                     failed_ms: None,
                     latency_ms: None,
+                    history_ms: None,
                     fault_type: None,
                     severity: None,
                     status: serde_json::Value::Null,
@@ -682,12 +687,24 @@ fn evidence_chain(
             let last = of_code.last().map(|(_, _, body)| *body);
             let shown = failed.map(|(_, _, body)| *body).or(last);
             let text = |value: &serde_json::Value| value.as_str().map(str::to_owned);
+            let history = if failed.is_some() {
+                None
+            } else {
+                of_code
+                    .iter()
+                    .find(|(_, _, body)| {
+                        body["status"]["testFailed"] == false
+                            && body["status"]["testFailedSinceLastClear"] == true
+                    })
+                    .map(|(t, _, _)| *t)
+            };
             diagnostics.push(DtcEvidence {
                 dtc: code.to_owned(),
                 detection_event_id: detection.event_id,
                 symptom: shown.and_then(|b| text(&b["symptom"])),
                 failed_ms: failed.map(|(t, _, _)| *t),
                 latency_ms: failed.map(|(t, _, _)| t.saturating_sub(detection.delivered_ms)),
+                history_ms: history,
                 fault_type: shown.and_then(|b| text(&b["environment_data"]["fault_type"])),
                 severity: shown.and_then(|b| text(&b["environment_data"]["severity"])),
                 status: last
@@ -697,11 +714,12 @@ fn evidence_chain(
                 environment_data: shown
                     .map(|b| b["environment_data"].clone())
                     .unwrap_or(serde_json::Value::Null),
-                passed_later: failed.is_some_and(|(t, _, _)| {
-                    of_code
-                        .iter()
-                        .any(|(later, _, body)| later > t && body["status"]["testFailed"] == false)
-                }),
+                passed_later: history.is_some()
+                    || failed.is_some_and(|(t, _, _)| {
+                        of_code.iter().any(|(later, _, body)| {
+                            later > t && body["status"]["testFailed"] == false
+                        })
+                    }),
             });
         }
     }
@@ -836,11 +854,17 @@ fn evidence_chain(
     let visible: Vec<String> = diagnostics
         .iter()
         .filter_map(|d| {
-            let latency = d.latency_ms?;
+            let shown = match (d.latency_ms, d.history_ms) {
+                (Some(latency), _) => format!("failed in OpenSOVD {} after", seconds(latency)),
+                (None, Some(t)) => format!(
+                    "failure shown only in its history at {} (passed, testFailedSinceLastClear) for",
+                    seconds(t)
+                ),
+                (None, None) => return None,
+            };
             Some(format!(
-                "{} failed in OpenSOVD {} after event #{} ({}, {})",
+                "{} {shown} event #{} ({}, {})",
                 d.dtc,
-                seconds(latency),
                 d.detection_event_id,
                 d.severity.as_deref().unwrap_or("severity unknown"),
                 d.fault_type.as_deref().unwrap_or("fault type unknown"),

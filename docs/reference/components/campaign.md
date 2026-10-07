@@ -178,11 +178,36 @@ A run directory holds the evidence:
 |------|---------|
 | `manifest.json` | run ID, scenario, stimulus, git revision, SHA-256 of the catalog, the parameters, and the trace |
 | `recording.jsonl` | every observation |
-| `report.json`, `report.md` | verdict, onset, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, checks, result per requirement, Guardian event timeline |
+| `report.json`, `report.md` | verdict, onset, checks, [evidence chain](#evidence-chain) with detections, mitigations, and DTCs, result per requirement, Guardian event timeline |
 | `services.log` | logs of all services |
 | `error.txt` | only if the run itself failed; the scenario is still judged |
 
-`campaign.md` in the campaign directory lists every scenario with its verdict.
+`campaign.md` in the campaign directory counts the verdicts, lists every
+scenario with its verdict and checks met, and, under *Not passed*, every check
+that failed or lacked evidence, with its reason.
+
+### Reading the results
+
+`report.md` leads with the verdict and a one-line summary, then the checks that
+decided it: failed checks first, each with what it expects in words, what was
+observed, and the time against its budget (✓ met, ✗ failed, ? evidence
+missing). The evidence chain and the raw Guardian events follow; events after
+the end of the trace are marked as not judged. A DTC whose failure OpenSOVD only
+shows in its history (passed, `testFailedSinceLastClear`), because no poll
+caught it failed, counts as evidence and is named as such.
+
+The console prints one line per scenario while the campaign runs. A scenario
+that did not pass gets its reason and each failed check below it:
+
+```text
+✓ PASS          guardian_hang  [TS-23]  4/4 checks met
+✗ FAIL          guardian_crash  [TS-22]  1/2 checks met
+                an expected reaction is missing or late
+                ✗ DFR-5: watchdog requests DRIVER_WARNING_MONITORING_UNAVAILABLE within T_hb + T_react — the watchdog never requested DRIVER_WARNING_MONITORING_UNAVAILABLE after the onset (budget 1.60 s)
+```
+
+After the last scenario, it prints the counts per verdict and the scenarios
+that did not pass.
 
 ## Verdicts
 

@@ -1768,3 +1768,65 @@ fn ts_27_opensovd_answering_during_the_pause_is_inconclusive() {
     ));
     assert_eq!(evaluation.verdict, Verdict::Inconclusive);
 }
+
+// --- Readable pass/fail output ----------------------------------------------------
+
+#[test]
+fn console_shows_a_pass_on_one_line() {
+    let context = context();
+    let (mut r, fault) = outage_run(11100);
+    r.sovd(13600, FRESHNESS_LOST, fault, false, true);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.starts_with("✓ PASS"));
+    assert!(text.contains("[TS-27]") && text.contains("4/4 checks met"));
+}
+
+#[test]
+fn console_lists_each_failed_check_with_its_reason() {
+    let context = context();
+    let (r, _) = outage_run(13500);
+
+    let text = campaign::report::console(&r.judge(&context, OUTAGE));
+
+    assert!(text.starts_with("✗ FAIL"), "{text}");
+    let failed: Vec<&str> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with('✗'))
+        .collect();
+    assert_eq!(failed.len(), 2, "{text}");
+    assert!(failed[1].contains("DFR-6") && failed[1].contains("after diagnostics resumed"));
+}
+
+#[test]
+fn campaign_summary_counts_verdicts_and_explains_failures() {
+    let context = context();
+    let (mut passing, fault) = outage_run(11100);
+    passing.sovd(13600, FRESHNESS_LOST, fault, false, true);
+    let pass = passing.judge(&context, OUTAGE);
+    let fail = outage_run(13500).0.judge(&context, OUTAGE);
+    let summaries = [
+        campaign::report::Summary {
+            run_dir: "a".into(),
+            evaluation: &pass,
+        },
+        campaign::report::Summary {
+            run_dir: "b".into(),
+            evaluation: &fail,
+        },
+    ];
+
+    let markdown = campaign::report::campaign_markdown("c1", &summaries);
+    let console = campaign::report::console_summary("c1", &[&pass, &fail]);
+
+    assert!(markdown.contains("2 scenario(s): 1 PASS, 1 FAIL, 0 INCONCLUSIVE"));
+    assert!(markdown.contains("## Not passed"));
+    assert!(markdown.contains("after diagnostics resumed"));
+    assert!(console.contains("1 PASS, 1 FAIL"));
+    assert_eq!(
+        console.lines().filter(|l| l.starts_with("✗ FAIL")).count(),
+        1
+    );
+}
