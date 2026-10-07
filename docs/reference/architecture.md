@@ -41,6 +41,7 @@ SPDX-License-Identifier: EPL-2.0
 |Battery Thermal Guardian|[guardian](../../guardian), [guardian-service](../../guardian-service)|[Battery Thermal Guardian](components/battery-thermal-guardian.md)|
 |Guardian Watchdog|[watchdog](../../watchdog)|[Guardian Watchdog](components/guardian-watchdog.md)|
 |Campaign Tool (campaign runner and evidence collector)|[campaign](../../campaign)|[Campaign Tool](components/campaign.md)|
+|Dashboard|[dashboard](../../dashboard)|[Dashboard](components/dashboard.md)|
 |KUKSA Data Broker|||
 |OpenSOVD Server|||
 

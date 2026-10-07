@@ -22,3 +22,4 @@ SPDX-License-Identifier: EPL-2.0
   - [Battery Thermal Guardian](components/battery-thermal-guardian.md)
   - [Guardian Watchdog](components/guardian-watchdog.md)
   - [Campaign Tool](components/campaign.md)
+  - [Dashboard](components/dashboard.md)
