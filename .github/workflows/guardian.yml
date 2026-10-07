@@ -45,9 +45,6 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --locked
-      - name: Test VSS Publisher
-        # Built on its own, with its own lockfile.
-        run: cargo test --locked --manifest-path vss-publisher/Cargo.toml
 
   diagnostics:
     runs-on: ubuntu-latest

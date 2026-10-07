@@ -11,16 +11,17 @@
 
 # AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-# VSS Publisher. Build from the repository root, because it uses contracts/:
+# VSS Publisher. Build from the repository root, because it is part of the
+# Cargo workspace:
 #   docker build -f vss-publisher/Containerfile .
 
 FROM docker.io/library/rust:1-bookworm AS build
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/vss-publisher/target \
-    cargo build --release --locked --manifest-path vss-publisher/Cargo.toml --bin vss-publisher \
-    && cp vss-publisher/target/release/vss-publisher /usr/local/bin/vss-publisher
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p vss-publisher --bin vss-publisher \
+    && cp target/release/vss-publisher /usr/local/bin/vss-publisher
 
 FROM docker.io/library/debian:bookworm-slim
 COPY --from=build /usr/local/bin/vss-publisher /usr/local/bin/vss-publisher

@@ -19,11 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("PROTOC", protoc_bin_vendored::protoc_bin_path()?);
     let well_known_types = protoc_bin_vendored::include_path()?;
 
-    tonic_build::configure()
-        .build_server(false)
-        .compile(
-            &["proto/kuksa/val/v1/val.proto"],
-            &[std::path::PathBuf::from("proto"), well_known_types],
-        )?;
+    tonic_build::configure().build_server(false).compile(
+        &["proto/kuksa/val/v1/val.proto"],
+        &[std::path::PathBuf::from("proto"), well_known_types],
+    )?;
     Ok(())
 }

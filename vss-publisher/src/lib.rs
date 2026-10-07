@@ -22,8 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prost::Message;
 use up_rust::{
-    LocalUriProvider, StaticUriProvider, UMessageBuilder, UPayloadFormat,
-    UTransport, UUri,
+    LocalUriProvider, StaticUriProvider, UMessageBuilder, UPayloadFormat, UTransport, UUri,
 };
 use up_transport_zenoh::UPTransportZenoh;
 
@@ -35,8 +34,13 @@ pub use thermal_contract::v1::{BatteryTemperature, Quality};
 
 pub fn vss_battery_temp_uri() -> UUri {
     let topic = thermal_contract::BATTERY_TEMPERATURE;
-    UUri::try_from_parts(topic.authority, topic.ue_id, topic.ue_version_major, topic.resource_id)
-        .expect("topics in the contract are valid URIs")
+    UUri::try_from_parts(
+        topic.authority,
+        topic.ue_id,
+        topic.ue_version_major,
+        topic.resource_id,
+    )
+    .expect("topics in the contract are valid URIs")
 }
 
 // =============================================================================
@@ -81,8 +85,13 @@ pub async fn publish_temperature(
     temperature: &BatteryTemperature,
 ) -> Result<(), up_rust::UStatus> {
     let message = UMessageBuilder::publish(topic)
-        .build_with_payload(temperature.encode_to_vec(), UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF)
-        .map_err(|e| up_rust::UStatus::fail_with_code(up_rust::UCode::INVALID_ARGUMENT, e.to_string()))?;
+        .build_with_payload(
+            temperature.encode_to_vec(),
+            UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF,
+        )
+        .map_err(|e| {
+            up_rust::UStatus::fail_with_code(up_rust::UCode::INVALID_ARGUMENT, e.to_string())
+        })?;
     transport.send(message).await
 }
 
