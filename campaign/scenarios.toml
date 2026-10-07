@@ -82,7 +82,9 @@ after = "max_at_least:55"
 requirement = "FSR-1.2"
 
 [[scenario.expect]]
-kind = "overtemp_warning"
+kind = "driver_warning_overtemp"
+budget = "T_react"
+after = "max_at_least:55"
 requirement = "FSR-1.2"
 
 [[scenario.expect]]

@@ -221,7 +221,7 @@ async fn diagnostic_campaign() {
                     Some(pb::guardian_event::Kind::FaultTestPassed(_))
                 ))
                 .count(),
-            4
+            guardian::FaultCode::ALL.len()
         );
         std::fs::write(evidence.join("ready"), "healthy baseline established").unwrap();
         wait_for_runner(&evidence.join("inject"), &source_transport, &mut sequence).await;
@@ -433,10 +433,12 @@ async fn diagnostic_campaign() {
         "DFM retains original failure provenance on Passed"
     );
     // Verify real service thermal recovery in addition to input-fault recovery.
-    for i in 0..60 {
+    // Heat plausibly to 55 °C (1 °C per 100 ms, below r_max; FSR-3.3 rejects a
+    // jump as a spike), then cool to 35 °C.
+    for i in 0..90 {
         sequence += 1;
         let sample = pb::BatteryTemperature {
-            max_c: if i == 0 { 55.0 } else { 35.0 },
+            max_c: if i <= 20 { 35.0 + i as f32 } else { 35.0 },
             avg_c: 25.0,
             min_c: 20.0,
             source_timestamp_ms: sequence * 100,

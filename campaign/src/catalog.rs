@@ -126,9 +126,14 @@ pub enum Expectation {
         after: Option<Onset>,
         requirement: String,
     },
-    /// The overtemperature warning is requested, caused by the change to
-    /// CRITICAL.
-    OvertempWarning { requirement: String },
+    /// The change to CRITICAL causes the driver warning
+    /// `DRIVER_WARNING_OVERTEMP`, published within the budget after `after`,
+    /// or after the scenario onset.
+    DriverWarningOvertemp {
+        budget: String,
+        after: Option<Onset>,
+        requirement: String,
+    },
     /// The thermal state never reaches `state` after the onset.
     NotThermal { state: String, requirement: String },
     /// No fault is reported during the scenario.
@@ -165,7 +170,7 @@ impl Expectation {
             | Expectation::Sovd { requirement, .. }
             | Expectation::Recovery { requirement, .. }
             | Expectation::Thermal { requirement, .. }
-            | Expectation::OvertempWarning { requirement }
+            | Expectation::DriverWarningOvertemp { requirement, .. }
             | Expectation::NotThermal { requirement, .. }
             | Expectation::NoFault { requirement }
             | Expectation::StartupFault { requirement, .. }

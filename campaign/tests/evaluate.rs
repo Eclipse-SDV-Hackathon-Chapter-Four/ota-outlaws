@@ -932,6 +932,28 @@ fn wrong_severity_in_opensovd_is_fail() {
 }
 
 #[test]
+fn late_driver_warning_overtemp_is_fail() {
+    let context = context();
+    let mut r = heating_run(true);
+    for observation in &mut r.observations {
+        if let Tap::GuardianEvent(GuardianEvent {
+            kind: EventKind::MitigationRequested { .. },
+            ..
+        }) = &observation.tap
+        {
+            observation.t_ms = 3500;
+        }
+    }
+
+    let evaluation = r.judge(&context, "heating");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(failed_checks(&evaluation)
+        .iter()
+        .any(|d| d.contains("DRIVER_WARNING_OVERTEMP") && d.ends_with("late")));
+}
+
+#[test]
 fn overtemperature_dtc_not_passed_after_cooling_is_fail() {
     let context = context();
     let mut r = heating_run(true);

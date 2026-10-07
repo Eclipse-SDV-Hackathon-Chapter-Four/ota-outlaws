@@ -223,6 +223,17 @@ impl<'a> Run<'a> {
             .find(|(_, e)| e.cause_event_id == cause.event_id && matches(&e.kind))
     }
 
+    /// Where a latency is measured from: the first `after` at the Guardian's
+    /// input, or t0 without one. `None` if `after` never showed.
+    fn reference(&self, after: &Option<Onset>, t0: u64, params: &OnsetParams) -> Option<u64> {
+        match after {
+            Some(onset) => onset
+                .find(&self.samples, &self.injections, params)
+                .map(|f| f.t_ms),
+            None => Some(t0),
+        }
+    }
+
     /// OpenSOVD records of `dtc` that belong to this run's `event`.
     fn sovd_records(&self, dtc: &str, event: &GuardianEvent) -> Vec<(u64, &'a serde_json::Value)> {
         let event_id = event.event_id.to_string();
@@ -340,6 +351,16 @@ pub fn evaluate(
         samples: run.samples.len(),
         guardian_events: run.events.len(),
     })
+}
+
+/// The onset cannot be judged because it never reached the Guardian's input.
+fn never_showed(after: &Option<Onset>) -> Outcome {
+    Outcome::Unobservable {
+        detail: format!(
+            "'{}' never showed at the Guardian's input",
+            after.clone().unwrap_or(Onset::None)
+        ),
+    }
 }
 
 fn check(
@@ -532,19 +553,8 @@ fn check(
         } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);
-            let reference = match after {
-                Some(onset) => onset
-                    .find(&run.samples, &run.injections, params)
-                    .map(|f| f.t_ms),
-                None => Some(t0),
-            };
-            result.outcome = match reference {
-                None => Outcome::Unobservable {
-                    detail: format!(
-                        "'{}' never showed at the Guardian's input",
-                        after.clone().unwrap_or(Onset::None)
-                    ),
-                },
+            result.outcome = match run.reference(after, t0, params) {
+                None => never_showed(after),
                 Some(reference) => {
                     let reached = run.events.iter().find(|(t, e)| {
                         *t >= reference
@@ -572,30 +582,42 @@ fn check(
                 }
             };
         }
-        Expectation::OvertempWarning { .. } => {
-            let critical = run.events.iter().find(|(t, e)| {
-                *t >= t0
-                    && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if current == "CRITICAL")
-            });
-            result.outcome = match critical {
-                None => failed("thermal state never reached CRITICAL".to_owned()),
-                Some((_, change)) => match run.caused_by(change, |k| {
-                    matches!(k, EventKind::MitigationRequested { mitigation } if mitigation == "DRIVER_WARNING_OVERTEMP")
-                }) {
-                    None => failed(format!(
-                        "no overtemperature warning caused by event #{}",
-                        change.event_id
-                    )),
-                    Some((t, warning)) => {
-                        result.t_ms = Some(t);
-                        Outcome::Met {
-                            detail: format!(
-                                "event #{} overtemperature warning (cause #{})",
-                                warning.event_id, change.event_id
-                            ),
-                        }
+        Expectation::DriverWarningOvertemp { budget, after, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = match run.reference(after, t0, params) {
+                None => never_showed(after),
+                Some(reference) => {
+                    let critical = run.events.iter().find(|(t, e)| {
+                        *t >= reference
+                            && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if current == "CRITICAL")
+                    });
+                    match critical {
+                        None => failed("thermal state never reached CRITICAL".to_owned()),
+                        Some((_, change)) => match run.caused_by(change, |k| {
+                            matches!(k, EventKind::MitigationRequested { mitigation } if mitigation == "DRIVER_WARNING_OVERTEMP")
+                        }) {
+                            None => failed(format!(
+                                "no DRIVER_WARNING_OVERTEMP caused by event #{}",
+                                change.event_id
+                            )),
+                            Some((t, warning)) => {
+                                let latency = t.saturating_sub(reference);
+                                result.t_ms = Some(t);
+                                result.latency_ms = Some(latency);
+                                let text = format!(
+                                    "event #{} DRIVER_WARNING_OVERTEMP (cause #{})",
+                                    warning.event_id, change.event_id
+                                );
+                                if latency <= budget {
+                                    Outcome::Met { detail: text }
+                                } else {
+                                    failed(format!("{text}, late"))
+                                }
+                            }
+                        },
                     }
-                },
+                }
             };
         }
         Expectation::NotThermal { state, .. } => {

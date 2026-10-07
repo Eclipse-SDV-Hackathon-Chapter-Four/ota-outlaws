@@ -72,6 +72,11 @@ pub fn classification(
         .collect()
 }
 const QUEUE_CAPACITY: usize = 16;
+/// Pause after each DFM record. The DFM drains its IPC subscriber every 10 ms,
+/// and the subscriber keeps only two records, overwriting the oldest: a burst,
+/// such as the startup baselines or several monitors passing at once, would
+/// lose records. Off the safety path; a burst of ten takes 200 ms.
+const RECORD_SPACING: Duration = Duration::from_millis(20);
 
 #[derive(Clone)]
 pub struct DiagnosticsConfig {
@@ -262,6 +267,7 @@ fn worker(
         reporter
             .publish(&config.entity, record)
             .map_err(|e| anyhow::anyhow!("baseline: {e:?}"))?;
+        thread::sleep(RECORD_SPACING);
         reporters.insert(dtc, reporter);
     }
     let mut pending: std::collections::VecDeque<(Event, crate::dtc::Record)> = Default::default();
@@ -312,6 +318,7 @@ fn worker(
                 info!(event_id=event.id.0, dtc=dtc.code(), failed,
                     session_id=%config.session_id, "DFM record enqueued");
                 pending.pop_front();
+                thread::sleep(RECORD_SPACING);
             }
             Err(error) => {
                 warn!(
