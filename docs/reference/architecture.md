@@ -120,17 +120,8 @@ that controls Docker and can launch the campaign runner.
 
 ## Component catalog
 
-| Component | Implementation | Documentation |
-|---|---|---|
-| Temperature source | CAN trace replay through KUKSA CAN Provider; optional MXChip/ThreadX source for manual demonstration | [Campaign Tool](components/campaign.md#hardware-demo); [traces](../../campaign/traces/README.md) |
-| VSS Publisher | [vss-publisher](../../vss-publisher) | [Battery Thermal Contract](../../contracts/README.md) |
-| Battery Thermal Guardian | Rust core and service adapter: [guardian](../../guardian), [guardian-service](../../guardian-service) | [Battery Thermal Guardian](components/battery-thermal-guardian.md) |
-| Campaign runner and evidence collector | Rust crate: [campaign](../../campaign) | [Campaign Tool](components/campaign.md) |
-| Diagnostics smoke test | Python orchestration harness for the separate diagnostics integration suite; TS-27 is in the Rust campaign catalog | [smoke_test.py](../../diagnostics/smoke_test.py); [run tests](../how-to/run-tests.md) |
-| KUKSA Data Broker and CAN Provider | External container images in the Compose signal chain | [Compose deployment](../../docker-compose.yml); [signal-chain guide](../how-to/run-signal-chain.md) |
-| DFM and OpenSOVD gateway | External diagnostics image, configured by Docker Compose | [diagnostics setup](../../README.md#interfaces-and-ipc); [DFM catalog](../../diagnostics/catalog/battery_guardian.json) |
-| Guardian Watchdog | Rust service: [watchdog](../../watchdog) | [Guardian Watchdog](components/guardian-watchdog.md) |
-| Dashboard | Rust web service | [Dashboard](components/dashboard.md) |
+The following subchapters describe each component using the same responsibility,
+interface, lifecycle, dependencies, failure behavior, and verification fields.
 
 ## Component design pattern
 
@@ -139,14 +130,121 @@ For each component, document:
 | Field | Description |
 |---|---|
 | Responsibility | One sentence describing what the component owns |
-| Interfaces | Provided and required interfaces, protocol, and schema |
-| State and lifecycle | Startup, normal operation, degraded behavior, shutdown |
+| Interfaces | Provided and required interfaces, protocols, and schemas |
+| State and lifecycle | Startup, normal operation, degraded behavior, and shutdown |
 | Dependencies | Other components and configuration required |
 | Failure behavior | Detection, reporting, recovery, and supervision |
 | Verification | Unit, integration, and campaign tests |
 
-No additional component diagrams are maintained; add one when a component needs
-detail beyond the service-level interfaces and responsibilities in this view.
+### CAN trace and AZ3166 demo source
+
+| Field | Description |
+|---|---|
+| Responsibility | Provide replayable CAN stimulus from checked-in traces. The AZ3166 is a separate manual demo/control source; its sensor readings do not feed campaign runs. |
+| Interfaces | ASC trace to the KUKSA CAN Provider; AZ3166 sensor/button UDP to the WSL2 campaign bridge through the Windows relay. |
+| State and lifecycle | Campaign traces play once per run; the development Compose trace loops. The board sends telemetry and waits for campaign results. |
+| Dependencies | Traces, provider, and Docker Compose; the hardware demo additionally needs the AZ3166, Wi-Fi, Windows relay, WSL2, and Python bridge. |
+| Failure behavior | Missing trace fails campaign setup; absent CAN frames cause Guardian freshness handling. Loss of the board UDP path interrupts only the manual demo exchange. |
+| Verification | [Campaign traces](../../campaign/traces/README.md), [signal-chain guide](../how-to/run-signal-chain.md), and [AZ3166 communication flow](../../MXChip_Sensor_ECU/AZ3166/COMMUNICATION_FLOW.md). |
+
+### KUKSA CAN Provider
+
+| Field | Description |
+|---|---|
+| Responsibility | Decode CAN frames into mapped VSS signals. |
+| Interfaces | Reads CAN/ASC frames using [`BMS_MSG1_CAN.dbc`](../../can/BMS_MSG1_CAN.dbc) and [`vss_dbc.json`](../../can/vss_dbc.json); publishes signal updates to the Data Broker over gRPC. |
+| State and lifecycle | External Compose image; development replay loops, while the campaign project replays its selected trace once. |
+| Dependencies | Data Broker, DBC, VSS mapping, and trace or configured CAN source. |
+| Failure behavior | Provider/source loss stops updates; the Guardian eventually reports freshness loss. |
+| Verification | [Signal-chain guide](../how-to/run-signal-chain.md) and end-to-end [campaign scenarios](../../campaign/scenarios.toml). |
+
+### KUKSA Data Broker
+
+| Field | Description |
+|---|---|
+| Responsibility | Store decoded VSS values and serve them to subscribers. |
+| Interfaces | Accepts provider updates and serves VSS subscriptions over gRPC to the VSS Publisher and dashboard tap. |
+| State and lifecycle | External Compose service populated with the project VSS tree; Compose restarts it unless stopped. |
+| Dependencies | VSS tree/mapping in `can/vss_dbc.json`, KUKSA CAN Provider, and subscriber connections. |
+| Failure behavior | Missing/stale values prevent new publisher messages; Guardian freshness logic reports loss instead of treating cached data as current. |
+| Verification | [Signal-chain guide](../how-to/run-signal-chain.md) and campaign observations at the Guardian input. |
+
+### VSS Publisher
+
+| Field | Description |
+|---|---|
+| Responsibility | Assemble the battery VSS values and publish the Guardian's `BatteryTemperature` contract. |
+| Interfaces | Subscribes to Data Broker gRPC; publishes Protobuf over uProtocol/Zenoh at `//battery-vss/9001/1/9001`. |
+| State and lifecycle | Rust Compose service; waits until all five signals are known and publishes when the alive-counter update completes a frame. |
+| Dependencies | Data Broker, configured signal paths, and Zenoh endpoints. |
+| Failure behavior | A failed subscription or incomplete frame prevents publication; Guardian freshness monitoring detects missing input. |
+| Verification | `cargo test -p vss-publisher`, [Battery Thermal Contract](../../contracts/README.md), and [signal-chain guide](../how-to/run-signal-chain.md). |
+
+### Battery Thermal Guardian
+
+| Field | Description |
+|---|---|
+| Responsibility | Evaluate temperature risk and input trust; publish thermal, monitoring, fault, mitigation-request, and heartbeat events. |
+| Interfaces | `guardian-service` consumes `BatteryTemperature` and publishes `GuardianEvent`/`Heartbeat` over uProtocol/Zenoh; DTC lifecycle is reported to DFM over local IPC. |
+| State and lifecycle | Deterministic Rust core receives samples and 50 ms ticks; service loads `config/guardian/safety-params.toml` and runs in Compose. |
+| Dependencies | uProtocol contract, Zenoh, safety parameters, and DFM for diagnostics. |
+| Failure behavior | Invalid or missing input raises defined monitoring faults. Docker restarts a crashed process; the watchdog detects hangs. Diagnostic unavailability does not gate core evaluation. |
+| Verification | [Guardian requirement tests](../../guardian/tests/requirements.rs), [diagnostics tests](../../guardian-service/tests/diagnostics.rs), and Rust campaign scenarios. |
+
+### Rust Campaign Tool
+
+| Field | Description |
+|---|---|
+| Responsibility | Run catalogued stimuli, record system observations, evaluate evidence, and report verdicts. |
+| Interfaces | `run`, `observe`, and `evaluate` CLI commands; passive uProtocol taps for Guardian input/events and supervisor events; read-only OpenSOVD HTTP polling. |
+| State and lifecycle | `run` creates a fresh Compose project per scenario, writes a manifest and JSONL recording, tails diagnostics, emits reports, and removes the project. `observe` taps an existing stack. |
+| Dependencies | Docker Compose, `campaign/scenarios.toml`, Guardian parameters, traces, diagnostics image, and repository root. |
+| Failure behavior | Preserves logs/errors and judges missing evidence INCONCLUSIVE; failed expected checks produce FAIL, and scenarios remain in reports. |
+| Verification | `cargo test -p campaign` and `cargo run -p campaign -- run --all`; see [Campaign Tool](components/campaign.md). |
+
+### Diagnostic Fault Manager (DFM)
+
+| Field | Description |
+|---|---|
+| Responsibility | Store DTC lifecycle records reported by the Guardian and watchdog. |
+| Interfaces | `fault_lib` reporters over local iceoryx2 IPC; serves records to the OpenSOVD gateway. |
+| State and lifecycle | External diagnostics-image container loads `diagnostics/catalog/battery_guardian.json` and initializes DTCs as NotTested. |
+| Dependencies | Diagnostics image, DTC catalog, shared IPC/PID namespaces, and `dfm-storage` volume. |
+| Failure behavior | Guardian evaluation continues if DFM is unavailable; reporter delivery is asynchronous and best-effort. Persistence across abrupt DFM restart is not established. |
+| Verification | Guardian diagnostics integration tests, TS-27, and [diagnostics setup](../../README.md#interfaces-and-ipc). |
+
+### OpenSOVD Gateway
+
+| Field | Description |
+|---|---|
+| Responsibility | Expose DFM DTC records through the SOVD HTTP API. |
+| Interfaces | Reads DFM over shared IPC; serves fault-list and per-DTC HTTP endpoints to the campaign tool and dashboard. |
+| State and lifecycle | External diagnostics-image container with a Compose health check; host port is bound to localhost by default. |
+| Dependencies | DFM process/IPC namespace, diagnostics image, catalog entity, and configured SOVD port. |
+| Failure behavior | Diagnostic visibility becomes unavailable; Guardian evaluation and mitigation requests continue, while campaign evidence checks fail or become inconclusive. |
+| Verification | Campaign OpenSOVD checks, diagnostics smoke tests, and [signal-chain guide](../how-to/run-signal-chain.md). |
+
+### Guardian Watchdog
+
+| Field | Description |
+|---|---|
+| Responsibility | Detect Guardian heartbeat loss, publish the independent monitoring-unavailable request, and report a DTC. |
+| Interfaces | Subscribes to `Heartbeat`; publishes `SupervisorEvent` over uProtocol/Zenoh; reports `BTG_GuardianHeartbeatLoss` to DFM over local IPC. |
+| State and lifecycle | Rust service checks every 100 ms with a default 1500 ms timeout; campaigns start it after Guardian readiness when requested. |
+| Dependencies | Zenoh, heartbeat/supervisor contract, DFM IPC/catalog, and `HEARTBEAT_TIMEOUT_MS`. |
+| Failure behavior | Reports heartbeat loss once per outage and publishes restoration on recovery. Compose restarts a crashed watchdog; a hung Guardian is detected but not restarted. |
+| Verification | Watchdog unit tests and catalogued TS-22/TS-23 campaigns; see [Guardian Watchdog](components/guardian-watchdog.md). |
+
+### Dashboard
+
+| Field | Description |
+|---|---|
+| Responsibility | Observe and operate the local Compose stack, show diagnostics/evidence, and launch campaigns; it is not part of the safety function. |
+| Interfaces | Browser HTTP UI; Docker Engine API over the socket; passive KUKSA/uProtocol/OpenSOVD taps; separate campaign-runner container. |
+| State and lifecycle | Rust Compose service bound to localhost; repository mount is read-only, while campaign runs use a separate container. |
+| Dependencies | Docker socket, Compose project, Zenoh, Data Broker, OpenSOVD, campaign image, and repository paths. |
+| Failure behavior | Dashboard failure affects its UI/control workflow only; Guardian and watchdog run independently. Docker socket access grants broad host control. |
+| Verification | `cargo test -p dashboard`; see [Dashboard](components/dashboard.md). |
 
 # 7. Code
 
