@@ -19,7 +19,7 @@ because it crashed or because it hangs. It then requests the occupant warning
 `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own uProtocol topic (HARA DFR-5)
 and reports the failure to DFM, so that OpenSOVD shows it next to the
 Guardian's own faults. Its required behavior is
-FSR-2.7 in the [Safety Concept](../../explanation/safety-concept.md). This
+traced to [HARA DFR-5](../hara.md#derived-functional-requirements). This
 document explains how the watchdog is built. How to run it is in the
 [watchdog README](../../../watchdog/README.md).
 
@@ -124,7 +124,8 @@ delay.
 
 The catalog entry is in
 [`diagnostics/catalog/battery_guardian.json`](../../../diagnostics/catalog/battery_guardian.json).
-The [Faults to Be Detected](../faults-to-be-detected.md) list has it as F-10.
+The [HARA candidate faults](../hara.md#candidate-faults-and-malfunctions) list
+has it as F-10.
 
 Every record carries `requirement` (`FSR-2.7`) and `watchdog_session_id` as
 environment data. `Passed` records add the Guardian's `guardian_session_id` and
@@ -160,7 +161,8 @@ nodes before it connects.
 | `ZENOH_CONNECT`, `ZENOH_LISTEN` | — | Zenoh endpoints |
 
 `T_hb_period` is a constant in the Guardian service. Both values come from the
-[Safety Concept](../../explanation/safety-concept.md#parameters).
+[HARA DFR-5](../hara.md#derived-functional-requirements) and are implemented by
+the Guardian heartbeat period and `HEARTBEAT_TIMEOUT_MS` configuration.
 
 ## Verification
 
@@ -192,7 +194,8 @@ No campaign scenario automates these runs yet, so FSR-2.7 has the status
   for about 10 minutes, the watchdog reported 19 losses for a Guardian that was
   running, each followed by `Passed` within seconds. Without load, no false
   alarm was seen. Raising `T_hb` trades detection time for fewer false alarms.
-  That is a Safety Concept decision.
+  Any timeout change should be justified against HARA DFR-5 and verified again
+  with TS-22 and TS-23.
 - **Nothing watches the watchdog.** If it dies, Docker restarts it, and the
   fault starts again as `NotTested`.
 

@@ -11,7 +11,7 @@
 
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-//! Verdict rules of the Safety Concept, checked on synthetic recordings and
+//! Campaign verdict rules, checked on synthetic recordings and
 //! the shipped catalog. No Docker, no network.
 
 use std::path::Path;

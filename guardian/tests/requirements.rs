@@ -580,7 +580,7 @@ fn fsr_2_4_battery_at_constant_temperature_is_not_stuck() {
 
 #[test]
 fn fsr_2_4_slow_nominal_heating_is_not_stuck() {
-    // Negative test from the safety concept: all values rise by one CAN step
+    // Negative case for HARA FSR-2.4: all values rise by one CAN step
     // (1 °C) every five seconds, so the maximum stays unchanged for longer than
     // T_stuck, but so do the others.
     let mut run = Run::new();

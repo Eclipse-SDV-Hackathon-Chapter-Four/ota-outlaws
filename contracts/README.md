@@ -14,14 +14,15 @@ SPDX-License-Identifier: EPL-2.0
 # Battery Thermal Contract
 
 The uProtocol interface between the VSS Publisher, the Battery Thermal Guardian,
-and the Evidence Collector. The payloads are defined in
+and the Rust campaign tool's evidence recorder. The payloads are defined in
 [`battery_thermal.proto`](battery_thermal.proto) and encoded as Protobuf
 (`UPAYLOAD_FORMAT_PROTOBUF`).
 
 The Rust crate in this folder (`thermal-contract`) generates the types and holds
 the topic addresses. It uses a vendored `protoc`, so no installation is needed.
-Other languages, such as the Python Evidence Collector, generate their types from
-the same `.proto` file.
+The campaign recorder and the services that publish or consume these messages
+are Rust. `diagnostics/smoke_test.py` orchestrates a separate diagnostics test
+suite; it is not a Python uProtocol evidence collector.
 
 ## Topics
 
@@ -35,8 +36,8 @@ the same `.proto` file.
 ## BatteryTemperature
 
 One message per Data Broker update of the battery signals. The Guardian relies on
-the assumptions A-1 to A-3 of the
-[Safety Concept](../docs/reference/hara.md#assumptions). This is how
+assumptions A-1 to A-3 in the
+[HARA interface assumptions](../docs/reference/hara.md#interface-assumptions). This is how
 the VSS Publisher fulfills them:
 
 | Field | Assumption | Source in the VSS Publisher |
@@ -133,3 +134,6 @@ using the model **Claude Opus 5.5** (`claude-opus-5-5`).
 
 The SupervisorEvent topic and payload were added with the assistance of
 **Claude Code** using the model **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The campaign-consumer description was reconciled with the implementation using
+**GitHub Copilot** and the model **GPT-6 Luna** (`GPT-6 Luna`).

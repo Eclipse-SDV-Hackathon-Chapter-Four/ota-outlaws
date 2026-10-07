@@ -136,7 +136,8 @@ No campaign scenario automates these runs yet.
   followed by `Passed` within seconds. At least once the Guardian itself saw its
   input go stale at the same time, so the whole host stalled. Without load, no
   false alarm was seen. Raising `T_hb` (`HEARTBEAT_TIMEOUT_MS`) trades detection
-  time for fewer false alarms; that is a Safety Concept decision.
+  time for fewer false alarms; justify changes against [HARA DFR-5](../docs/reference/hara.md#derived-functional-requirements)
+  and reverify TS-22 and TS-23.
 - The Guardian and the watchdog share DFM's PID namespace
   (`pid: "service:opensovd-dfm"` in `docker-compose.yml`). iceoryx2 treats every
   node with the caller's own PID as alive; with every container process being
