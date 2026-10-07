@@ -839,6 +839,39 @@ requirement = "FSR-2.6"
 # is min_c = 0.0, so a value of 8 degC is plausible and no fault is raised.
 
 [[scenario]]
+id = "source_loss_during_diagnostics_outage"
+description = "The source is lost for 2 s while DFM and the OpenSOVD gateway are paused; diagnostics resume after the Guardian recovered"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-27"]
+status = "implemented"
+note = "Combined fault: F-9 during a diagnostics outage. The warning must not wait for DFM; OpenSOVD visibility is measured from the resume, not from the onset."
+stimulus = { type = "can_trace", trace = "campaign/traces/source_loss.asc", pause = ["opensovd-dfm", "opensovd-gateway"], pause_after_ms = 6000, pause_for_ms = 7000 }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "DFR-2"
+
+[[scenario.expect]]
+kind = "not_lowered"
+requirement = "FSR-2.5"
+
+[[scenario.expect]]
+kind = "diagnostics_outage"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "DFR-6"
+
+[[scenario]]
 id = "guardian_crash"
 description = "The Guardian process is terminated once while valid input keeps arriving"
 fault_class = "Guardian"

@@ -164,6 +164,16 @@ pub enum Expectation {
     },
     /// OpenSOVD later shows that DTC as passed, with its history kept.
     SovdRecovery { dtc: String, requirement: String },
+    /// HARA TS-27: the fault is detected and recovers while DFM and OpenSOVD
+    /// are paused (between the `pause` and `unpause` injections), OpenSOVD
+    /// shows nothing of it during the outage, and after the resume it shows
+    /// the DTC passed with its history and this run's provenance within the
+    /// budget, measured from the resume.
+    DiagnosticsOutage {
+        dtc: String,
+        budget: String,
+        requirement: String,
+    },
     /// The watchdog requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its
     /// own topic, caused by a `GuardianLost` event, within the budget after
     /// t0 (HARA DFR-5).
@@ -206,6 +216,7 @@ impl Expectation {
             | Expectation::NotLowered { requirement }
             | Expectation::SovdFault { requirement, .. }
             | Expectation::SovdRecovery { requirement, .. }
+            | Expectation::DiagnosticsOutage { requirement, .. }
             | Expectation::SupervisorWarning { requirement, .. }
             | Expectation::SupervisorRestored { requirement }
             | Expectation::InputQuality { requirement, .. }
@@ -223,6 +234,7 @@ impl Expectation {
             | Expectation::StartupFault { dtc, .. }
             | Expectation::SovdFault { dtc, .. }
             | Expectation::SovdRecovery { dtc, .. }
+            | Expectation::DiagnosticsOutage { dtc, .. }
             | Expectation::OvertempDtc { dtc, .. } => Some(dtc),
             Expectation::Thermal { .. }
             | Expectation::DriverWarningOvertemp { .. }

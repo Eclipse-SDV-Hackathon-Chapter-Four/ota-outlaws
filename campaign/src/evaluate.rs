@@ -432,6 +432,102 @@ impl<'a> Run<'a> {
     }
 }
 
+/// HARA TS-27: judges a fault that falls into a DFM/OpenSOVD outage. The
+/// safety reaction must not wait for diagnostics, and the lifecycle must be
+/// visible after the resume, measured from the resume.
+fn diagnostics_outage(
+    run: &Run<'_>,
+    dtc: &str,
+    t0: u64,
+    budget: u64,
+    result: &mut Check,
+) -> Outcome {
+    let failed = |detail: String| Outcome::Failed { detail };
+    let unobservable = |detail: &str| Outcome::Unobservable {
+        detail: detail.to_owned(),
+    };
+    let injected = |action: &str, after: u64| {
+        run.injections
+            .iter()
+            .find(|(t, a)| *a == action && *t >= after)
+            .map(|(t, _)| *t)
+    };
+    let Some(paused) = injected("pause", 0) else {
+        return unobservable("diagnostics were never paused");
+    };
+    let Some(resumed) = injected("unpause", paused) else {
+        return unobservable("diagnostics were never resumed");
+    };
+    let Some((t_fault, fault)) = run.first_fault(dtc, t0) else {
+        return failed(format!("no {dtc} reported after the onset"));
+    };
+    if !(paused..resumed).contains(&t_fault) {
+        return unobservable("the fault was not detected while diagnostics were paused");
+    }
+    let recovered = run.caused_by(
+        fault,
+        |k| matches!(k, EventKind::FaultRecovered { dtc: d, .. } if d == dtc),
+    );
+    let ok = recovered.and_then(|(_, recovered)| {
+        run.events.iter().find(|(_, e)| {
+            e.event_id > recovered.event_id
+                && matches!(&e.kind, EventKind::MonitoringStatusChanged { previous, current } if previous == "DEGRADED" && current == "OK")
+        })
+    });
+    let (Some((_, recovered)), Some((t_ok, _))) = (recovered, ok) else {
+        return failed(format!(
+            "event #{} {dtc}: monitoring did not return to OK",
+            fault.event_id
+        ));
+    };
+    if *t_ok >= resumed {
+        return failed(format!(
+            "event #{} recovered only after diagnostics resumed",
+            recovered.event_id
+        ));
+    }
+    let records = run.sovd_records(dtc, fault);
+    if records.iter().any(|(t, _)| (paused..resumed).contains(t)) {
+        return unobservable(
+            "OpenSOVD showed the fault during the pause: the outage was not effective",
+        );
+    }
+    let passed = records.into_iter().find(|(t, body)| {
+        *t >= resumed
+            && body["status"]["testFailed"] == false
+            && body["status"]["testFailedSinceLastClear"] == true
+    });
+    let Some((t_visible, _)) = passed else {
+        return if run
+            .sovd
+            .iter()
+            .any(|(t, _, status, _)| *t >= resumed && *status == Some(200))
+        {
+            failed(format!(
+                "after the resume, OpenSOVD never showed {dtc} of event #{} as passed with its history",
+                fault.event_id
+            ))
+        } else {
+            unobservable("OpenSOVD never answered after the resume")
+        };
+    };
+    let latency = t_visible.saturating_sub(resumed);
+    result.t_ms = Some(t_visible);
+    result.latency_ms = Some(latency);
+    let text = format!(
+        "event #{} detected and #{} recovered during the outage ({} to {}); after the resume, OpenSOVD showed {dtc} passed with history and provenance",
+        fault.event_id,
+        recovered.event_id,
+        seconds(paused),
+        seconds(resumed),
+    );
+    if latency <= budget {
+        Outcome::Met { detail: text }
+    } else {
+        failed(format!("{text}, late"))
+    }
+}
+
 /// A raise of the thermal state to WARNING or more: the Guardian's detection
 /// of a thermal hazard.
 fn raises(kind: &EventKind) -> bool {
@@ -636,6 +732,7 @@ fn evidence_chain(
             e,
             Expectation::Sovd { .. }
                 | Expectation::Recovery { .. }
+                | Expectation::DiagnosticsOutage { .. }
                 | Expectation::OvertempDtc { .. }
         )
     });
@@ -998,6 +1095,11 @@ fn check(
     let missing_fault = |dtc: &str| failed(format!("no {dtc} reported after the onset"));
 
     match expectation {
+        Expectation::DiagnosticsOutage { dtc, budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = diagnostics_outage(run, dtc, t0, budget, &mut result);
+        }
         Expectation::SovdFault { dtc, budget, .. } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);

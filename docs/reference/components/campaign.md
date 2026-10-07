@@ -224,6 +224,28 @@ timestamp, alive counter), so the report shows which sample a detection or
 thermal change refers to. Recordings from before that have none.
 | INCONCLUSIVE | Onset not observed, onset before the Guardian was ready, or evidence missing (for example, OpenSOVD never answered) |
 
+## Combined fault: source loss during a diagnostics outage (TS-27)
+
+`source_loss_during_diagnostics_outage` replays
+[`source_loss.asc`](../../../campaign/traces/source_loss.asc) (8 s nominal,
+2 s without frames, 12 s nominal) and pauses `opensovd-dfm` and
+`opensovd-gateway` from 6 s to 13 s. The source loss and the Guardian's
+recovery both fall into the pause.
+
+The `diagnostics_outage` check judges the diagnostic side:
+
+- the fault is detected after the `pause` injection and monitoring returns to
+  `OK` before the `unpause` injection, so neither waited for DFM;
+- OpenSOVD shows nothing of the fault during the pause; if it does, the outage
+  was not effective and the result is INCONCLUSIVE;
+- after the resume, OpenSOVD shows the DTC passed with its history
+  (`testFailed` false, `testFailedSinceLastClear` true) and this run's session
+  and event ID, within `T_diag` **measured from the resume**.
+
+The `fault`, `degraded`, and `not_lowered` checks of the same scenario judge the
+safety reaction with their usual budgets: the monitoring-unavailable warning
+within `T_stale + T_react`, while diagnostics are paused.
+
 ## Hardware demo
 
 The hardware source is not part of the automated campaigns: it cannot be
@@ -256,7 +278,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-26. Each scenario in the catalog names the ones it implements
+TS-01 to TS-27. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -287,6 +309,7 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-24 Late-arriving stale message | `late_message` | planned: needs a transport fault injector; Guardian core tests cover the late-sample check |
 | TS-25 Gradual drift | `drift` | campaign |
 | TS-26 Upper-scale saturation | `saturation_255` | campaign |
+| TS-27 Source loss during a DFM/OpenSOVD outage | `source_loss_during_diagnostics_outage` | campaign |
 
 TS-22 and TS-23 start the Guardian watchdog next to the Guardian
 (`watchdog = true` in the stimulus). `supervisor_warning` checks that the
@@ -307,10 +330,9 @@ spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
 - **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
-- **Diagnostics outage**: still covered by
-  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). The
-  `pause` stimulus exists, but its OpenSOVD budget would have to count from the
-  resume.
+- **Diagnostics outage alone**: still covered by
+  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). Combined
+  with a source loss, it is TS-27 (below).
 - **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
   behind the tap (`samples_continue`) exists; sequence diagnosis and delay
   measurement do not.
