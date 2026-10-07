@@ -22,7 +22,7 @@
                     "unit": "celsius",
                     "dbc2vss": {
                       "signal": "CellTempAvg",
-                      "interval_ms": 100,
+                      "interval_ms": 50,
                       "on_change": false
                     }
                   },
@@ -33,7 +33,7 @@
                     "unit": "celsius",
                     "dbc2vss": {
                       "signal": "CellTempMax",
-                      "interval_ms": 100,
+                      "interval_ms": 50,
                       "on_change": false
                     }
                   },
@@ -44,7 +44,7 @@
                     "unit": "celsius",
                     "dbc2vss": {
                       "signal": "CellTempMin",
-                      "interval_ms": 100,
+                      "interval_ms": 50,
                       "on_change": false
                     }
                   }
@@ -61,7 +61,7 @@
                     "description": "Signal validity indicator reported by the BMS: 0=Invalid, 128=Valid, 255=Error/NotAvailable",
                     "dbc2vss": {
                       "signal": "Quality",
-                      "interval_ms": 100,
+                      "interval_ms": 50,
                       "on_change": false
                     }
                   },
@@ -71,7 +71,7 @@
                     "description": "Rolling counter incremented on every transmitted BMS_MSG1 frame. A counter that stops advancing marks the data as stale even while the last value still looks plausible.",
                     "dbc2vss": {
                       "signal": "AliveCounter",
-                      "interval_ms": 100,
+                      "interval_ms": 50,
                       "on_change": false
                     }
                   }

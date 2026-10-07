@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
+
+name: Guardian
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "guardian/**"
+      - "guardian-service/**"
+      - "third-party/fault-lib/**"
+      - "contracts/**"
+      - "vss-publisher/**"
+      - "config/guardian/**"
+      - "diagnostics/**"
+      - "docker-compose.yml"
+      - ".github/workflows/guardian.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --locked
+
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit
+          ref: 97dd4a503f25674e866a89829e2bd92d2cf2655d
+          path: diagnostic-source
+      - name: Build the pinned diagnostic stack
+        run: sh diagnostics/build-images.sh diagnostic-source
+      - name: Test Guardian diagnostic campaigns
+        run: python3 diagnostics/smoke_test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-evidence
+          path: diagnostics/reports/

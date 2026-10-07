@@ -1,0 +1,70 @@
+{
+  "id": "battery_guardian",
+  "version": 2,
+  "faults": [
+    {
+      "id": {
+        "Text": "BTG_TempFreshnessLost"
+      },
+      "name": "BTG_TempFreshnessLost",
+      "summary": "FSR-2.2: No fresh temperature sample",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempCounterStuck"
+      },
+      "name": "BTG_TempCounterStuck",
+      "summary": "FSR-2.3: Alive counter is stuck",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempSignalStuck"
+      },
+      "name": "BTG_TempSignalStuck",
+      "summary": "FSR-2.4: Maximum temperature frozen while reference temperatures change",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempQualityInvalid"
+      },
+      "name": "BTG_TempQualityInvalid",
+      "summary": "FSR-3.4: Temperature sample quality is invalid or unavailable",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    }
+  ]
+}
