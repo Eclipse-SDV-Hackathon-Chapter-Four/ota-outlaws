@@ -265,7 +265,7 @@ Two kinds of end-to-end campaigns prove requirements:
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
-| FSR-2.1 | When no valid sample arrives within `T_startup` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. | `T_startup` + `T_react` | Guardian started without a source | Should | planned |
+| FSR-2.1 | When no fresh sample arrives within `T_stale` after the Guardian starts, the monitoring status shall be DEGRADED and the Guardian shall report a startup fault. (HARA TS-03 sets the limit to `T_stale`.) | `T_stale` + `T_react`, from the Guardian's start, on its own clock | Guardian started without a source | Must | tested |
 | FSR-2.2 | When no **fresh** sample arrives for longer than `T_stale`, the monitoring status shall be DEGRADED and the Guardian shall report a freshness fault. Fresh is defined in the [output model](#guardian-output-model); samples that are not fresh are ignored. | `T_stale` + `T_react` | Transport outage, transport delay longer than `T_stale`, VSS Publisher stopped, source dropout, duplicate, reorder | Must | tested |
 | FSR-2.3 | When no fresh sample arrives for longer than `T_stale`, but at least two frames with an unchanged alive counter arrive meanwhile, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault (counter stuck) instead of a freshness fault. A single repeated frame, such as a duplicate, does not count. | `T_stale` + `T_react` | Source repeats the same frame (frozen ECU) | Must | tested |
 | FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | tested |
@@ -332,7 +332,6 @@ in the end-to-end setup.
 | `T_trend` | 5 s | Minimum duration of a dangerous trend | FSR-1.3 |
 | `r_max` | [config](../../config/guardian/safety-params.toml) | Rise rate of the maximum above which a sample counts as implausible | FSR-3.3 |
 | `Δ_res` | [config](../../config/guardian/safety-params.toml) | Resolution of the temperature signal; a rise of one step is always plausible, however close the source timestamps are | FSR-3.3 |
-| `T_startup` | 5 s | Maximum time after start until the first valid sample | FSR-2.1 |
 | `T_age` | 1000 ms | Maximum age of a sample when clocks are synchronized | FSR-2.8 |
 | `N_suspect`, `T_suspect` | 3 samples in 1 s | Debounce before invalid samples or counter errors lead to DEGRADED | FSR-3.5, FSR-3.7 |
 | `N_recover` | [config](../../config/guardian/safety-params.toml) | Consecutive valid samples required to recover or to lower the thermal state | FSR-1.5, FSR-2.6 |
