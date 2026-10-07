@@ -174,7 +174,7 @@ the approved Safety Concept configuration.
 | F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-24 (termination), TS-25 (hang) |
 | F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-13, TS-18 |
 | F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | No explicit 255 °C test. TS-14 only tests a generic high out-of-range sample; proposed TS-28. |
-| F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-23 (blocked pending FSR-3.3/FSR-3.5 reconciliation). |
+| F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-23 |
 
 ### Test Template
 
