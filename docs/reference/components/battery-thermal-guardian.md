@@ -197,18 +197,18 @@ is implemented.
 | HARA fault | Design response and current status | HARA verification |
 |---|---|---|
 | F-1: Temperature value frozen while messages continue | FSR-2.4 detects a frozen maximum only when average or minimum changes. All temperature channels frozen together are not detectable from current inputs. | TS-10 is a limitation probe; it does not demonstrate detection. |
-| F-2: Message arrives after its allowed age/deadline | FSR-2.2 detects a freshness gap. FSR-2.8 rejects over-age timestamps only with synchronized clocks and is planned. | TS-05 tests a prolonged gap; proposed TS-27 covers explicit late arrival. |
+| F-2: Message arrives after its allowed age/deadline | FSR-2.2 detects a freshness gap. FSR-2.8 rejects over-age timestamps only with synchronized clocks and is planned. | TS-05 tests a prolonged gap; proposed TS-26 covers explicit late arrival. |
 | F-3: Same message delivered more than once | Non-fresh samples are ignored (FSR-2.2). Counter-stuck handling is FSR-2.3; collector-side duplicate attribution (EC-2) is planned. | TS-07. |
-| F-4: Expected update dropped before reaching Guardian | FSR-2.2 reports freshness loss and requests the degraded response. | TS-05, TS-06, TS-18. |
+| F-4: Expected update dropped before reaching Guardian | FSR-2.2 reports freshness loss and requests the degraded response. | TS-05, TS-06, TS-17. |
 | F-5: Messages arrive out-of-order | Samples with older source timestamps are ignored as not fresh. Collector attribution is planned under EC-2. | TS-08. |
-| F-6: Isolated temperature sample outside configured interval | FSR-3.2 rejects the sample and sets monitoring to `DEGRADED`; high out-of-range input also keeps thermal state at least `WARNING`. | TS-11, TS-12, TS-14, TS-20, TS-21. |
-| F-7: Temperature drifts over time | FSR-1.3 covers a sustained real upward trend and FSR-1.4 a hot spot; both are planned. Aggregate signals cannot identify every sensor drift. | Proposed TS-28 tests a rising thermal trend, not sensor-bias detection. |
-| F-8: Isolated rate-implausible spike | FSR-3.3 rejects the sample and preserves a warning, but currently specifies immediate `DEGRADED`, contrary to HARA's isolated-spike debounce. | TS-22 and TS-23; TS-23 remains blocked until FSR-3.3/3.5 are reconciled. |
-| F-9: Source disconnect or replay stops | FSR-2.2 reports freshness loss and requests the degraded response. | TS-03, TS-04, TS-18. |
-| F-10: Guardian terminates or evaluation hangs | FSR-2.7 observes heartbeat loss and restarts a terminated process; independent occupant warning and verified hang detection are missing per DFR-5. | TS-25, TS-26; these do not prove occupant protection. |
-| F-11: Source marks fresh sample invalid or unavailable | FSR-3.4 rejects the sample, sets `DEGRADED`, and reports the quality fault without debounce. | TS-13, TS-19. |
+| F-6: Isolated temperature sample outside configured interval | FSR-3.2 rejects the sample and sets monitoring to `DEGRADED`; high out-of-range input also keeps thermal state at least `WARNING`. | TS-11, TS-12, TS-14, TS-19, TS-20. |
+| F-7: Temperature drifts over time | FSR-1.3 covers a sustained real upward trend and FSR-1.4 a hot spot; both are planned. Aggregate signals cannot identify every sensor drift. | Proposed TS-27 tests a rising thermal trend, not sensor-bias detection. |
+| F-8: Isolated rate-implausible spike | FSR-3.3 rejects the sample and preserves a warning, but currently specifies immediate `DEGRADED`, contrary to HARA's isolated-spike debounce. | TS-21 and TS-22; TS-22 remains blocked until FSR-3.3/3.5 are reconciled. |
+| F-9: Source disconnect or replay stops | FSR-2.2 reports freshness loss and requests the degraded response. | TS-03, TS-04, TS-17. |
+| F-10: Guardian terminates or evaluation hangs | FSR-2.7 observes heartbeat loss and restarts a terminated process; independent occupant warning and verified hang detection are missing per DFR-5. | TS-24, TS-25; these do not prove occupant protection. |
+| F-11: Source marks fresh sample invalid or unavailable | FSR-3.4 rejects the sample, sets `DEGRADED`, and reports the quality fault without debounce. | TS-13, TS-18. |
 | F-12: Temperature saturates at 255 °C | FSR-3.2 treats it as high out-of-range and requires at least `WARNING`; no separate saturation diagnosis is available. | TS-14 is generic high-range coverage; proposed TS-29 uses 255 °C explicitly. |
-| F-13: Repeated rate-implausible spikes | HARA requires `SUSPECT` for an isolated spike and `DEGRADED` after the configured repeat threshold. FSR-3.5 is planned and conflicts with immediate degradation in FSR-3.3. | TS-24 is blocked until the requirement conflict is resolved. |
+| F-13: Repeated rate-implausible spikes | HARA requires `SUSPECT` for an isolated spike and `DEGRADED` after the configured repeat threshold. FSR-3.5 is planned and conflicts with immediate degradation in FSR-3.3. | TS-23 is blocked until the requirement conflict is resolved. |
 
 ## Timing and recovery
 
@@ -254,17 +254,14 @@ and response latency for each applicable run.
 | HARA tests | Verification focus | Status / limitation |
 |---|---|---|
 | TS-01, TS-02, TS-15, TS-16 | Nominal monitoring and valid threshold warning/critical response | FSR-1.1/1.2 tested. |
-| TS-03 to TS-06, TS-18 | Startup timeout, source loss, delayed/withheld updates, and transport dropout | FSR-2.1/2.2 tested; path attribution under EC-1 is planned. |
+| TS-03 to TS-06, TS-17 | Startup timeout, source loss, delayed/withheld updates, and transport dropout | FSR-2.1/2.2 tested; path attribution under EC-1 is planned. |
 | TS-07, TS-08 | Duplicate and out-of-order inputs | Guardian ignores non-fresh samples; collector attribution under EC-2 is planned. |
 | TS-09, TS-10 | Stuck maximum and all-temperature-frozen limitation | FSR-2.4 tested for a stuck maximum with reference movement; TS-10 is not a detection pass. |
-| TS-11 to TS-14, TS-19 to TS-22 | Thermal-state retention, quality, range, and rate plausibility | FSR-3.2 to FSR-3.4 and FSR-3.6 are tested; isolated-spike status remains inconsistent. |
-| TS-23, TS-24 | Isolated and repeated spikes | FSR-3.5 planned; both cases are blocked from a conformance verdict until it is reconciled with FSR-3.3. |
-| TS-25, TS-26 | Guardian process termination and evaluation hang | FSR-2.7 is planned; DFR-5's independent in-vehicle response is missing. |
-| Proposed TS-27 to TS-29 | Late timestamp, gradual trend, explicit upper-scale saturation | Proposed requirement-gap tests; not evidence of implemented behavior. |
+| TS-11 to TS-14, TS-18 to TS-21 | Thermal-state retention, quality, range, and rate plausibility | FSR-3.2 to FSR-3.4 and FSR-3.6 are tested; isolated-spike status remains inconsistent. |
+| TS-22, TS-23 | Isolated and repeated spikes | FSR-3.5 planned; both cases are blocked from a conformance verdict until it is reconciled with FSR-3.3. |
+| TS-24, TS-25 | Guardian process termination and evaluation hang | FSR-2.7 is planned; DFR-5's independent in-vehicle response is missing. |
+| Proposed TS-26 to TS-28 | Late timestamp, gradual trend, explicit upper-scale saturation | Proposed requirement-gap tests; not evidence of implemented behavior. |
 | Diagnostic campaigns | DFM writes and OpenSOVD visibility | FSR-D.1/.2 are tested; diagnostic-path failures must not delay Guardian safety responses. |
-
-TS-17 (undertemperature) is blocked in the HARA because no lower operating limit,
-responsible vehicle component, or charging-control interface has been allocated.
 
 ## AI Assistance
 

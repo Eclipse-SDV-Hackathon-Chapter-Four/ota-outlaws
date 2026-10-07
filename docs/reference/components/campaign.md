@@ -246,7 +246,6 @@ TS-01 to TS-18. Each scenario in the catalog names the ones it implements
 | TS-13 HMI for uncertain data | — | blocked in the HARA (needs a driving simulator) |
 | TS-14 Diagnostics delayed or missing | — | [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py) (outage) |
 | TS-15, TS-16, TS-18 Guardian crash or hang, supervisor | — | not covered: no independent supervisor yet (HARA DFR-5) |
-| TS-17 Warning lead time | — | blocked in the HARA (no approved lead time) |
 
 ## Not covered yet
 
