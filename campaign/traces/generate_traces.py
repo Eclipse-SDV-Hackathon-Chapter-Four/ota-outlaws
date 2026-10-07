@@ -18,6 +18,9 @@
                  cools down again (FSR-1.1, FSR-1.2).
 - max_stuck.asc: the maximum freezes while the average and minimum keep rising
                  for longer than T_stuck (FSR-2.4).
+- spike.asc:     an in-range spike from 40 degC to 100 degC for 1 s, then back
+                 (FSR-3.3). Fault_Injection_CAN_Logs/implausible_jump.asc
+                 jumps beyond the plausible range, so it tests FSR-3.2.
 
 Same BMS_MSG1 encoding as Fault_Injection_CAN_Logs/generate_asc_logs.py:
 CAN ID 0x500, little-endian UINT16 CellTempMax, CellTempMin, CellTempAvg,
@@ -87,10 +90,18 @@ def max_stuck():
     return frames
 
 
+def spike():
+    """4 s at 40 degC, 1 s at 100 degC (in range, but 60 degC within 100 ms),
+    then 5 s at 40 degC so the fault can recover."""
+    nominal = (40, 24, 32)
+    return [nominal] * 40 + [(100, 84, 92)] * 10 + [nominal] * 50
+
+
 def main():
     here = Path(__file__).resolve().parent
     write(here / "heating.asc", "Heating through 45 and 55 degC, hold, cool down.", heating())
     write(here / "max_stuck.asc", "Maximum frozen while average and minimum rise.", max_stuck())
+    write(here / "spike.asc", "In-range spike from 40 to 100 degC for 1 s.", spike())
 
 
 if __name__ == "__main__":

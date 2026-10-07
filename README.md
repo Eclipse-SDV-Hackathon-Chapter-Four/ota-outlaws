@@ -91,10 +91,11 @@ minutes to limit recurring request logs.
 
 ## Guardian reporting
 
-The Guardian service (`guardian-service`) writes the four diagnostic codes emitted by
+The Guardian service (`guardian-service`) writes the seven diagnostic codes emitted by
 `guardian::FaultCode` to DFM: `BTG_TempFreshnessLost`, `BTG_TempCounterStuck`,
-`BTG_TempSignalStuck`, and `BTG_TempQualityInvalid`. The catalogue deliberately
-contains only these four codes. Thermal state changes and mitigation requests
+`BTG_TempSignalStuck`, `BTG_TempQualityInvalid`, `BTG_TempOrderImplausible`,
+`BTG_TempOutOfRange`, and `BTG_TempRateImplausible`. The catalogue deliberately
+contains only these seven codes. Thermal state changes and mitigation requests
 remain uProtocol events; they are not invented diagnostic faults.
 
 Guardian joins DFM's private IPC namespace and loads the same mounted catalogue.

@@ -40,7 +40,7 @@ use std::{
 };
 use tracing::{info, warn};
 
-pub const FAULTS: [FaultCode; 4] = FaultCode::ALL;
+pub const FAULTS: [FaultCode; FaultCode::ALL.len()] = FaultCode::ALL;
 const QUEUE_CAPACITY: usize = 16;
 
 #[derive(Clone)]

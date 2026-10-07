@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::config::{GuardianConfig, RecoveryConfig, ThermalConfig};
+use crate::config::{GuardianConfig, PlausibilityConfig, RecoveryConfig, ThermalConfig};
 use crate::detectors::{FreshnessMonitor, StuckDetector};
 use crate::model::{
     Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,
@@ -35,6 +35,9 @@ use crate::model::{
 #[derive(Debug, Clone)]
 pub struct Guardian {
     thermal_config: ThermalConfig,
+    plausibility: PlausibilityConfig,
+    /// Maximum and source timestamp of the last valid sample (FSR-3.3).
+    last_valid: Option<(f32, u64)>,
     thermal: ThermalState,
     monitoring: MonitoringStatus,
     last_fresh_sample: Option<SampleRef>,
@@ -54,6 +57,8 @@ impl Guardian {
     pub fn new(config: &GuardianConfig) -> Self {
         Self {
             thermal_config: config.thermal.clone(),
+            plausibility: config.plausibility.clone(),
+            last_valid: None,
             thermal: ThermalState::Clear,
             monitoring: MonitoringStatus::Ok,
             last_fresh_sample: None,
@@ -88,8 +93,10 @@ impl Guardian {
     /// Samples that are not fresh are ignored: repeated or older source
     /// timestamps, an unchanged alive counter, and non-finite values. If only
     /// such samples arrive, FSR-2.2 or FSR-2.3 detects the loss of fresh data.
-    /// Fresh samples whose quality is not `Valid` are reported (FSR-3.4), but not
-    /// evaluated.
+    /// Fresh samples whose quality is not `Valid` (FSR-3.4) or that are
+    /// implausible (FSR-3.1 to FSR-3.3) are reported, but not evaluated. Invalid
+    /// samples never lower the thermal state and never raise it to CRITICAL
+    /// (FSR-3.6); an implausibly high one raises it to WARNING.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
         if !self.is_fresh(&sample) {
@@ -111,6 +118,15 @@ impl Guardian {
             self.report_fault(FaultCode::QualityInvalid, now, &mut events);
             return events;
         }
+        if let Some((fault, may_be_real_heat)) = self.implausibility(&sample) {
+            self.reset_recovery();
+            self.report_fault(fault, now, &mut events);
+            if may_be_real_heat {
+                self.raise_to_warning(&sample, now, &mut events);
+            }
+            return events;
+        }
+        self.last_valid = Some((sample.max_c, sample.source_timestamp_ms));
         if self.stuck.observe(&sample, now) {
             self.reset_recovery();
             self.stuck_fault_max = Some(sample.max_c);
@@ -136,6 +152,53 @@ impl Guardian {
             self.report_fault(fault, now, &mut events);
         }
         events
+    }
+
+    /// FSR-3.1 to FSR-3.3. Returns the fault and whether the sample may
+    /// indicate real heat (too high, or rising too fast).
+    fn implausibility(&self, sample: &Sample) -> Option<(FaultCode, bool)> {
+        let range = &self.plausibility;
+        let in_range = |value: f32| (range.min_c..=range.max_c).contains(&value);
+        if ![sample.max_c, sample.avg_c, sample.min_c]
+            .into_iter()
+            .all(in_range)
+        {
+            return Some((FaultCode::OutOfRange, sample.max_c > range.max_c));
+        }
+        if !(sample.min_c <= sample.avg_c && sample.avg_c <= sample.max_c) {
+            return Some((FaultCode::OrderImplausible, false));
+        }
+        if let Some((last_max, last_time)) = self.last_valid {
+            let seconds = sample.source_timestamp_ms.saturating_sub(last_time) as f32 / 1000.0;
+            let rise = sample.max_c - last_max;
+            // One resolution step is allowed on top: source timestamps can be
+            // much closer than the signal cycle, for example in a burst.
+            if rise > range.max_rise_c_per_s * seconds + range.resolution_c {
+                return Some((FaultCode::RateImplausible, true));
+            }
+        }
+        None
+    }
+
+    /// Raises the thermal state to WARNING for an invalid sample that may
+    /// indicate real heat. Never to CRITICAL, never lowering (FSR-3.6).
+    fn raise_to_warning(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
+        if self.thermal.severity() >= ThermalState::Warning.severity() {
+            return;
+        }
+        self.thermal_recovery = None;
+        let from = self.thermal;
+        self.thermal = ThermalState::Warning;
+        self.emit(
+            None,
+            now,
+            EventKind::ThermalStateChanged {
+                from,
+                to: ThermalState::Warning,
+                trigger: sample.reference(),
+            },
+            events,
+        );
     }
 
     fn is_fresh(&self, sample: &Sample) -> bool {

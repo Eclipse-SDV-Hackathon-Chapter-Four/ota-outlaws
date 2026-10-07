@@ -137,15 +137,24 @@ pub enum FaultCode {
     SignalStuck,
     /// The source marked the sample as not usable.
     QualityInvalid,
+    /// Minimum, average, and maximum are not in order.
+    OrderImplausible,
+    /// A temperature is outside the plausible range.
+    OutOfRange,
+    /// The maximum rose faster than physically plausible.
+    RateImplausible,
 }
 
 impl FaultCode {
     /// Complete diagnostic fault set emitted by this core.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 7] = [
         Self::FreshnessLost,
         Self::CounterStuck,
         Self::SignalStuck,
         Self::QualityInvalid,
+        Self::OrderImplausible,
+        Self::OutOfRange,
+        Self::RateImplausible,
     ];
 
     /// The functional safety requirement that detects this fault.
@@ -155,6 +164,9 @@ impl FaultCode {
             FaultCode::CounterStuck => "FSR-2.3",
             FaultCode::SignalStuck => "FSR-2.4",
             FaultCode::QualityInvalid => "FSR-3.4",
+            FaultCode::OrderImplausible => "FSR-3.1",
+            FaultCode::OutOfRange => "FSR-3.2",
+            FaultCode::RateImplausible => "FSR-3.3",
         }
     }
 
@@ -165,6 +177,9 @@ impl FaultCode {
             FaultCode::CounterStuck => "BTG_TempCounterStuck",
             FaultCode::SignalStuck => "BTG_TempSignalStuck",
             FaultCode::QualityInvalid => "BTG_TempQualityInvalid",
+            FaultCode::OrderImplausible => "BTG_TempOrderImplausible",
+            FaultCode::OutOfRange => "BTG_TempOutOfRange",
+            FaultCode::RateImplausible => "BTG_TempRateImplausible",
         }
     }
 }

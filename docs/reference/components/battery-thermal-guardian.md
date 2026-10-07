@@ -93,6 +93,7 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 | Freshness monitor | FSR-2.2, FSR-2.3 | No [fresh sample](../../explanation/safety-concept.md#guardian-output-model) for longer than `T_stale` is a fault. If at least two frames with an unchanged alive counter arrived meanwhile, the fault is "counter stuck" (FSR-2.3), otherwise "freshness lost" (FSR-2.2). Checked on every tick. |
 | Quality check | FSR-3.4 | A fresh sample whose quality flag is not `VALID` is reported and leads to DEGRADED. It is not evaluated, but it still shows that the source is alive. |
 | Stuck detector | FSR-2.4 | The maximum keeps the same value for longer than `T_stuck` while the average or minimum moves by at least `Δ_stuck`. Checked on every valid sample. |
+| Plausibility check | FSR-3.1, FSR-3.2, FSR-3.3, FSR-3.6 | A valid-quality sample must have `Min ≤ Avg ≤ Max`, all values within `[θ_min, θ_max]`, and a maximum that did not rise faster than `r_max` since the last valid sample. Otherwise it is reported and leads to DEGRADED, and is not evaluated. A sample that is too high or rises too fast raises the thermal state to WARNING (it may be a real fire), never to CRITICAL, and never causes the overtemperature mitigation. |
 | Thresholds | FSR-1.1, FSR-1.2 | The maximum reaches `θ_warn` or `θ_crit`. Checked on every valid sample. |
 
 The Guardian detects faults, but does not find out what caused them. Telling a

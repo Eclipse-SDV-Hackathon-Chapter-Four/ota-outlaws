@@ -26,8 +26,25 @@ pub struct GuardianConfig {
     pub thermal: ThermalConfig,
     pub freshness: FreshnessConfig,
     pub stuck: StuckConfig,
+    pub plausibility: PlausibilityConfig,
     #[serde(default)]
     pub recovery: RecoveryConfig,
+}
+
+/// Plausibility of a sample (FSR-3.2, FSR-3.3).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlausibilityConfig {
+    /// `θ_min` in °C.
+    pub min_c: f32,
+    /// `θ_max` in °C.
+    pub max_c: f32,
+    /// `r_max`: fastest plausible rise of the maximum, in °C per second.
+    pub max_rise_c_per_s: f32,
+    /// Resolution of the temperature signal in °C. A rise of one step is
+    /// always plausible: it can appear at any moment, however close the
+    /// source timestamps are.
+    pub resolution_c: f32,
 }
 
 /// Sustained recovery, with hysteresis and a minimum healthy observation period.
@@ -112,6 +129,22 @@ impl GuardianConfig {
             && self.stuck.min_reference_change_c > 0.0)
         {
             return invalid("stuck.min_reference_change_c must be greater than zero");
+        }
+        let plausibility = &self.plausibility;
+        if !(plausibility.min_c.is_finite() && plausibility.max_c.is_finite())
+            || plausibility.min_c >= plausibility.max_c
+        {
+            return invalid("plausibility.min_c must be below plausibility.max_c");
+        }
+        if plausibility.max_c < self.thermal.critical_c {
+            // Otherwise a critical temperature could never be valid.
+            return invalid("plausibility.max_c must not be below thermal.critical_c");
+        }
+        if !(plausibility.max_rise_c_per_s.is_finite() && plausibility.max_rise_c_per_s > 0.0) {
+            return invalid("plausibility.max_rise_c_per_s must be greater than zero");
+        }
+        if !(plausibility.resolution_c.is_finite() && plausibility.resolution_c >= 0.0) {
+            return invalid("plausibility.resolution_c must not be negative");
         }
         if !self.recovery.hysteresis_c.is_finite()
             || self.recovery.hysteresis_c <= 0.0

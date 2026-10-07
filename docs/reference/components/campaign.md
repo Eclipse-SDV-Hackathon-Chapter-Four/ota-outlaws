@@ -54,7 +54,7 @@ case per scenario:
 id = "counter_stuck"
 description = "AliveCounter remains fixed for 2 s while frames keep arriving"
 fault_class = "Source"
-hazard = "H-2"
+hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"            # or "planned": expected to fail until implemented
 stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/counter_stuck.asc" }
@@ -96,7 +96,7 @@ requirement = "FSR-2.3"
 
 In every scenario these reactions are **forbidden**: lowering the thermal state
 while monitoring is DEGRADED (FSR-2.5), a fault before the onset (a false
-alarm, H-3), and events of more than one Guardian session (A-4).
+alarm, SG-4), and events of more than one Guardian session (A-4).
 
 ## A run
 
@@ -115,6 +115,9 @@ alarm, H-3), and events of more than one Guardian session (A-4).
    3 s more, so OpenSOVD can catch up, then removes the project.
 5. The evaluation judges the recording. The judged window ends with the last
    sample plus one cycle: the loss of data after the replay ends is not judged.
+   Latencies use the tool's arrival times; the order of cause and effect uses
+   the Guardian's event IDs, because events can arrive a few milliseconds
+   swapped over the network.
 
 A run directory holds the evidence:
 
@@ -156,8 +159,10 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 Most traces come from
 [`Fault_Injection_CAN_Logs/`](../../../Fault_Injection_CAN_Logs/README.txt).
 [`campaign/traces/generate_traces.py`](../../../campaign/traces/generate_traces.py)
-adds the two the safety concept needs and that do not exist there yet:
-`heating` (FSR-1.1, FSR-1.2) and `max_stuck` (FSR-2.4).
+adds the ones the safety concept needs and that do not exist there yet:
+`heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
+in-range spike; `implausible_jump` goes beyond the plausible range and tests
+FSR-3.2).
 
 `temp_stuck` freezes all temperatures together, which looks like a battery at
 constant temperature; it is kept as a test of that known limitation and expects

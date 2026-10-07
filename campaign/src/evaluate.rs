@@ -404,8 +404,10 @@ fn check(
                             fault.event_id
                         )),
                         Some((t_recovered, recovered)) => {
-                            let ok = run.events.iter().find(|(t, e)| {
-                                *t >= t_recovered
+                            // Guardian order, not arrival order: events can
+                            // reach the tap a few milliseconds swapped.
+                            let ok = run.events.iter().find(|(_, e)| {
+                                e.event_id > recovered.event_id
                                     && matches!(&e.kind, EventKind::MonitoringStatusChanged { previous, current } if previous == "DEGRADED" && current == "OK")
                             });
                             let passed =
@@ -598,7 +600,7 @@ fn forbidden(scenario: &Scenario, t0: u64, run: &Run<'_>) -> Vec<Violation> {
         {
             violations.push(Violation {
                 rule: "no_fault_before_onset".to_owned(),
-                requirement: "H-3".to_owned(),
+                requirement: "SG-4".to_owned(),
                 detail: format!(
                     "event #{} reported a fault before the onset (false alarm)",
                     event.event_id
