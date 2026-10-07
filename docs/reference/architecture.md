@@ -17,7 +17,7 @@ This document follows the 13-part structure from *The Software Architecture
 Guidebook* by Simon Brown. Sections with incomplete project information contain
 short fill-in patterns; these are prompts, not claims about implemented behavior.
 
-## 1. Context
+# 1. Context
 
 The Battery Thermal Guardian is part of the OTA Outlaws Safety Evidence Factory.
 It evaluates battery temperature data and publishes warning/mitigation requests
@@ -38,7 +38,7 @@ Guardian.
 | Docker Compose | Runs the local signal chain and isolated campaign projects |
 | Ankaios | Intended target runtime; no deployment manifest is currently present |
 
-## 2. Functional Overview
+# 2. Functional Overview
 
 The nominal data path is CAN trace or external sensor -> KUKSA CAN Provider ->
 KUKSA Data Broker -> VSS Publisher -> Battery Thermal Guardian over uProtocol.
@@ -60,7 +60,7 @@ scripts, not as a separate scenario generator or evidence collector.
 | Input/event taps, OpenSOVD polling, timing evaluation, and verdict | Rust campaign tool; attribution is limited to the evidence available at its tap points |
 | Fault scenario execution and manifest | Rust campaign tool using `campaign/scenarios.toml`; TS-27 is the catalogued source-loss/diagnostics-outage scenario |
 
-## 3. Quality Attributes
+# 3. Quality Attributes
 
 | Attribute | Architectural concern | Source or verification |
 |---|---|---|
@@ -78,7 +78,7 @@ campaign catalog supplies additional budgets and maps scenarios to HARA tests.
 The HARA still contains candidate, unconfirmed risk ratings and requirements
 that are not implemented, so those must not be presented as verified behavior.
 
-## 4. Constraints
+# 4. Constraints
 
 - The Guardian receives VSS data through the uProtocol service interface and
   does not read the KUKSA Data Broker directly.
@@ -92,7 +92,7 @@ that are not implemented, so those must not be presented as verified behavior.
   diagram.
 - Clearly label functionality that is mocked, simulated, planned, or incomplete.
 
-## 5. Principles
+# 5. Principles
 
 - Keep Guardian safety reactions independent of the Evidence Collector. The
   collector observes; it does not influence Guardian behavior.
@@ -104,9 +104,9 @@ that are not implemented, so those must not be presented as verified behavior.
 - Treat interfaces, parameters, and campaign manifests as explicit contracts.
 - Record architecture decisions in the decision log below.
 
-## 6. Software Architecture
+# 6. Software Architecture
 
-### Container view
+## Container view
 
 ![](media/container-view.drawio.svg)
 
@@ -118,7 +118,7 @@ to `campaign run`; scenarios use catalogued CAN traces through KUKSA. See the
 The Dashboard is omitted from this flow view; it is a local Compose service
 that controls Docker and can launch the campaign runner.
 
-### Component catalog
+## Component catalog
 
 | Component | Implementation | Documentation |
 |---|---|---|
@@ -132,7 +132,7 @@ that controls Docker and can launch the campaign runner.
 | Guardian Watchdog | Rust service: [watchdog](../../watchdog) | [Guardian Watchdog](components/guardian-watchdog.md) |
 | Dashboard | Rust web service | [Dashboard](components/dashboard.md) |
 
-### Component design pattern
+## Component design pattern
 
 For each component, document:
 
@@ -148,7 +148,7 @@ For each component, document:
 No additional component diagrams are maintained; add one when a component needs
 detail beyond the service-level interfaces and responsibilities in this view.
 
-## 7. Code
+# 7. Code
 
 | Codebase | Language/runtime | Responsibility | Entry point and build/test instructions |
 |---|---|---|---|
@@ -167,9 +167,9 @@ detail beyond the service-level interfaces and responsibilities in this view.
 - Error handling and diagnostics: Guardian/watchdog events over uProtocol; DFM records exposed by OpenSOVD
 - Unit/integration test locations: crate `tests/` directories; see [Run the Tests](../how-to/run-tests.md)
 
-## 8. Data
+# 8. Data
 
-### Data flow
+## Data flow
 
 ```mermaid
 flowchart LR
@@ -188,7 +188,7 @@ flowchart LR
   CAM --> REPORT[Recording, evaluation, and verdict]
 ```
 
-### CAN signal contract
+## CAN signal contract
 
 Message `BMS_MSG1`, CAN ID `0x500`, DLC 8 bytes, cycle time 100 ms, sent by the
 BMS. Byte order is little endian. Temperatures are raw degrees Celsius, factor
@@ -207,7 +207,7 @@ that stops advancing marks the data as stale even while the last value looks
 plausible. The authoritative signal definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
 [can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace.
 
-### Quality enum
+## Quality enum
 
 ```text
 INVALID             = 0x00
@@ -215,7 +215,7 @@ VALID               = 0x80
 ERROR_NOT_AVAILABLE = 0xFF
 ```
 
-### VSS mapping
+## VSS mapping
 
 The KUKSA CAN Provider maps these signals as defined in
 [can/vss_dbc.json](../../can/vss_dbc.json):
@@ -231,7 +231,7 @@ The KUKSA CAN Provider maps these signals as defined in
 The temperature paths are standard VSS. The `BMS` branch is a project-private
 extension, not part of the VSS standard catalogue.
 
-### Campaign manifest and evidence identifiers
+## Campaign manifest and evidence identifiers
 
 | Field | Purpose | Status |
 |---|---|---|
@@ -252,7 +252,7 @@ is the implemented `source_loss_during_diagnostics_outage` entry in
 diagnostics smoke test is a separate integration suite with its own diagnostics
 outage case.
 
-## 9. Infrastructure Architecture
+# 9. Infrastructure Architecture
 
 | Infrastructure element | Purpose | Current details or open point |
 |---|---|---|
@@ -270,7 +270,7 @@ KUKSA and diagnostic ports are environment-configurable; production network
 segmentation, credentials, and a target-HPC trust boundary are not specified.
 The AutoSD/Ankaios target remains open until runnable deployment manifests exist.
 
-## 10. Deployment
+# 10. Deployment
 
 | Target | Component |
 |---|---|
@@ -285,7 +285,7 @@ by the separate watchdog but is not restarted. Campaign execution uses separate
 Compose projects rather than Ankaios. Resource limits, production trust
 boundaries, and the target deployment remain open.
 
-## 11. Operation and Support
+# 11. Operation and Support
 
 | Operational concern | Current approach | Open item |
 |---|---|---|
@@ -308,7 +308,7 @@ development stack with `docker compose down`; campaign evidence remains under
 `runs/`. DFM persistence across abrupt restart is not established (see the
 [diagnostics lifecycle notes](../../README.md#lifecycle)).
 
-## 12. Development Environment
+# 12. Development Environment
 
 | Area | Pattern to complete |
 |---|---|
@@ -320,7 +320,7 @@ development stack with `docker compose down`; campaign evidence remains under
 | CI | Rust checks and diagnostic campaigns run in GitHub Actions | [Guardian workflow](../../.github/workflows/guardian.yml); [diagnostics image workflow](../../.github/workflows/diagnostics-image.yml) |
 | Reproduction | Clean checkout, pinned diagnostics image, and expected baseline behavior | [README build instructions](../../README.md#build-from-clean-committed-source-optional); [Run the Signal Chain](../how-to/run-signal-chain.md) |
 
-## 13. Decision Log
+# 13. Decision Log
 
 Record decisions that materially affect interfaces, deployment, safety behavior,
 or quality attributes. Link each decision to relevant requirements and code.
@@ -332,7 +332,7 @@ or quality attributes. Link each decision to relevant requirements and code.
 The scenario catalog and the run manifest are described in the
 [Campaign Tool](components/campaign.md#scenario-catalog).
 
-## AI Assistance
+# AI Assistance
 
 The original C4 diagrams and component overview were created with the assistance
 of **Claude Code** using the model **Claude Opus 5.5**
