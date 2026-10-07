@@ -12,24 +12,24 @@
 # AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 [package]
-name = "thermal-contract"
+name = "campaign"
 version = "0.1.0"
-description = "uProtocol payloads and topics shared by the VSS Publisher and the Battery Thermal Guardian"
+description = "Fault campaigns for the Battery Thermal Guardian: injection, evidence, verdicts"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+guardian = { path = "../guardian" }
+humantime = "2.4.0"
 prost = "0.12"
-anyhow = { version = "1", optional = true }
-up-rust = { version = "0.9", optional = true }
-up-transport-zenoh = { version = "0.9", optional = true }
-zenoh = { version = "1", features = ["unstable"], optional = true }
-
-[build-dependencies]
-prost-build = "0.12"
-protoc-bin-vendored = "3.3.0"
-
-[features]
-# uProtocol transport helpers. The VSS Publisher builds without them.
-transport = ["dep:anyhow", "dep:up-rust", "dep:up-transport-zenoh", "dep:zenoh"]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+thermal-contract = { path = "../contracts", features = ["transport"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "signal", "sync"] }
+toml = "1.1.6"
+up-rust = "0.9"

@@ -16,3 +16,5 @@ target/
 
 # Reproducible campaign results are preserved locally and uploaded by CI.
 diagnostics/reports/
+# Evidence of local campaign runs.
+/runs/

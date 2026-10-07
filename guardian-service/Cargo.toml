@@ -28,7 +28,7 @@ anyhow = "1.0.104"
 async-trait = "0.1.92"
 guardian = { version = "0.1.0", path = "../guardian" }
 prost = "0.12"
-thermal-contract = { version = "0.1.0", path = "../contracts" }
+thermal-contract = { version = "0.1.0", path = "../contracts", features = ["transport"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

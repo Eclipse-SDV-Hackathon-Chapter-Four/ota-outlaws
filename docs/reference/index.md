@@ -20,3 +20,4 @@ SPDX-License-Identifier: EPL-2.0
 - [Fault Classes](faultClasses.md)
 - Components
   - [Battery Thermal Guardian](components/battery-thermal-guardian.md)
+  - [Campaign Tool](components/campaign.md)

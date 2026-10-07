@@ -64,6 +64,9 @@ services:
   zenoh:
     image: docker.io/eclipse/zenoh:1.10.1
     container_name: zenoh
+    # Lets `campaign observe` tap the uProtocol traffic from the host.
+    ports:
+      - "127.0.0.1:${ZENOH_HOST_PORT:-7447}:7447"
     restart: unless-stopped
 
   vss-publisher:

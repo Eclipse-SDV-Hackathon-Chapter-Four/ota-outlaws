@@ -111,7 +111,10 @@ async fn diagnostic_campaign() {
     loop {
         if let Ok(response) = client.get(&url).send().await {
             if let Ok(json) = response.json::<serde_json::Value>().await {
-                if json["items"].as_array().is_some_and(|a| a.len() == 4) {
+                if json["items"]
+                    .as_array()
+                    .is_some_and(|a| a.len() == guardian_service::diagnostics::FAULTS.len())
+                {
                     break;
                 }
             }
