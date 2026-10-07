@@ -38,6 +38,8 @@ pub struct Guardian {
     plausibility: PlausibilityConfig,
     /// Maximum and source timestamp of the last valid sample (FSR-3.3).
     last_valid: Option<(f32, u64)>,
+    /// Local time of the first call, the start for FSR-2.1.
+    started_at: Option<Millis>,
     thermal: ThermalState,
     monitoring: MonitoringStatus,
     last_fresh_sample: Option<SampleRef>,
@@ -59,6 +61,7 @@ impl Guardian {
             thermal_config: config.thermal.clone(),
             plausibility: config.plausibility.clone(),
             last_valid: None,
+            started_at: None,
             thermal: ThermalState::Clear,
             monitoring: MonitoringStatus::Ok,
             last_fresh_sample: None,
@@ -99,6 +102,7 @@ impl Guardian {
     /// (FSR-3.6); an implausibly high one raises it to WARNING.
     pub fn on_sample(&mut self, sample: Sample, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
+        self.started_at.get_or_insert(now);
         if !self.is_fresh(&sample) {
             self.reset_recovery();
             if self.is_repeated_frame(&sample) {
@@ -142,6 +146,14 @@ impl Guardian {
     /// milliseconds.
     pub fn on_tick(&mut self, now: Millis) -> Vec<Event> {
         let mut events = Vec::new();
+        let started_at = *self.started_at.get_or_insert(now);
+        // FSR-2.1: no fresh sample at all since the start. HARA TS-03 sets the
+        // limit to T_stale, like FSR-2.2 once data has flowed.
+        if self.last_fresh_sample.is_none()
+            && now.since(started_at) > self.freshness.stale_timeout_ms()
+        {
+            self.report_fault(FaultCode::NoDataAtStartup, now, &mut events);
+        }
         if self.freshness.is_stale(now) {
             self.reset_recovery();
             let fault = if self.freshness.source_repeats_itself() {

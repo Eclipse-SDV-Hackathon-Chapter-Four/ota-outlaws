@@ -143,11 +143,13 @@ pub enum FaultCode {
     OutOfRange,
     /// The maximum rose faster than physically plausible.
     RateImplausible,
+    /// No fresh sample since the Guardian started.
+    NoDataAtStartup,
 }
 
 impl FaultCode {
     /// Complete diagnostic fault set emitted by this core.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::FreshnessLost,
         Self::CounterStuck,
         Self::SignalStuck,
@@ -155,6 +157,7 @@ impl FaultCode {
         Self::OrderImplausible,
         Self::OutOfRange,
         Self::RateImplausible,
+        Self::NoDataAtStartup,
     ];
 
     /// The functional safety requirement that detects this fault.
@@ -167,6 +170,7 @@ impl FaultCode {
             FaultCode::OrderImplausible => "FSR-3.1",
             FaultCode::OutOfRange => "FSR-3.2",
             FaultCode::RateImplausible => "FSR-3.3",
+            FaultCode::NoDataAtStartup => "FSR-2.1",
         }
     }
 
@@ -180,6 +184,7 @@ impl FaultCode {
             FaultCode::OrderImplausible => "BTG_TempOrderImplausible",
             FaultCode::OutOfRange => "BTG_TempOutOfRange",
             FaultCode::RateImplausible => "BTG_TempRateImplausible",
+            FaultCode::NoDataAtStartup => "BTG_TempNoDataAtStartup",
         }
     }
 }
