@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Battery Thermal Guardian core.
 //!
@@ -23,7 +23,9 @@ mod detectors;
 mod guardian;
 mod model;
 
-pub use config::{ConfigError, FreshnessConfig, GuardianConfig, StuckConfig, ThermalConfig};
+pub use config::{
+    ConfigError, FreshnessConfig, GuardianConfig, RecoveryConfig, StuckConfig, ThermalConfig,
+};
 pub use guardian::Guardian;
 pub use model::{
     Event, EventId, EventKind, FaultCode, Millis, Mitigation, MonitoringStatus, Quality, Sample,

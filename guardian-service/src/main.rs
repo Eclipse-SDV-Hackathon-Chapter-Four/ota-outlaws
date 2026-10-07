@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Battery Thermal Guardian executable.
 //!
@@ -21,6 +21,7 @@
 
 use anyhow::Context;
 use guardian::GuardianConfig;
+use guardian_service::diagnostics::{Diagnostics, DiagnosticsConfig};
 use guardian_service::runtime;
 use guardian_service::transport::{self, ZenohEndpoints};
 use thermal_contract::GUARDIAN_EVENTS;
@@ -47,7 +48,9 @@ async fn main() -> anyhow::Result<()> {
     let transport = transport::open(GUARDIAN_EVENTS.authority, &endpoints).await?;
     info!(?endpoints, "uProtocol transport ready");
 
-    runtime::run(transport, &config, async {
+    let diagnostics = Diagnostics::start(DiagnosticsConfig::from_env())?;
+    info!(session_id=%diagnostics.session_id, "diagnostics worker started");
+    runtime::run_with_diagnostics(transport, &config, Some(diagnostics), async {
         let _ = tokio::signal::ctrl_c().await;
         info!("shutting down");
     })

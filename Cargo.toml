@@ -9,15 +9,18 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 [workspace]
 resolver = "2"
-members = ["guardian", "guardian-service", "contracts"]
+members = ["guardian", "guardian-service", "contracts", "third-party/fault-lib"]
 # Built on its own, with its own lockfile.
 exclude = ["vss-publisher"]
 
 [workspace.package]
 edition = "2021"
 license = "EPL-2.0"
-rust-version = "1.85"
+rust-version = "1.88"
+
+[patch."https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit"]
+fault_lib = { path = "third-party/fault-lib" }

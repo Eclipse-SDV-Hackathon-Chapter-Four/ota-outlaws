@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Contributors to Eclipse OpenSOVD (see CONTRIBUTORS)
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+
+[package]
+name = "fault_lib"
+version = "0.0.1"
+edition = "2024"
+license-file = "LICENSE"
+readme = "README.md"
+
+[features]
+default = []
+testutils = []
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# shared-lints baseline (from cicd-workflows/shared-lints/shared-lints.toml)
+pedantic = { level = "warn", priority = -1 }
+similar_names = "allow"
+indexing_slicing = "deny"
+unwrap_used = "deny"
+arithmetic_side_effects = "deny"
+clone_on_ref_ptr = "warn"
+separated_literal_suffix = "deny"
+# fault-lib specific
+unimplemented = "deny"
+expect_used = "deny"
+std_instead_of_core = "deny"
+std_instead_of_alloc = "deny"
+alloc_instead_of_core = "deny"
+cast_possible_truncation = "warn"
+# Newer Clippy suggests Duration::from_mins in unchanged upstream tests;
+# keep compatibility with the workspace Rust 1.88 minimum.
+duration_suboptimal_units = "allow"
+
+
+[dependencies]
+common = { git = "https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit", rev = "97dd4a503f25674e866a89829e2bd92d2cf2655d" }
+iceoryx2 = { git = "https://github.com/eclipse-iceoryx/iceoryx2.git", rev = "eba5da4b8d8cb03bccf1394d88a05e31f58838dc" }
+iceoryx2-bb-container = { git = "https://github.com/eclipse-iceoryx/iceoryx2.git", rev = "eba5da4b8d8cb03bccf1394d88a05e31f58838dc" }
+tracing = "0.1"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+thiserror = "2.0.17"
+
+[dev-dependencies]
+clap = { version = "4.5", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+mockall = "0.13.1"
+serial_test = "3.2"

@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Translation between the uProtocol payloads of `contracts/battery_thermal.proto`
 //! and the types of the Guardian core.
@@ -77,7 +77,13 @@ fn quality(raw: i32) -> Quality {
 
 /// Encodes a core event as a `GuardianEvent` payload.
 pub fn encode_event(event: &Event) -> Vec<u8> {
-    to_message(event).encode_to_vec()
+    encode_event_for_session(event, "")
+}
+
+pub fn encode_event_for_session(event: &Event, session: &str) -> Vec<u8> {
+    let mut message = to_message(event);
+    message.session_id = session.into();
+    message.encode_to_vec()
 }
 
 fn to_message(event: &Event) -> pb::GuardianEvent {
@@ -102,6 +108,18 @@ fn to_message(event: &Event) -> pb::GuardianEvent {
             requirement: fault.requirement().to_owned(),
             last_sample: last_sample.map(sample_ref),
         }),
+        EventKind::FaultTestPassed { fault, trigger } => {
+            Kind::FaultTestPassed(pb::FaultTestPassed {
+                dtc: fault.dtc().to_owned(),
+                requirement: fault.requirement().to_owned(),
+                trigger: Some(sample_ref(*trigger)),
+            })
+        }
+        EventKind::FaultRecovered { fault, trigger } => Kind::FaultRecovered(pb::FaultRecovered {
+            dtc: fault.dtc().to_owned(),
+            requirement: fault.requirement().to_owned(),
+            trigger: Some(sample_ref(*trigger)),
+        }),
         EventKind::MitigationRequested { mitigation } => {
             Kind::MitigationRequested(pb::MitigationRequested {
                 mitigation: self::mitigation(*mitigation) as i32,
@@ -109,6 +127,7 @@ fn to_message(event: &Event) -> pb::GuardianEvent {
         }
     };
     pb::GuardianEvent {
+        session_id: String::new(),
         event_id: event.id.0,
         cause_event_id: event.cause.map_or(0, |cause| cause.0),
         guardian_time_ms: event.at.0,

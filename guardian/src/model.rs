@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 //! Domain types of the Guardian core.
 //!
@@ -140,6 +140,14 @@ pub enum FaultCode {
 }
 
 impl FaultCode {
+    /// Complete diagnostic fault set emitted by this core.
+    pub const ALL: [Self; 4] = [
+        Self::FreshnessLost,
+        Self::CounterStuck,
+        Self::SignalStuck,
+        Self::QualityInvalid,
+    ];
+
     /// The functional safety requirement that detects this fault.
     pub fn requirement(self) -> &'static str {
         match self {
@@ -193,6 +201,15 @@ pub enum EventKind {
         fault: FaultCode,
         /// The last fresh sample before the fault was detected, if any.
         last_sample: Option<SampleRef>,
+    },
+    /// A monitor completed its first sustained healthy test in this session.
+    FaultTestPassed {
+        fault: FaultCode,
+        trigger: SampleRef,
+    },
+    FaultRecovered {
+        fault: FaultCode,
+        trigger: SampleRef,
     },
     ThermalStateChanged {
         from: ThermalState,

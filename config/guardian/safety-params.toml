@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 # Safety parameters of the Battery Thermal Guardian.
 #
@@ -38,3 +38,10 @@ timeout_ms = 3000
 # suspicious (FSR-2.4, SG-2). Two steps of the 1 °C CAN resolution, so that a
 # single-step flicker does not count.
 min_reference_change_c = 2.0
+
+[recovery]
+# Lower thermal severity only below its threshold minus this hysteresis.
+hysteresis_c = 2.0
+# Both conditions must hold on consecutive fresh, valid, healthy samples.
+valid_samples = 10
+min_duration_ms = 1000
