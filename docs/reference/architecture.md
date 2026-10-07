@@ -47,8 +47,8 @@ fault events, and a heartbeat over uProtocol. Guardian and watchdog fault
 lifecycle records are sent to DFM; the OpenSOVD gateway exposes them to the
 campaign tool. The campaign tool is a Rust crate that runs scenarios, records
 uProtocol and OpenSOVD observations, evaluates evidence, and writes verdicts.
-Python is used by the diagnostics smoke-test harness and trace-generation
-scripts, not as a separate scenario generator or evidence collector.
+Python is used by trace-generation scripts and the optional AZ3166 UDP bridge;
+scenario execution and evidence collection are handled by the Rust campaign tool.
 
 | Responsibility | Owner |
 |---|---|
@@ -222,7 +222,7 @@ For each component, document:
 | State and lifecycle | External diagnostics-image container with a Compose health check; host port is bound to localhost by default. |
 | Dependencies | DFM process/IPC namespace, diagnostics image, catalog entity, and configured SOVD port. |
 | Failure behavior | Diagnostic visibility becomes unavailable; Guardian evaluation and mitigation requests continue, while campaign evidence checks fail or become inconclusive. |
-| Verification | Campaign OpenSOVD checks, diagnostics smoke tests, and [signal-chain guide](../how-to/run-signal-chain.md). |
+| Verification | Campaign OpenSOVD checks, TS-27, and [signal-chain guide](../how-to/run-signal-chain.md). |
 
 ### Guardian Watchdog
 
@@ -255,7 +255,6 @@ For each component, document:
 | [campaign](../../campaign) | Rust | Runs catalog scenarios, records evidence, evaluates runs, and writes reports | `cargo run -p campaign -- run --all`; [commands and artifacts](components/campaign.md) |
 | [watchdog](../../watchdog) | Rust | Monitors Guardian heartbeat and reports heartbeat loss to DFM | `cargo test -p watchdog`; service entry point: `watchdog/src/main.rs` |
 | [dashboard](../../dashboard) | Rust | Inspects and controls the local Compose stack and launches campaign runs | `cargo test -p dashboard`; [Dashboard](components/dashboard.md) |
-| [diagnostics smoke test](../../diagnostics/smoke_test.py) | Python | Orchestrates the separate diagnostics integration suite | `python3 diagnostics/smoke_test.py`; [test guide](../how-to/run-tests.md) |
 
 **Code organization pattern:**
 
@@ -346,9 +345,7 @@ and scenario, Guardian `session_id`, `event_id` and `cause_event_id`, and the
 session/event metadata in DFM/OpenSOVD records. Scenario expectations are stored
 in the TOML catalog, not duplicated in the manifest. [HARA TS-27](hara.md#ts-27-source-loss-during-dfmopensovd-outage)
 is the implemented `source_loss_during_diagnostics_outage` entry in
-[`campaign/scenarios.toml`](../../campaign/scenarios.toml). The Python
-diagnostics smoke test is a separate integration suite with its own diagnostics
-outage case.
+[`campaign/scenarios.toml`](../../campaign/scenarios.toml).
 
 # 9. Infrastructure Architecture
 
@@ -409,12 +406,12 @@ development stack with `docker compose down`; campaign evidence remains under
 
 | Area | Pattern to complete |
 |---|---|
-| Host prerequisites | Stable Rust; Python 3 for diagnostics tests; Docker Compose for container campaigns; hardware is optional | [Run the Tests](../how-to/run-tests.md) |
+| Host prerequisites | Stable Rust; Python 3 for trace generation and the optional AZ3166 bridge; Docker Compose for container campaigns | [Run the Tests](../how-to/run-tests.md) |
 | Build | `cargo build --workspace`; Compose builds local service images; diagnostics image setup is documented separately | [README build instructions](../../README.md#pull-the-published-diagnostics-image) |
-| Tests | `cargo test`, formatting/lint, Rust campaign catalog, and Python diagnostics integration suite | [Run the Tests](../how-to/run-tests.md) |
+| Tests | `cargo test`, formatting/lint, and Rust campaigns from `campaign/scenarios.toml` | [Run the Tests](../how-to/run-tests.md) |
 | Local services | `docker compose up --build -d`; CAN replay, KUKSA, Zenoh, Guardian, watchdog, DFM/OpenSOVD, and dashboard | [Run the Signal Chain](../how-to/run-signal-chain.md) |
 | Configuration | Guardian thresholds/timeouts in `config/guardian/safety-params.toml`; service endpoints and ports in Compose/environment; diagnostics image pin in `diagnostics/image.env` | [Compose file](../../docker-compose.yml); [image config](../../diagnostics/image.env) |
-| CI | Rust checks and diagnostic campaigns run in GitHub Actions | [Guardian workflow](../../.github/workflows/guardian.yml); [diagnostics image workflow](../../.github/workflows/diagnostics-image.yml) |
+| CI | GitHub Actions build, test, lint, and image workflows | [Guardian workflow](../../.github/workflows/guardian.yml); [diagnostics image workflow](../../.github/workflows/diagnostics-image.yml) |
 | Reproduction | Clean checkout, pinned diagnostics image, and expected baseline behavior | [README build instructions](../../README.md#build-from-clean-committed-source-optional); [Run the Signal Chain](../how-to/run-signal-chain.md) |
 
 # 13. Decision Log
