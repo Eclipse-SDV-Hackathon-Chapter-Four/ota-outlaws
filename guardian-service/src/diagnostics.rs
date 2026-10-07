@@ -16,6 +16,7 @@
 //! TODO: OpenSOVD readback, event correlation, visibility timing and persistence
 //! confirmation belong in a future evidence collector. IPC enqueue success here
 //! does not establish that DFM stored a record or OpenSOVD exposed it.
+use crate::dtc::{Dtc, Mapper};
 use common::{
     fault::{FaultId, LifecyclePhase, LifecycleStage},
     ids::SourceId,
@@ -27,7 +28,7 @@ use fault_lib::{
     utils::to_static_short_string,
     FaultApi,
 };
-use guardian::{Event, EventKind, FaultCode};
+use guardian::{Event, EventKind};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -40,7 +41,36 @@ use std::{
 };
 use tracing::{info, warn};
 
-pub const FAULTS: [FaultCode; FaultCode::ALL.len()] = FaultCode::ALL;
+/// Every DTC the Guardian writes, in catalog order.
+pub fn codes() -> Vec<&'static str> {
+    Dtc::all().into_iter().map(Dtc::code).collect()
+}
+
+/// Fault type (`category`) and severity of each DTC, from the catalog. The
+/// DFM does not store the category in its records, so the Guardian writes
+/// both into each record's environment data.
+pub fn classification(
+    catalog: &std::path::Path,
+) -> anyhow::Result<BTreeMap<String, (String, String)>> {
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(catalog)?)?;
+    json["faults"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing faults"))?
+        .iter()
+        .map(|fault| {
+            let code = fault["id"]["Text"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("fault without text ID"))?;
+            let field = |name: &str| {
+                fault[name]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| anyhow::anyhow!("{code} has no {name}"))
+            };
+            Ok((code.to_owned(), (field("category")?, field("severity")?)))
+        })
+        .collect()
+}
 const QUEUE_CAPACITY: usize = 16;
 
 #[derive(Clone)]
@@ -92,9 +122,10 @@ impl DiagnosticsConfig {
             .filter_map(|f| f["id"]["Text"].as_str())
             .collect();
         anyhow::ensure!(
-            ids == FAULTS.iter().map(|f| f.dtc()).collect(),
-            "catalog must contain exactly the core fault codes"
+            ids == codes().into_iter().collect(),
+            "catalog must contain exactly the Guardian's DTCs"
         );
+        classification(&self.catalog)?;
         Ok(())
     }
 }
@@ -136,6 +167,7 @@ impl Diagnostics {
             EventKind::FaultDetected { .. }
                 | EventKind::FaultRecovered { .. }
                 | EventKind::FaultTestPassed { .. }
+                | EventKind::ThermalStateChanged { .. }
         ) {
             return;
         }
@@ -151,28 +183,37 @@ impl Drop for Diagnostics {
     }
 }
 
-pub fn metadata(event: &Event, session: &str) -> BTreeMap<String, String> {
+/// Environment data of one DFM record, at most eight entries of at most 64
+/// characters (`fault_lib` limits).
+pub fn metadata(
+    event: &Event,
+    dtc: Dtc,
+    session: &str,
+    (fault_type, severity): &(String, String),
+) -> BTreeMap<String, String> {
     let mut env = BTreeMap::from([
         ("session_id".into(), session.into()),
         ("event_id".into(), event.id.0.to_string()),
         ("guardian_time_ms".into(), event.at.0.to_string()),
+        ("requirement".into(), dtc.requirement().into()),
+        ("fault_type".into(), fault_type.clone()),
+        ("severity".into(), severity.clone()),
     ]);
-    let details = match event.kind {
-        EventKind::FaultDetected { fault, last_sample } => Some((fault, last_sample)),
-        EventKind::FaultRecovered { fault, trigger }
-        | EventKind::FaultTestPassed { fault, trigger } => Some((fault, Some(trigger))),
+    let sample = match event.kind {
+        EventKind::FaultDetected { last_sample, .. } => last_sample,
+        EventKind::FaultRecovered { trigger, .. }
+        | EventKind::FaultTestPassed { trigger, .. }
+        | EventKind::ThermalStateChanged { trigger, .. } => Some(trigger),
         _ => None,
     };
-    if let Some((fault, last_sample)) = details {
-        env.insert("requirement".into(), fault.requirement().into());
-        if let Some(sample) = last_sample {
-            env.insert("sequence".into(), sample.sequence.to_string());
-            env.insert(
-                "source_time_ms".into(),
-                sample.source_timestamp_ms.to_string(),
-            );
-            env.insert("alive_counter".into(), sample.alive_counter.to_string());
-        }
+    if let Some(sample) = sample {
+        env.insert(
+            "sample".into(),
+            format!(
+                "seq={} src={} ctr={}",
+                sample.sequence, sample.source_timestamp_ms, sample.alive_counter
+            ),
+        );
     }
     env
 }
@@ -208,10 +249,12 @@ fn worker(
         lifecycle_phase: LifecyclePhase::Running,
         default_env_data: MetadataVec::new(),
     };
+    let classes = classification(&config.catalog)?;
+    let mut mapper = Mapper::default();
     let mut reporters = BTreeMap::new();
-    for fault in FAULTS {
+    for dtc in Dtc::all() {
         let mut reporter = Reporter::new(
-            &FaultId::Text(to_static_short_string(fault.dtc())?),
+            &FaultId::Text(to_static_short_string(dtc.code())?),
             reporter_config.clone(),
         )?;
         // NotTested preserves uncertainty; startup does not claim a healthy monitor test.
@@ -219,33 +262,36 @@ fn worker(
         reporter
             .publish(&config.entity, record)
             .map_err(|e| anyhow::anyhow!("baseline: {e:?}"))?;
-        reporters.insert(fault, reporter);
+        reporters.insert(dtc, reporter);
     }
-    let mut pending = None;
+    let mut pending: std::collections::VecDeque<(Event, crate::dtc::Record)> = Default::default();
     loop {
         if stats.stop.load(Ordering::Relaxed) {
             return Ok(());
         }
-        // Retry only a rejected enqueue. Taking the next event after success
+        // Retry only a rejected enqueue. Taking the next record after success
         // keeps Failed -> Passed -> Failed ordered without HTTP acknowledgment.
-        let event = match pending.take() {
-            Some(event) => event,
-            None => match rx.recv_timeout(Duration::from_millis(50)) {
-                Ok(event) => event,
+        if pending.is_empty() {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(event) => {
+                    for record in mapper.records(&event) {
+                        pending.push_back((event.clone(), record));
+                    }
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            },
-        };
-        let (fault, failed) = match event.kind {
-            EventKind::FaultDetected { fault, .. } => (fault, true),
-            EventKind::FaultRecovered { fault, .. } | EventKind::FaultTestPassed { fault, .. } => {
-                (fault, false)
             }
-            _ => unreachable!("only fault lifecycle events are queued"),
+        }
+        let Some((event, record)) = pending.front() else {
+            continue;
         };
-        let env = metadata(&event, &config.session_id);
-        let reporter = reporters.get_mut(&fault).expect("catalog validated");
-        let mut record = reporter.create_record(if failed {
+        let (dtc, failed) = (record.dtc, record.failed);
+        let class = classes
+            .get(dtc.code())
+            .expect("catalog validated against the Guardian's DTCs");
+        let env = metadata(event, dtc, &config.session_id, class);
+        let reporter = reporters.get_mut(&dtc).expect("catalog validated");
+        let mut dfm_record = reporter.create_record(if failed {
             LifecycleStage::Failed
         } else {
             LifecycleStage::Passed
@@ -259,12 +305,13 @@ fn worker(
                 )
             })
             .collect();
-        record.env_data =
-            MetadataVec::try_from(pairs.as_slice()).expect("at most seven metadata entries");
-        match reporter.publish(&config.entity, record) {
+        dfm_record.env_data =
+            MetadataVec::try_from(pairs.as_slice()).expect("at most eight metadata entries");
+        match reporter.publish(&config.entity, dfm_record) {
             Ok(()) => {
-                info!(event_id=event.id.0, dtc=fault.dtc(), failed,
+                info!(event_id=event.id.0, dtc=dtc.code(), failed,
                     session_id=%config.session_id, "DFM record enqueued");
+                pending.pop_front();
             }
             Err(error) => {
                 warn!(
@@ -272,7 +319,6 @@ fn worker(
                     ?error,
                     "DFM enqueue rejected; retrying"
                 );
-                pending = Some(event);
                 thread::sleep(Duration::from_millis(50));
             }
         }
@@ -296,7 +342,7 @@ mod tests {
             cause: None,
             at: Millis(300),
             kind: EventKind::FaultDetected {
-                fault: FaultCode::FreshnessLost,
+                fault: guardian::FaultCode::FreshnessLost,
                 last_sample: None,
             },
         };
@@ -313,5 +359,37 @@ mod tests {
         }
         .validate()
         .unwrap();
+    }
+    #[test]
+    fn metadata_fits_the_dfm_limits_and_carries_the_classification() {
+        let event = Event {
+            id: EventId(u64::MAX),
+            cause: None,
+            at: Millis(u64::MAX),
+            kind: EventKind::FaultRecovered {
+                fault: guardian::FaultCode::RateImplausible,
+                trigger: guardian::SampleRef {
+                    sequence: u64::MAX,
+                    source_timestamp_ms: u64::MAX,
+                    alive_counter: 255,
+                },
+            },
+        };
+        let class = ("Configuration".to_owned(), "Error".to_owned());
+        let env = metadata(
+            &event,
+            Dtc::Input(guardian::FaultCode::RateImplausible),
+            &"s".repeat(64),
+            &class,
+        );
+
+        assert!(env.len() <= 8);
+        assert!(
+            env.iter().all(|(k, v)| k.len() <= 64 && v.len() <= 64),
+            "{env:?}"
+        );
+        assert_eq!(env["fault_type"], "Configuration");
+        assert_eq!(env["severity"], "Error");
+        assert_eq!(env["requirement"], "FSR-3.3");
     }
 }

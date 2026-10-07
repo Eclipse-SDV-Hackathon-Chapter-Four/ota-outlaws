@@ -37,7 +37,7 @@ description = "Nominal data, 40 degC, incrementing alive counter"
 fault_class = "None"
 hara_tests = ["TS-01"]
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/normal.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/normal.asc" }
 onset = "none"
 
 # The Guardian starts while the source is already running, so this budget
@@ -86,6 +86,20 @@ kind = "overtemp_warning"
 requirement = "FSR-1.2"
 
 [[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempWarning"
+state = "WARNING"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempCritical"
+state = "CRITICAL"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
 kind = "no_fault"
 requirement = "SG-4"
 
@@ -99,7 +113,7 @@ hazard = "HE-1"
 safety_goal = "SG-2"
 hara_tests = ["TS-05"]
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/timeout.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/timeout.asc" }
 onset = "gap"
 
 [[scenario.expect]]
@@ -131,7 +145,7 @@ fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/counter_stuck.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
 
 [[scenario.expect]]
@@ -165,7 +179,7 @@ fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/invalid_quality.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/invalid_quality.asc" }
 onset = "quality_not_valid"
 
 [[scenario.expect]]
@@ -232,7 +246,7 @@ safety_goal = "SG-2"
 hara_tests = ["TS-09"]
 status = "implemented"
 note = "Known limitation: all temperatures frozen together look like a battery at constant temperature, so FSR-2.4 does not apply and no fault is expected. max_stuck tests FSR-2.4."
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/temp_stuck.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/temp_stuck.asc" }
 onset = "none"
 
 [[scenario.expect]]
@@ -378,7 +392,7 @@ hazard = "HE-4"
 safety_goal = "SG-3"
 hara_tests = ["TS-11", "TS-12"]
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/out_of_range.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/out_of_range.asc" }
 onset = "max_at_least:126"
 
 [[scenario.expect]]
@@ -423,7 +437,7 @@ safety_goal = "SG-3"
 hara_tests = ["TS-11", "TS-12"]
 status = "implemented"
 note = "160 degC is above the plausible range, so FSR-3.2 rejects it before the rise rate is checked. spike tests FSR-3.3."
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/implausible_jump.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/implausible_jump.asc" }
 onset = "max_at_least:126"
 
 [[scenario.expect]]
@@ -511,7 +525,7 @@ hazard = "HE-4"
 safety_goal = "SG-3"
 status = "implemented"
 note = "The maximum of 70 degC would raise CRITICAL if the sample were taken as valid."
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/min_gt_avg.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/min_gt_avg.asc" }
 onset = "order_violated"
 
 [[scenario.expect]]
@@ -548,7 +562,7 @@ fault_class = "Signal"
 hazard = "HE-4"
 safety_goal = "SG-3"
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/avg_gt_max.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/avg_gt_max.asc" }
 onset = "order_violated"
 
 [[scenario.expect]]
@@ -585,7 +599,7 @@ fault_class = "Signal"
 hazard = "HE-1"
 safety_goal = "SG-4"
 status = "implemented"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/min_gt_max.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/min_gt_max.asc" }
 onset = "order_violated"
 
 [[scenario.expect]]
@@ -624,7 +638,7 @@ fault_class = "Transport"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "planned"
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/counter_error.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/counter_error.asc" }
 onset = "alive_counter_jumps"
 
 [[scenario.expect]]
@@ -641,7 +655,7 @@ hazard = "HE-1"
 safety_goal = "SG-1"
 status = "planned"
 note = "100 degC appears within 100 ms, so FSR-3.3 rejects it as a spike and raises WARNING. A hot spot that builds up plausibly (FSR-1.4) is not tested by this trace."
-stimulus = { type = "can_trace", trace = "Fault_Injection_CAN_Logs/high_delta.asc" }
+stimulus = { type = "can_trace", trace = "campaign/traces/high_delta.asc" }
 onset = "max_at_least:100"
 
 [[scenario.expect]]

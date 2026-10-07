@@ -12,7 +12,7 @@
 
 # AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-"""Generate the campaign traces that Fault_Injection_CAN_Logs does not have yet.
+"""Generate the campaign traces that generate_asc_logs.py does not produce.
 
 - heating.asc:   heats through the warning and critical thresholds, holds, and
                  cools down again (FSR-1.1, FSR-1.2).
@@ -23,13 +23,13 @@
 - invalid_during_warning.asc: heats to WARNING, then 1 s of low readings with
                  quality INVALID, then valid WARNING-level data again (HARA TS-10).
 - spike.asc:     an in-range spike from 40 degC to 100 degC for 1 s, then back
-                 (FSR-3.3). Fault_Injection_CAN_Logs/implausible_jump.asc
+                 (FSR-3.3). implausible_jump.asc
                  jumps beyond the plausible range, so it tests FSR-3.2.
 
 Every trace starts with 5 s of nominal data: the campaign starts the Guardian
 once the source delivers data, and the Guardian needs a moment to start.
 
-Same BMS_MSG1 encoding as Fault_Injection_CAN_Logs/generate_asc_logs.py:
+Same BMS_MSG1 encoding as generate_asc_logs.py:
 CAN ID 0x500, little-endian UINT16 CellTempMax, CellTempMin, CellTempAvg,
 then Quality (0x80 valid) and AliveCounter. 100 ms frame cycle.
 """

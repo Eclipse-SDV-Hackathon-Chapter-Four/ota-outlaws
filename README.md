@@ -91,12 +91,21 @@ minutes to limit recurring request logs.
 
 ## Guardian reporting
 
-The Guardian service (`guardian-service`) writes the seven diagnostic codes emitted by
-`guardian::FaultCode` to DFM: `BTG_TempFreshnessLost`, `BTG_TempCounterStuck`,
-`BTG_TempSignalStuck`, `BTG_TempQualityInvalid`, `BTG_TempOrderImplausible`,
-`BTG_TempOutOfRange`, and `BTG_TempRateImplausible`. The catalogue deliberately
-contains only these seven codes. Thermal state changes and mitigation requests
-remain uProtocol events; they are not invented diagnostic faults.
+The Guardian service (`guardian-service`) writes ten diagnostic codes to DFM,
+as defined in [Faults to Be Detected](docs/reference/faults-to-be-detected.md):
+
+- the input faults of `guardian::FaultCode`: `BTG_TempFreshnessLost`,
+  `BTG_TempCounterStuck`, `BTG_TempSignalStuck`, `BTG_TempQualityInvalid`,
+  `BTG_TempOrderImplausible`, `BTG_TempOutOfRange`, `BTG_TempRateImplausible`,
+  and `BTG_TempNoDataAtStartup`;
+- the overtemperature codes `BTG_TempOverTempWarning` and
+  `BTG_TempOverTempCritical`, derived from thermal state changes
+  (`guardian-service/src/dtc.rs`). They fail when the thermal state reaches
+  WARNING or CRITICAL from valid data and pass when it is lowered again. A
+  WARNING raised by an implausible sample is caused by its sensor fault and is
+  not an overtemperature.
+
+Mitigation requests remain uProtocol events only.
 
 Guardian joins DFM's private IPC namespace and loads the same mounted catalogue.
 A dedicated worker initializes `fault_lib::FaultApi`, creates reporters, and
@@ -111,8 +120,11 @@ in a future evidence collector for deployed operation.
 
 Each service start generates a fresh UUID session ID. The uProtocol event envelope
 and DFM environment data contain that session ID and event ID. Environment data
-also includes the detecting requirement, Guardian monotonic time, and last sample
-sequence, source timestamp and alive counter when available. A record from an old
+also includes the detecting requirement, Guardian monotonic time, the fault type
+(`fault_type`) and severity from the catalogue, and the triggering sample
+(`sample`: sequence, source timestamp, and alive counter) when available. The
+DFM keeps the catalogue's severity in its records, but not the fault type, so
+both are written into the environment data. A record from an old
 session cannot confirm a new failure event. `FaultRecovered` links to its
 original detection; DFM preserves that detection’s metadata on Passed. A
 `FaultTestPassed` event confirms initial healthy observation and can clear a

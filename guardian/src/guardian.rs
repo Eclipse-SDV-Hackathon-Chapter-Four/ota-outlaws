@@ -126,7 +126,8 @@ impl Guardian {
             self.reset_recovery();
             self.report_fault(fault, now, &mut events);
             if may_be_real_heat {
-                self.raise_to_warning(&sample, now, &mut events);
+                let cause = self.active_faults.get(&fault).copied();
+                self.raise_to_warning(&sample, cause, now, &mut events);
             }
             return events;
         }
@@ -194,7 +195,15 @@ impl Guardian {
 
     /// Raises the thermal state to WARNING for an invalid sample that may
     /// indicate real heat. Never to CRITICAL, never lowering (FSR-3.6).
-    fn raise_to_warning(&mut self, sample: &Sample, now: Millis, events: &mut Vec<Event>) {
+    /// `cause` is the fault event of the invalid sample, so the evidence chain
+    /// shows the WARNING comes from a sensor fault, not from overtemperature.
+    fn raise_to_warning(
+        &mut self,
+        sample: &Sample,
+        cause: Option<EventId>,
+        now: Millis,
+        events: &mut Vec<Event>,
+    ) {
         if self.thermal.severity() >= ThermalState::Warning.severity() {
             return;
         }
@@ -202,7 +211,7 @@ impl Guardian {
         let from = self.thermal;
         self.thermal = ThermalState::Warning;
         self.emit(
-            None,
+            cause,
             now,
             EventKind::ThermalStateChanged {
                 from,

@@ -1,6 +1,6 @@
 {
   "id": "battery_guardian",
-  "version": 4,
+  "version": 5,
   "faults": [
     {
       "id": {
@@ -72,7 +72,7 @@
       },
       "name": "BTG_TempOrderImplausible",
       "summary": "FSR-3.1: Minimum, average, and maximum cell temperature are not in order",
-      "category": "Hardware",
+      "category": "Configuration",
       "severity": "Error",
       "compliance": [
         "SafetyCritical"
@@ -88,7 +88,7 @@
       },
       "name": "BTG_TempOutOfRange",
       "summary": "FSR-3.2: Cell temperature outside the plausible range",
-      "category": "Hardware",
+      "category": "Configuration",
       "severity": "Error",
       "compliance": [
         "SafetyCritical"
@@ -104,7 +104,7 @@
       },
       "name": "BTG_TempRateImplausible",
       "summary": "FSR-3.3: Maximum cell temperature rose faster than plausible",
-      "category": "Hardware",
+      "category": "Configuration",
       "severity": "Error",
       "compliance": [
         "SafetyCritical"
@@ -122,6 +122,38 @@
       "summary": "FSR-2.1: No fresh temperature sample since the Guardian started",
       "category": "Communication",
       "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempOverTempWarning"
+      },
+      "name": "BTG_TempOverTempWarning",
+      "summary": "FSR-1.1: Maximum cell temperature reached the WARNING threshold",
+      "category": "Hardware",
+      "severity": "Warn",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempOverTempCritical"
+      },
+      "name": "BTG_TempOverTempCritical",
+      "summary": "FSR-1.2: Maximum cell temperature reached the CRITICAL threshold",
+      "category": "Hardware",
+      "severity": "Fatal",
       "compliance": [
         "SafetyCritical"
       ],

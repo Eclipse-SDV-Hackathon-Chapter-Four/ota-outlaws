@@ -145,6 +145,16 @@ pub enum Expectation {
     SamplesContinue { requirement: String },
     /// The thermal state is never lowered after the onset.
     NotLowered { requirement: String },
+    /// The thermal state reaches `state` from valid data, and OpenSOVD shows
+    /// `dtc` failed for that change within the budget, with the catalog's
+    /// fault type and severity. If the state is lowered again, OpenSOVD
+    /// shows the DTC passed with its history kept.
+    OvertempDtc {
+        dtc: String,
+        state: String,
+        budget: String,
+        requirement: String,
+    },
 }
 
 impl Expectation {
@@ -160,7 +170,8 @@ impl Expectation {
             | Expectation::NoFault { requirement }
             | Expectation::StartupFault { requirement, .. }
             | Expectation::SamplesContinue { requirement }
-            | Expectation::NotLowered { requirement } => requirement,
+            | Expectation::NotLowered { requirement }
+            | Expectation::OvertempDtc { requirement, .. } => requirement,
         }
     }
 }
