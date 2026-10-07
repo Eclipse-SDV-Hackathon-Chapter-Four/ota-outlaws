@@ -15,7 +15,7 @@ SPDX-License-Identifier: EPL-2.0
 
 Web page for the stack: state, memory, and settings of every component, start
 and stop, input and output logs, the DTCs in OpenSOVD, and the campaign
-reports. How it is built is described in the
+reports with a signal plot per scenario. How it is built is described in the
 [component documentation](../docs/reference/components/dashboard.md).
 
 ## Run
@@ -77,7 +77,8 @@ cargo test -p dashboard
 The tests cover the Docker API parsing (HTTP responses, chunked bodies, log
 frames, tar archives), memory and settings from `docker inspect`, the start
 order, the taps' ring buffers and line formats, the DTC catalog join, the
-campaign evidence reader, the campaign runner's container settings and path
+campaign evidence reader and run lookup, the signal plot series (DTC flag
+changes, half-written recordings), the campaign runner's container settings and path
 translation, and the header check for changes.
 
 ## AI Assistance

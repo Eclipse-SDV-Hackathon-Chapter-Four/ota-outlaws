@@ -49,6 +49,7 @@ mod components;
 mod docker;
 mod launcher;
 mod runs;
+mod signal;
 mod sovd;
 mod taps;
 

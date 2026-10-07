@@ -35,6 +35,10 @@
   --sev-warn: #f59e0b;
   --sev-info: #2563eb;
   --sev-debug: #6b7280;
+  --s-max: #c2185b;
+  --s-avg: #00897b;
+  --s-min: #3949ab;
+  --st-monitoring: #dbe7f7;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   color-scheme: light;
@@ -59,6 +63,10 @@
     --idle-bg: #262c34;
     --sev-fatal: #b71c1c;
     --sev-debug: #8b949e;
+    --s-max: #ff79a8;
+    --s-avg: #4dd0b8;
+    --s-min: #8c9eff;
+    --st-monitoring: #1d2c42;
     --shadow: none;
     color-scheme: dark;
   }
@@ -276,6 +284,59 @@ h4 { font-size: 13px; margin: 14px 0 6px; }
 details.timeline { margin-top: 14px; }
 details.timeline summary { cursor: pointer; font-weight: 600; }
 
+/* Signal plot (app.js, signalSvg). */
+.signal svg { display: block; width: 100%; height: auto; }
+.signal text { fill: var(--muted); font-size: 11px; }
+.signal .grid { stroke: var(--border); stroke-width: 1; }
+.sig-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+.sig-max_c { stroke: var(--s-max); }
+.sig-avg_c { stroke: var(--s-avg); }
+.sig-min_c { stroke: var(--s-min); }
+.sig-invalid { fill: var(--warn-bg); }
+.sig-gap { fill: var(--idle-bg); }
+.sig-after { fill: var(--idle); opacity: 0.12; }
+.sig-inject { stroke: var(--idle); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.sig-inject.setup { opacity: 0.45; }
+.sig-onset { stroke: var(--accent); stroke-width: 1.8; }
+.signal text.sig-label { fill: var(--text); font-size: 10.5px; }
+.signal text.sig-label.onset { fill: var(--accent); font-weight: 700; }
+.st-clear { fill: var(--ok-bg); }
+.st-monitoring { fill: var(--st-monitoring); }
+.st-warning { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 1; }
+.st-critical, .st-mitigating { fill: var(--bad-bg); stroke: var(--bad); stroke-width: 1; }
+.mon-ok { fill: var(--ok-bg); }
+.mon-degraded { fill: var(--warn-bg); }
+.mon-lost { fill: var(--bad-bg); }
+.signal text.lane-text { fill: var(--text); font-size: 10px; pointer-events: none; }
+.signal text.lane-text.on-bad { fill: #fff; }
+.mk { stroke: var(--panel); stroke-width: 1; }
+.mk-detected { fill: var(--bad); }
+.mk-recovered { fill: var(--ok); }
+.mk-mitigation { fill: var(--warn); }
+.mk-supervisor { fill: var(--accent); }
+.sig-dtc { fill: var(--bad); opacity: 0.75; }
+.sig-cross { stroke: var(--text); stroke-width: 1; opacity: 0.4; pointer-events: none; }
+.signal-readout { color: var(--muted); min-height: 1.4em; margin-top: 2px; }
+.signal-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.signal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.signal-legend i { display: inline-block; }
+.signal-legend .lg-line { width: 16px; height: 0; border-top: 2px solid; }
+.signal-legend .lg-line.sig-max_c { border-color: var(--s-max); }
+.signal-legend .lg-line.sig-avg_c { border-color: var(--s-avg); }
+.signal-legend .lg-line.sig-min_c { border-color: var(--s-min); }
+.signal-legend .lg-box { width: 12px; height: 10px; border: 1px solid var(--border); }
+.signal-legend .lg-box.sig-invalid { background: var(--warn-bg); }
+.signal-legend .lg-box.sig-gap { background: var(--idle-bg); }
+.signal-legend .lg-box.sig-after { background: var(--idle); opacity: 0.35; }
+.signal-legend .lg-box.sig-dtc { background: var(--bad); border-color: var(--bad); }
+.signal-legend .lg-vline { width: 0; height: 12px; border-left: 2px solid var(--accent); }
+.signal-legend .lg-vline.inject { border-left: 2px dashed var(--idle); }
+.signal-legend .lg-mk { width: 9px; height: 9px; }
+.signal-legend .lg-mk.mk-detected { background: var(--bad); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.signal-legend .lg-mk.mk-recovered { background: var(--ok); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.signal-legend .lg-mk.mk-mitigation { background: var(--warn); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.signal-legend .lg-mk.mk-supervisor { background: var(--accent); }
+
 #print-root { display: none; }
 
 @media print {
@@ -288,6 +349,15 @@ details.timeline summary { cursor: pointer; font-weight: 600; }
   #print-root th, #print-root td { border: 1px solid #999; padding: 3pt 5pt; font-size: 9.5pt; text-align: left; vertical-align: top; }
   #print-root th { background: #eee; color: #000; text-transform: none; letter-spacing: 0; }
   #print-root .meta { color: #444; font-size: 9.5pt; margin-bottom: 10pt; }
+  /* The plot on paper uses the light colors, whatever the screen's scheme. */
+  #print-root {
+    --text: #1c2430; --muted: #5b6676; --border: #dde3ea; --panel: #ffffff; --accent: #1f6feb;
+    --ok: #1a7f37; --ok-bg: #dafbe1; --warn: #9a6700; --warn-bg: #fff3c4; --bad: #c62828; --bad-bg: #ffe1e1;
+    --idle: #6e7781; --idle-bg: #eaeef2; --s-max: #c2185b; --s-avg: #00897b; --s-min: #3949ab; --st-monitoring: #dbe7f7;
+  }
+  #print-root .signal { break-inside: avoid; }
+  #print-root .signal-readout, #print-root .sig-cross { display: none; }
+  #print-root .signal-legend span i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   #print-root .sev, #print-root .verdict, #print-root .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   #print-root .scenario-print { break-inside: avoid; margin-bottom: 10pt; }
   @page { margin: 14mm; }

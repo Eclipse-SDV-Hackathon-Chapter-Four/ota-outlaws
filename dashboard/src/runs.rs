@@ -127,7 +127,7 @@ impl Runs {
     }
 
     pub fn campaign(&self, id: &str, activity: &Activity) -> anyhow::Result<CampaignView> {
-        if id.is_empty() || id.contains(['/', '\\']) || id.starts_with('.') {
+        if !valid_name(id) {
             bail!("invalid campaign id {id:?}");
         }
         let dir = self.dir.join(id);
@@ -228,6 +228,27 @@ impl Runs {
             campaign_md,
         })
     }
+}
+
+impl Runs {
+    /// The directory of one scenario run, by the `run_id` of its manifest:
+    /// `<campaign>/<scenario>`, or `<campaign>` for an `observe` run.
+    pub fn run_dir(&self, run_id: &str) -> anyhow::Result<PathBuf> {
+        let parts: Vec<&str> = run_id.split('/').collect();
+        if parts.len() > 2 || !parts.iter().all(|p| valid_name(p)) {
+            bail!("invalid run id {run_id:?}");
+        }
+        let dir = parts.iter().fold(self.dir.clone(), |dir, p| dir.join(p));
+        if !dir.join("manifest.json").is_file() {
+            bail!("no run {run_id}");
+        }
+        Ok(dir)
+    }
+}
+
+/// One path component under `runs/`: no separators, nothing hidden or `..`.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['/', '\\']) && !name.starts_with('.')
 }
 
 fn scenario(dir: &Path, name: Option<&str>, activity: &Activity) -> ScenarioView {
@@ -444,5 +465,26 @@ mod tests {
         };
         assert!(runs.campaign("../etc", &Activity::default()).is_err());
         assert!(runs.campaign("..", &Activity::default()).is_err());
+    }
+
+    #[test]
+    fn finds_scenario_and_observe_runs() {
+        let dir = temp_runs("run-dir");
+        write(&dir.join("c1").join("hot_spot").join("manifest.json"), "{}");
+        write(&dir.join("c2-observe-spike").join("manifest.json"), "{}");
+        let runs = Runs { dir: dir.clone() };
+        assert_eq!(
+            runs.run_dir("c1/hot_spot").unwrap(),
+            dir.join("c1").join("hot_spot")
+        );
+        assert_eq!(
+            runs.run_dir("c2-observe-spike").unwrap(),
+            dir.join("c2-observe-spike")
+        );
+        assert!(runs.run_dir("c1").is_err(), "a campaign is no run");
+        assert!(runs.run_dir("c1/../c1/hot_spot").is_err());
+        assert!(runs.run_dir("c1/..").is_err());
+        assert!(runs.run_dir("c1/hot_spot/x").is_err());
+        assert!(runs.run_dir("").is_err());
     }
 }
