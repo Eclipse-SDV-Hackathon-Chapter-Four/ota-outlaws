@@ -24,6 +24,7 @@ on:
       - "guardian-service/**"
       - "third-party/fault-lib/**"
       - "contracts/**"
+      - "campaign/**"
       - "vss-publisher/**"
       - "config/guardian/**"
       - "diagnostics/**"

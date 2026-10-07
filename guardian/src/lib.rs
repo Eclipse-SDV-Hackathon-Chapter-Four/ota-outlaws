@@ -24,7 +24,8 @@ mod guardian;
 mod model;
 
 pub use config::{
-    ConfigError, FreshnessConfig, GuardianConfig, RecoveryConfig, StuckConfig, ThermalConfig,
+    ConfigError, FreshnessConfig, GuardianConfig, PlausibilityConfig, RecoveryConfig, StuckConfig,
+    ThermalConfig,
 };
 pub use guardian::Guardian;
 pub use model::{

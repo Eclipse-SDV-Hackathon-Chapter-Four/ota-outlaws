@@ -46,6 +46,10 @@ impl FreshnessMonitor {
         self.repeated_frames = 0;
     }
 
+    pub(crate) fn stale_timeout_ms(&self) -> u64 {
+        self.stale_timeout_ms
+    }
+
     /// Records a newer frame that carries the alive counter of the last fresh
     /// sample.
     pub(crate) fn record_repeated_frame(&mut self) {

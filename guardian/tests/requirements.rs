@@ -234,8 +234,13 @@ fn fsr_1_1_below_warn_threshold_stays_monitoring() {
 fn fsr_1_2_reaching_critical_threshold_raises_critical_and_requests_mitigation() {
     let critical = config().thermal.critical_c;
     let mut run = Run::new();
-    run.samples(3, 40.0, 35.0, 30.0);
-    run.sample(critical, 40.0, 35.0);
+    // Heat plausibly (FSR-3.3) to just below the threshold, then reach it.
+    let mut max = 40.0;
+    while max < critical - 1.0 {
+        run.sample(max, max - 5.0, max - 10.0);
+        max += 1.0;
+    }
+    run.sample(critical, critical - 5.0, critical - 10.0);
     let t0 = run.now;
 
     let reacted = run
@@ -281,6 +286,51 @@ fn fsr_1_2_critical_is_requested_only_once() {
     run.samples(10, 60.0, 40.0, 35.0);
 
     assert_eq!(run.mitigations(), vec![Mitigation::DriverWarningOvertemp]);
+}
+
+// --- FSR-2.1: no data after startup ---------------------------------------------
+
+#[test]
+fn fsr_2_1_no_data_after_start_leads_to_degraded_within_budget() {
+    // HARA TS-03: the Guardian starts, no temperature data arrives.
+    let stale_timeout = config().freshness.stale_timeout_ms;
+    let mut run = Run::new();
+
+    run.advance(2_000);
+
+    let detected = run
+        .fault_time(FaultCode::NoDataAtStartup)
+        .expect("startup fault");
+    assert!(detected <= stale_timeout + T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(
+        run.mitigations(),
+        vec![Mitigation::DriverWarningMonitoringUnavailable]
+    );
+    assert_eq!(run.thermal(), ThermalState::Clear);
+}
+
+#[test]
+fn fsr_2_1_first_sample_within_t_stale_is_no_fault() {
+    let mut run = Run::new();
+
+    run.samples(20, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.fault_time(FaultCode::NoDataAtStartup), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+}
+
+#[test]
+fn fsr_2_1_startup_fault_recovers_when_data_arrives() {
+    let mut run = Run::new();
+    run.advance(1_000);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+
+    run.samples(30, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    assert_eq!(run.active_fault_count(), 0);
 }
 
 // --- FSR-2.2: loss of fresh data --------------------------------------------
@@ -435,9 +485,11 @@ fn freeze_maximum_while_heating(samples_per_step: usize) -> StuckOutcome {
         if i % samples_per_step == 0 {
             avg += 1.0;
         }
-        run.sample(avg + 5.0, avg, avg - 5.0);
+        run.sample(avg + 40.0, avg, avg - 5.0);
     }
-    let stuck_max = avg + 5.0;
+    // The maximum stays well above the rising average, so Min ≤ Avg ≤ Max
+    // holds (FSR-3.1) until the stuck fault is detected.
+    let stuck_max = avg + 40.0;
     let onset_avg = avg;
     let t0 = run.now + CYCLE_MS;
 
@@ -563,11 +615,12 @@ fn fsr_2_5_degraded_during_critical_keeps_critical() {
 fn fsr_2_5_valid_sample_still_raises_thermal_state_while_degraded() {
     // Output model: a plausible critical sample always leads to CRITICAL.
     let mut run = Run::new();
-    run.samples(5, 30.0, 28.0, 26.0);
+    run.samples(5, 45.0, 40.0, 35.0);
     run.advance(1_000);
     assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
 
-    run.sample(60.0, 45.0, 40.0);
+    // 11 °C in 1.1 s is a plausible rise (FSR-3.3).
+    run.sample(56.0, 45.0, 40.0);
 
     assert_eq!(run.thermal(), ThermalState::Critical);
     assert!(run
@@ -695,6 +748,208 @@ fn fsr_3_4_invalid_samples_still_show_the_source_is_alive() {
     assert_eq!(run.fault_time(FaultCode::CounterStuck), None);
 }
 
+// --- FSR-3.1 to FSR-3.3, FSR-3.6: plausibility and mitigation gating -----------
+
+/// Heats from 30 °C to `to` at 1 °C per cycle, below `r_max`.
+fn ramp_to(run: &mut Run, to: f32) {
+    let mut max = 30.0;
+    while max < to {
+        max = (max + 1.0).min(to);
+        run.sample(max, max - 8.0, max - 16.0);
+    }
+}
+
+fn overtemp_requested(run: &Run) -> bool {
+    run.mitigations()
+        .contains(&Mitigation::DriverWarningOvertemp)
+}
+
+#[test]
+fn fsr_3_1_average_above_maximum_is_invalid() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+
+    run.sample(70.0, 90.0, 20.0);
+
+    assert!(run.fault_time(FaultCode::OrderImplausible).is_some());
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+    assert!(!overtemp_requested(&run));
+}
+
+#[test]
+fn fsr_3_1_minimum_above_average_or_maximum_is_invalid() {
+    for (max, avg, min) in [(70.0, 40.0, 60.0), (40.0, 50.0, 70.0)] {
+        let mut run = Run::new();
+        run.samples(10, 30.0, 28.0, 26.0);
+
+        run.sample(max, avg, min);
+
+        assert!(
+            run.fault_time(FaultCode::OrderImplausible).is_some(),
+            "{max}/{avg}/{min}"
+        );
+    }
+}
+
+#[test]
+fn fsr_3_1_equal_temperatures_are_plausible() {
+    let mut run = Run::new();
+
+    run.samples(10, 30.0, 30.0, 30.0);
+
+    assert_eq!(run.fault_time(FaultCode::OrderImplausible), None);
+}
+
+#[test]
+fn fsr_3_2_out_of_range_high_raises_warning_not_critical() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    let t0 = run.now + CYCLE_MS;
+
+    run.sample(250.0, 80.0, 10.0);
+
+    let detected = run.fault_time(FaultCode::OutOfRange).expect("out of range");
+    assert!(detected - t0 <= T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert!(!overtemp_requested(&run));
+}
+
+#[test]
+fn fsr_3_2_range_bounds_are_plausible() {
+    let plausibility = config().plausibility;
+    let mut run = Run::new();
+
+    ramp_to(&mut run, plausibility.max_c);
+
+    assert_eq!(run.fault_time(FaultCode::OutOfRange), None);
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+}
+
+#[test]
+fn fsr_3_3_spike_raises_warning_not_critical() {
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+    let t0 = run.now + CYCLE_MS;
+
+    run.sample(70.0, 62.0, 54.0);
+
+    let detected = run
+        .fault_time(FaultCode::RateImplausible)
+        .expect("rate implausible");
+    assert!(detected - t0 <= T_REACT_MS);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    assert!(!overtemp_requested(&run));
+}
+
+#[test]
+fn fsr_3_3_fast_plausible_rise_is_valid() {
+    // 1.5 °C per 100 ms is 15 °C/s, below r_max.
+    let mut run = Run::new();
+    run.samples(5, 30.0, 22.0, 14.0);
+    let mut max = 30.0;
+    for _ in 0..10 {
+        max += 1.5;
+        run.sample(max, max - 8.0, max - 16.0);
+    }
+
+    assert_eq!(run.fault_time(FaultCode::RateImplausible), None);
+}
+
+#[test]
+fn fsr_3_3_one_resolution_step_is_plausible_under_timestamp_jitter() {
+    // Observed in the real chain: frames reach the Data Broker in a burst,
+    // 2 ms apart. A rise of one CAN resolution step (1 °C) is not a spike.
+    let mut run = Run::new();
+    run.samples(5, 38.0, 31.0, 24.0);
+    let last = run.now + SOURCE_CLOCK_OFFSET_MS;
+    run.deliver(last + 2, 39.0, 32.0, 25.0);
+    run.deliver(last + 4, 40.0, 32.0, 25.0);
+
+    assert_eq!(run.fault_time(FaultCode::RateImplausible), None);
+}
+
+#[test]
+fn fsr_3_3_larger_rise_within_jitter_is_a_spike() {
+    let mut run = Run::new();
+    run.samples(5, 38.0, 31.0, 24.0);
+    let last = run.now + SOURCE_CLOCK_OFFSET_MS;
+    run.deliver(last + 2, 41.0, 32.0, 25.0);
+
+    assert!(run.fault_time(FaultCode::RateImplausible).is_some());
+}
+
+#[test]
+fn fsr_3_3_sustained_high_value_becomes_valid_and_escalates() {
+    // A real runaway that keeps a high value: the first samples are rejected
+    // as a spike, but once the implied rise since the last valid sample is
+    // below r_max, the value is valid and CRITICAL follows (fail toward warning).
+    let mut run = Run::new();
+    run.samples(10, 40.0, 32.0, 24.0);
+
+    run.samples(50, 100.0, 92.0, 84.0);
+
+    assert!(run.fault_time(FaultCode::RateImplausible).is_some());
+    assert_eq!(run.thermal(), ThermalState::Critical);
+    assert!(overtemp_requested(&run));
+}
+
+#[test]
+fn fsr_3_6_invalid_sample_never_lowers_the_thermal_state() {
+    let mut run = Run::new();
+    ramp_to(&mut run, 47.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+
+    // Invalid samples that would look cool: maximum below the average.
+    run.samples(30, 20.0, 40.0, 10.0);
+
+    assert_eq!(run.thermal(), ThermalState::Warning);
+}
+
+#[test]
+fn fsr_3_6_invalid_input_never_raises_critical_or_mitigation() {
+    for (max, avg, min) in [
+        (250.0, 80.0, 10.0),
+        (70.0, 90.0, 20.0),
+        (160.0, 160.0, 160.0),
+    ] {
+        let mut run = Run::new();
+        run.samples(10, 40.0, 32.0, 24.0);
+
+        run.sample(max, avg, min);
+
+        assert_ne!(run.thermal(), ThermalState::Critical, "{max}/{avg}/{min}");
+        assert!(!overtemp_requested(&run), "{max}/{avg}/{min}");
+    }
+}
+
+#[test]
+fn fsr_3_6_valid_critical_sample_still_requests_mitigation() {
+    // Positive control for the gating: valid data must still escalate.
+    let mut run = Run::new();
+
+    ramp_to(&mut run, 56.0);
+
+    assert_eq!(run.thermal(), ThermalState::Critical);
+    assert!(overtemp_requested(&run));
+    assert_eq!(run.active_fault_count(), 0);
+}
+
+#[test]
+fn plausibility_faults_recover_after_valid_samples() {
+    let mut run = Run::new();
+    run.samples(10, 30.0, 28.0, 26.0);
+    run.sample(70.0, 90.0, 20.0);
+    assert_eq!(run.monitoring(), MonitoringStatus::Degraded);
+
+    run.samples(30, 30.0, 28.0, 26.0);
+
+    assert_eq!(run.monitoring(), MonitoringStatus::Ok);
+    assert_eq!(run.active_fault_count(), 0);
+}
+
 // --- FSR-D.1: fault codes identify the detecting requirement ------------------
 
 #[test]
@@ -703,6 +958,10 @@ fn fsr_d_1_fault_codes_identify_detecting_requirement() {
     assert_eq!(FaultCode::SignalStuck.requirement(), "FSR-2.4");
     assert_eq!(FaultCode::CounterStuck.requirement(), "FSR-2.3");
     assert_eq!(FaultCode::QualityInvalid.requirement(), "FSR-3.4");
+    assert_eq!(FaultCode::OrderImplausible.requirement(), "FSR-3.1");
+    assert_eq!(FaultCode::OutOfRange.requirement(), "FSR-3.2");
+    assert_eq!(FaultCode::RateImplausible.requirement(), "FSR-3.3");
+    assert_eq!(FaultCode::NoDataAtStartup.requirement(), "FSR-2.1");
 }
 
 #[test]
@@ -804,7 +1063,13 @@ fn recovery_thermal_requires_hysteresis_and_sustained_valid_data() {
     assert_eq!(run.thermal(), ThermalState::Warning);
     run.samples(11, 42.0, 30.0, 25.0);
     assert_eq!(run.thermal(), ThermalState::Monitoring);
-    run.sample(55.0, 40.0, 30.0); // Escalation remains immediate.
+    // Escalation remains immediate: heat plausibly to just below θ_crit, then
+    // the first sample at θ_crit raises CRITICAL.
+    for max in 43..55 {
+        run.sample(max as f32, 30.0, 25.0);
+    }
+    assert_eq!(run.thermal(), ThermalState::Warning);
+    run.sample(55.0, 30.0, 25.0);
     assert_eq!(run.thermal(), ThermalState::Critical);
 }
 
@@ -932,7 +1197,7 @@ fn recovery_initial_monitor_tests_require_observation_before_pass() {
             .iter()
             .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
             .count(),
-        3
+        7
     );
     run.samples(31, 35.0, 30.0, 25.0);
     assert_eq!(
@@ -940,7 +1205,7 @@ fn recovery_initial_monitor_tests_require_observation_before_pass() {
             .iter()
             .filter(|e| matches!(e.kind, EventKind::FaultTestPassed { .. }))
             .count(),
-        4
+        8
     );
     assert!(!run
         .events
@@ -990,4 +1255,19 @@ fn recovery_stuck_max_that_jumps_once_and_freezes_remains_degraded() {
     }
     assert_eq!(run.monitoring(), MonitoringStatus::Ok);
     assert_eq!(run.guardian.active_faults().count(), 0);
+}
+
+#[test]
+fn config_rejects_implausible_plausibility_limits() {
+    let shipped = include_str!("../../config/guardian/safety-params.toml");
+    for (from, to) in [
+        ("max_c = 125.0", "max_c = -5.0"),
+        ("max_rise_c_per_s = 20.0", "max_rise_c_per_s = 0.0"),
+        ("resolution_c = 1.0", "resolution_c = -1.0"),
+        ("max_c = 125.0", "max_c = 50.0"),
+    ] {
+        assert!(shipped.contains(from), "{from}");
+        let text = shipped.replace(from, to);
+        assert!(GuardianConfig::from_toml_str(&text).is_err(), "{to}");
+    }
 }

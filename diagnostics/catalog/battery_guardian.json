@@ -1,6 +1,6 @@
 {
   "id": "battery_guardian",
-  "version": 2,
+  "version": 4,
   "faults": [
     {
       "id": {
@@ -56,6 +56,70 @@
       },
       "name": "BTG_TempQualityInvalid",
       "summary": "FSR-3.4: Temperature sample quality is invalid or unavailable",
+      "category": "Communication",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempOrderImplausible"
+      },
+      "name": "BTG_TempOrderImplausible",
+      "summary": "FSR-3.1: Minimum, average, and maximum cell temperature are not in order",
+      "category": "Hardware",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempOutOfRange"
+      },
+      "name": "BTG_TempOutOfRange",
+      "summary": "FSR-3.2: Cell temperature outside the plausible range",
+      "category": "Hardware",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempRateImplausible"
+      },
+      "name": "BTG_TempRateImplausible",
+      "summary": "FSR-3.3: Maximum cell temperature rose faster than plausible",
+      "category": "Hardware",
+      "severity": "Error",
+      "compliance": [
+        "SafetyCritical"
+      ],
+      "reporter_side_debounce": null,
+      "reporter_side_reset": null,
+      "manager_side_debounce": null,
+      "manager_side_reset": null
+    },
+    {
+      "id": {
+        "Text": "BTG_TempNoDataAtStartup"
+      },
+      "name": "BTG_TempNoDataAtStartup",
+      "summary": "FSR-2.1: No fresh temperature sample since the Guardian started",
       "category": "Communication",
       "severity": "Error",
       "compliance": [
