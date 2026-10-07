@@ -239,9 +239,10 @@ covered by its unit tests; **tested** means an end-to-end campaign proves it.
 | FSR-1.2 | When the maximum cell temperature of a valid sample reaches `θ_crit`, the thermal state shall be CRITICAL and the Guardian shall publish `DRIVER_WARNING_OVERTEMP`. | `T_react` | Nominal heating profile to the critical limit | Must | implemented |
 | FSR-1.3 | When valid samples show a temperature rise of at least `r_trend` sustained for `T_trend`, the thermal state shall be WARNING or more severe, even below `θ_warn`. | `T_trend` + `T_react` | Fast heating profile below `θ_warn` | Could | planned |
 | FSR-1.4 | When the maximum cell temperature exceeds the average by more than `Δ_hotspot`, the thermal state shall be WARNING or more severe. A large spread is treated as a real local hot spot, never as a sensor fault. | `T_react` | Single-cell hot spot, upward drift of the maximum | Could | planned |
-| FSR-1.5 | The thermal state shall be lowered only when the triggering criterion has been undercut by the hysteresis `θ_hyst` for `N_recover` consecutive valid samples, and only while the monitoring status is not DEGRADED. | — | Temperature oscillating around `θ_warn` | Should | planned |
+| FSR-1.5 | The thermal state shall be lowered only when the triggering criterion has been undercut by the hysteresis `θ_hyst` for `N_recover` consecutive valid samples, and only while the monitoring status is not DEGRADED. | — | Temperature oscillating around `θ_warn` | Should | implemented and tested |
 | FSR-1.6 | Once the Guardian has published the mitigation request, the thermal state shall change from CRITICAL to MITIGATING. | `T_react` | Nominal critical profile | Could | planned |
-| FSR-1.7 | When the temperature keeps rising for `T_mitigation` while MITIGATING, the Guardian shall return to CRITICAL and repeat the mitigation request ("mitigation failed"). | `T_mitigation` + `T_react` | Heating profile that continues after the mitigation request | Could | planned |
+| FSR-1.7 | When the temperature keeps rising for `T_mitigation` while MITIGATING, the Guardian shall return to CRITICAL and repeat the mitigation request ("mitigation failed"). | `T_recover` | [config](../../config/guardian/safety-params.toml) | Minimum healthy observation duration, in addition to consecutive samples | FSR-1.5, FSR-2.6 |
+| `T_mitigation` + `T_react` | Heating profile that continues after the mitigation request | Could | planned |
 
 ### SG-2: No silent loss of monitoring
 
@@ -252,7 +253,7 @@ covered by its unit tests; **tested** means an end-to-end campaign proves it.
 | FSR-2.3 | When no fresh sample arrives for longer than `T_stale`, but at least two frames with an unchanged alive counter arrive meanwhile, the monitoring status shall be DEGRADED and the Guardian shall report a **source** fault (counter stuck) instead of a freshness fault. A single repeated frame, such as a duplicate, does not count. | `T_stale` + `T_react` | Source repeats the same frame (frozen ECU) | Must | implemented |
 | FSR-2.4 | When the maximum cell temperature stays unchanged while the average or minimum temperature moves by at least `Δ_stuck`, the monitoring status shall be DEGRADED and the Guardian shall report a **signal** fault (stuck), but not before the maximum has been unchanged for `T_stuck`. However slowly the battery heats, the fault shall be detected before the average or minimum has moved by more than `Δ_stuck` plus one CAN step (1 °C). | `T_react` after both conditions hold; hidden error ≤ `Δ_stuck` + 1 °C | Stuck maximum with fast heating and with very slow heating; slow nominal heating as a negative test | Must | implemented |
 | FSR-2.5 | While the monitoring status is DEGRADED, the thermal state shall not be lowered. It may still be raised as described in the [output model](#guardian-output-model). | — | Every SG-2 fault injected during WARNING and during CRITICAL | Must | implemented |
-| FSR-2.6 | The monitoring status shall return from DEGRADED to OK only after `N_recover` consecutive valid samples. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | planned |
+| FSR-2.6 | The monitoring status shall return from DEGRADED to OK only after `N_recover` consecutive valid samples. The thermal state shall then be reassessed from fresh data, following FSR-1.5. | — | Recovery after each SG-2 fault ends | Should | implemented and tested |
 | FSR-2.7 | The Guardian shall publish a heartbeat every `T_hb_period`. The Evidence Collector shall record a heartbeat missing for longer than `T_hb` as a Guardian failure. The runtime shall restart a terminated Guardian. | `T_hb` + `T_react` | Guardian killed, Guardian paused | Could | planned |
 | FSR-2.8 | When the clocks of source and Guardian are synchronized (enabled by configuration), a sample whose source timestamp is older than `T_age` shall not count as fresh. | `T_react` | Constant transport delay longer than `T_age` | Could | planned |
 
@@ -272,8 +273,8 @@ covered by its unit tests; **tested** means an end-to-end campaign proves it.
 
 | ID | Requirement | Budget | Test with | Prio | Status |
 |----|-------------|--------|-----------|------|--------|
-| FSR-D.1 | Every fault the Guardian reports shall be written to the DFM. The fault code shall identify the requirement that detected the fault. A failed or delayed write shall not delay the safety reaction. | `T_report` | Every Must campaign | Must | planned |
-| FSR-D.2 | Every DFM fault record shall be visible through OpenSOVD. The Evidence Collector checks this. | `T_diag` | Every Must campaign | Must | planned |
+| FSR-D.1 | Every fault the Guardian reports shall be written to the DFM. The fault code shall identify the requirement that detected the fault. A failed or delayed write shall not delay the safety reaction. | `T_report` | Every Must campaign | Must | implemented: nonblocking reporter; four real IPC campaigns |
+| FSR-D.2 | Every DFM fault record shall be visible through OpenSOVD. The Evidence Collector checks this. | `T_diag` | Every Must campaign | Must | verified in integration tests: matching session/event metadata readback; deployed evidence collector planned |
 | FSR-D.3 | When a DFM write fails or is delayed beyond `T_report`, the Guardian shall report the failed write as a diagnostic fault once the DFM is reachable again. | — | Delayed DFM write | Should | planned |
 | FSR-D.4 | When a DFM record is not visible through OpenSOVD within `T_diag`, the Evidence Collector shall report it. | `T_diag` | Partial OpenSOVD visibility | Should | planned |
 
@@ -307,7 +308,7 @@ in the end-to-end setup.
 | `T_react` | 500 ms | Reaction time of the Guardian once a condition is observable | most FSRs |
 | `T_report` | 200 ms | Maximum latency of a DFM write | FSR-D.1, FSR-D.3 |
 | `T_diag` | 2000 ms | Maximum latency until a DFM record is visible through OpenSOVD | FSR-D.2, FSR-D.4 |
-| `θ_hyst` | 2 °C | Hysteresis below a threshold before the thermal state is lowered | FSR-1.5 |
+| `θ_hyst` | [config](../../config/guardian/safety-params.toml) | Hysteresis below a threshold before the thermal state is lowered | FSR-1.5 |
 | `θ_min`, `θ_max` | 0 °C, 125 °C | Plausible cell temperature range. The CAN signal (whole degrees, no offset, 0 to 255 °C) cannot represent values below 0 °C | FSR-3.2 |
 | `Δ_hotspot` | 10 °C | Spread between maximum and average that indicates a local hot spot | FSR-1.4 |
 | `r_trend` | 1 °C/s | Rise rate that indicates a dangerous trend | FSR-1.3 |
@@ -316,7 +317,7 @@ in the end-to-end setup.
 | `T_startup` | 5 s | Maximum time after start until the first valid sample | FSR-2.1 |
 | `T_age` | 1000 ms | Maximum age of a sample when clocks are synchronized | FSR-2.8 |
 | `N_suspect`, `T_suspect` | 3 samples in 1 s | Debounce before invalid samples or counter errors lead to DEGRADED | FSR-3.5, FSR-3.7 |
-| `N_recover` | 10 samples | Consecutive valid samples required to recover or to lower the thermal state | FSR-1.5, FSR-2.6 |
+| `N_recover` | [config](../../config/guardian/safety-params.toml) | Consecutive valid samples required to recover or to lower the thermal state | FSR-1.5, FSR-2.6 |
 | `T_mitigation` | 10 s | Time after which a continued rise counts as failed mitigation | FSR-1.7 |
 | `T_hb_period` | 500 ms | Guardian heartbeat period | FSR-2.7 |
 | `T_hb` | 1500 ms | Heartbeat timeout | FSR-2.7 |
@@ -376,20 +377,48 @@ FSR-2.5, FSR-2.6, and FSR-3.6 apply to every fault in SG-2 and SG-3.
 - **Mitigation effect.** With a replayed temperature profile, the temperature does
   not react to mitigation. FSR-1.7 can only be shown with a profile that is
   prepared accordingly, or with a simulated thermal model.
-- **No recovery in the Must scope.** Without FSR-1.5 and FSR-2.6, the Guardian
-  never lowers its thermal state or leaves DEGRADED. This is safe, but it is only
-  practical because each scenario starts with a fresh Guardian (A-4).
+- **Recovery.** FSR-1.5 and FSR-2.6 are implemented with configurable 2 °C
+  hysteresis, ten consecutive fresh, valid, healthy samples, and a minimum
+  one-second observation period. Interruptions reset recovery. Critical →
+  Warning and Warning → Monitoring each require a separate period and never
+  occur while DEGRADED. Monitoring returns to OK only after every active fault
+  recovers. A stuck maximum must change before its recovery period starts.
+  FaultRecovered events link to detection events and become DFM Passed records;
+  OpenSOVD testFailed clears while history and occurrence counts are preserved.
+  Diagnostic delivery is asynchronous; monitoring recovery does not wait for DFM.
+  These parameters remain proposals, not validated vehicle safety values.
 - **Guardian failure in the vehicle.** Nothing in the vehicle reacts to a dead
   Guardian: FSR-2.7 only records the failure as evidence and restarts a
   terminated Guardian. Warning the occupants would need an independent monitor,
   for example in the HMI. It is not yet verified whether the runtime can detect
   a hung Guardian, as opposed to a terminated one.
-- **Diagnostic link.** It is not yet verified whether a DFM record can carry an ID
-  per occurrence. Until then, the link from a Guardian event to a DFM record uses
-  the fault code and the time window.
+- **Diagnostic link.** Guardian session/event IDs and last-sample references are
+  stored in DFM environment data and verified in integration tests through the
+  individual OpenSOVD fault endpoint. Guardian performs no OpenSOVD polling;
+  deployed verification belongs in a future evidence collector. DFM exposes a current snapshot, not a complete occurrence
+  history; the Evidence Collector must preserve snapshots per campaign.
 - **Timing values** are not derived from a thermal model of a real battery pack.
+
+After startup, monitors remain NotTested until sustained healthy input produces
+`FaultTestPassed`. This also clears a previous session's current DFM failure
+without deleting its history or inventing a detection cause in the new session.
+The first stuck-signal monitor test observes more than the configured three-second
+stuck interval. Subsequent detected faults recover through `FaultRecovered`.
+Only `testFailed` clearing is required; historical confirmation and warning bits
+follow DFM's lifecycle/reset policy.
+
+Signal-stuck testing and recovery require the full three-second detector observation
+period plus the one-second healthy confirmation period. A maximum that jumps once
+and freezes again while reference temperatures move does not recover. The local
+`third-party/fault-lib` patch blocks newer IPC records behind older retries;
+Guardian still performs no OpenSOVD polling. Delivery remains best effort, with
+bounded queues and the upstream retry limit. The outage campaign restores healthy
+input while diagnostics are paused, then verifies the final Passed state after resume.
 
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
 **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The diagnostics implementation status and correlation limitations were updated
+with assistance from **Codex** using **GPT-6.1 Sol** (`gpt-6.1-sol`).

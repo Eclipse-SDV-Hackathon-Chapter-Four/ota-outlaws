@@ -73,13 +73,33 @@ frames are still lost on the way (measured in
 
 ## GuardianEvent
 
+Each service session has a fresh UUID `session_id`; event IDs and Guardian
+monotonic timestamps are scoped to that session. The same session/event ID pair
+is written to DFM environment data and read back through OpenSOVD.
+
 One message per event of the Guardian core: a thermal state change, a monitoring
-status change, a detected fault, or a mitigation request. `event_id` and
+status change, a detected or recovered fault, or a mitigation request. `event_id` and
 `cause_event_id` link the events into the evidence chain, for example
 fault → monitoring status change → mitigation request. A `FaultDetected` event
 carries the diagnostic trouble code and the requirement that detected the fault.
+`FaultRecovered` carries the same code and requirement, the healthy trigger sample,
+and the original detection event as its cause. DFM receives `Passed`; individual
+OpenSOVD readback must show `testFailed=false` while retaining the original
+failure metadata. The recovery event links to that detection through its cause ID.
+Failure history and occurrence counts remain available.
+
+After startup, monitors remain NotTested until sustained healthy input produces
+`FaultTestPassed`. This also clears a previous session's current DFM failure
+without deleting its history or inventing a detection cause in the new session.
+The first stuck-signal monitor test observes more than the configured three-second
+stuck interval. Subsequent detected faults recover through `FaultRecovered`.
+Only `testFailed` clearing is required; historical confirmation and warning bits
+follow DFM's lifecycle/reset policy.
 
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
 **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The GuardianEvent session field was added with assistance from **Codex** using
+**GPT-6.1 Sol** (`gpt-6.1-sol`).

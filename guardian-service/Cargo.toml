@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 [package]
 name = "guardian-service"
@@ -35,3 +35,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 up-rust = "0.9"
 up-transport-zenoh = "0.9"
 zenoh = { version = "1", features = ["unstable"] }
+
+common = { git = "https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit", rev = "97dd4a503f25674e866a89829e2bd92d2cf2655d" }
+fault_lib = { git = "https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit", rev = "97dd4a503f25674e866a89829e2bd92d2cf2655d" }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
