@@ -15,11 +15,12 @@ SPDX-License-Identifier: EPL-2.0
 
 The Battery Thermal Guardian evaluates battery temperatures and the trustworthiness
 of their input, then publishes thermal, monitoring, fault, and mitigation events.
-The [HARA](../hara.md) is authoritative for the item boundary, hazards, safety goals,
-faults, and derived requirements. The [Safety Concept](../../explanation/safety-concept.md)
-records the current implementation status. Where it conflicts with the HARA, this
-design follows the HARA and records the implementation as a gap rather than changing
-the safety requirement.
+The [HARA](../hara.md) is the safety reference for the item boundary, hazards,
+safety goals, faults, derived requirements, and test scenarios. Parameter values
+are configured in [`config/guardian/safety-params.toml`](../../../config/guardian/safety-params.toml);
+their comments identify the HARA requirements they support. This design records
+implementation status. Where implementation differs from the HARA, record the
+difference as a gap rather than changing the requirement implicitly.
 
 ## Core and adapters
 
@@ -142,7 +143,7 @@ FaultDetected or MonitoringStatusChanged ──cause──► MitigationRequeste
 The Guardian detects faults, but does not find out what caused them. Telling a
 source fault from a transport fault, and diagnosing duplicated or reordered
 messages, is the Evidence Collector's job (EC-1, EC-2). See
-[Responsibilities](../architecture.md#responsibilities-guardian-and-evidence-collector).
+[Responsibilities](../architecture.md#2-functional-overview).
 
 Samples that are not fresh are never evaluated; duplicates and out-of-order
 samples only move monitoring to `SUSPECT` or, if they persist, `DEGRADED`. If no
@@ -199,9 +200,9 @@ the spike debounce is exceeded.
 
 ## HARA fault allocation
 
-The HARA fault IDs and test cases remain authoritative. Status below follows the
-Safety Concept; a test or design entry does not imply that a planned requirement
-is implemented.
+The HARA fault IDs and test cases remain authoritative. Status below reflects
+the current implementation; a test or design entry does not imply that a
+planned requirement is implemented.
 
 | HARA fault | Design response and current status | HARA verification |
 |---|---|---|

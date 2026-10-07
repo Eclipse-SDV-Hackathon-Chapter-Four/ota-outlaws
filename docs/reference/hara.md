@@ -31,6 +31,18 @@ This is a preliminary, software-item-level HARA draft for the Battery Thermal Gu
 
 **Considered functionality:** The Battery Thermal Guardian shall monitor battery-cell temperature data, identify developing thermal hazards, and request occupant warnings and defined mitigation actions.
 
+### Interface assumptions
+
+These assumptions describe the current VSS Publisher-to-Guardian contract. They
+must be verified at integration boundaries; they do not establish vehicle-level
+safety by themselves.
+
+| ID | Assumption |
+|---|---|
+| A-1 | Each published `BatteryTemperature` carries a publisher sequence number and a source timestamp from the newest Data Broker update. If the update has no timestamp, publish time is used. Source timestamps are compared only with other source timestamps, not with the Guardian's local monotonic clock. |
+| A-2 | The Publisher treats an alive-counter update as the CAN-frame boundary and publishes only when all five battery signals are available. This relies on the CAN Provider writing the frame fields in DBC order with the counter last; provider sampling can still result in lost frames. |
+| A-3 | The alive counter and quality value are propagated from the mapped VSS signals. The 8-bit counter wraps from 255 to 0, and the Publisher translates the raw quality values to the contract enum. |
+
 ## Terms and traceability
 
 - **Fault:** A cause or defect, such as a dropped message or a biased sensor.
@@ -123,7 +135,8 @@ their fault with another fault or repeat the injected anomaly.
 
 Candidate safety goals are item/vehicle-level objectives. They are not one-to-one
 requirements to detect each injected fault; detailed detection and handling
-requirements belong in the functional safety concept and technical design.
+requirements are captured in the derived functional requirements and technical
+design.
 
 | ID | Related hazardous events | Candidate safety goal |
 |---|---|---|
@@ -135,28 +148,32 @@ requirements belong in the functional safety concept and technical design.
 
 ## Derived Functional Requirements
 
-The following candidate requirements are derived from SG-1 to SG-4. They refine
-the HARA goals for traceability; the referenced Safety Concept remains the source
-for existing Guardian FSR wording, parameter values, priority, and status.
+The following candidate requirements are derived from SG-1 to SG-4 and are the
+repository's safety-requirement reference. Tunable implementation values are
+defined in `config/guardian/safety-params.toml` and `campaign/scenarios.toml`;
+the comments and test mappings there trace values and checks back to HARA IDs.
+Implementation status is recorded in component documentation and verification
+tests; a listed requirement is not proof that it is implemented.
 
-| ID | HARA trace | Derived functional requirement | Safety Concept mapping |
+| ID | HARA trace | Derived functional requirement | Requirement / implementation trace |
 |---|---|---|---|
 | DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and issue the corresponding occupant warning and mitigation response within its approved (`T_react = 100ms`). | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. |
 | DFR-2 | SG-2; HE-1 to HE-3; F-11, F-12 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE`, or whose value is outside the configured range, as unusable, enter `DEGRADED`, and report the corresponding fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. A high out-of-range value shall still raise at least `WARNING`. | FSR-3.2 and FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. |
 | DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input, including a CAN quality flag other than `VALID`, shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. |
 | DFR-4 | SG-3; HE-4, HE-5, HE-6; F-6, F-8, F-12, F-13 | An isolated or repeated invalid, stale, duplicated, out-of-order, or saturated-high sample shall not by itself cause `CRITICAL` or an overtemperature mitigation. A saturated/high out-of-range value shall still cause at least `WARNING` because real danger cannot be excluded. Repeated spikes shall escalate monitoring to `DEGRADED` and report monitoring unavailable, without lowering the thermal state. | FSR-1.2, FSR-2.5, FSR-3.2, FSR-3.3, FSR-3.5, and FSR-3.6. |
-| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. |
+| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 is implemented by the Guardian heartbeat and separate watchdog; TS-22 and TS-23 exercise termination and hang. The warning is published over uProtocol; an HMI is outside the current implementation. |
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. When diagnostics recover, queued failure and recovery records shall remain correlatable and the final lifecycle state shall be visible. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. |
 | DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| |
 | DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| |
-| DFR-9 | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. |
+| DFR-9 | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher metadata exists in the current protocol. |
 
 ## HARA-derived test scenarios
 
 Run each fault variant independently from a fresh Guardian instance unless a
 scenario explicitly tests recovery or a named cross-domain combination. Record
 the active configuration and observe the same input stream the Guardian
-receives. Timing parameters refer to the approved Safety Concept configuration.
+receives. Timing parameters are proposals in the shipped configuration and
+require validation against the vehicle/system safety analysis before approval.
 
 | HARA fault | Expected mitigation from test specifications | Covering test cases |
 |---|---|---|
@@ -805,3 +822,7 @@ model **Claude Opus 5.5** (`claude-opus-5-5`).
 
 The combined F-9 diagnostic-outage analysis and TS-27 were added with the
 assistance of **GitHub Copilot** using the model **GPT-6 Luna**.
+
+The requirement traceability wording and references to a separate Safety
+Concept were reconciled with the HARA using **GitHub Copilot** and the model
+**GPT-6 Luna**.

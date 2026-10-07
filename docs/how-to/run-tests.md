@@ -35,7 +35,7 @@ the first needs only Rust, the others need Docker.
   sh diagnostics/build-images.sh /path/to/Doctor-Whodunit
   ```
 
-  See [Build from clean committed source](../../README.md#build-from-clean-committed-source).
+  See [Build from clean committed source](../../README.md#build-from-clean-committed-source-optional).
 
 ## 1. Unit and integration tests
 

@@ -24,7 +24,7 @@ can/BMS_MSG1_CAN.asc → KUKSA CAN Provider → KUKSA Data Broker → VSS Publis
 ## Start
 
 The DFM and OpenSOVD image is built once, as described in
-[Build from clean committed source](../../README.md#build-from-clean-committed-source).
+[Build from clean committed source](../../README.md#build-from-clean-committed-source-optional).
 Then, from the repository root:
 
 ```sh

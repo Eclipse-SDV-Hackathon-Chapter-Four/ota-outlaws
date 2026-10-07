@@ -11,7 +11,7 @@ https://www.eclipse.org/legal/epl-2.0
 SPDX-License-Identifier: EPL-2.0
 -->
 
-# OTA Outlaws Software Architecture
+# Overview
 
 This document follows the 13-part structure from *The Software Architecture
 Guidebook* by Simon Brown. Sections with incomplete project information contain

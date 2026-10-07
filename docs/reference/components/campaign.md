@@ -39,7 +39,7 @@ code is 0 when every scenario with status `implemented` passed.
 Both parts live in one tool, but the verdict uses only what the evidence part
 observed, never what the stimulus part believes it injected. The fault onset t0
 is the first observation of the fault at the Guardian's input
-([Timing reference](../../reference/hara.md#timing-reference)). So a
+([HARA-derived test scenarios](../hara.md#hara-derived-test-scenarios)). So a
 fault that is lost on the way is reported as INCONCLUSIVE ("fault not
 delivered"), not as PASS, and the same evidence part can judge runs it did not
 inject, such as the hardware demo.
@@ -144,7 +144,7 @@ alarm, SG-4), and events of more than one Guardian session (A-4).
    Publisher, Guardian, DFM, and OpenSOVD. Every scenario gets its own Guardian
    session (A-4), its own ports, and its own container names, so a campaign can
    run while the development stack is up. The DFM and OpenSOVD image is built
-   once beforehand, as described in the [README](../../../README.md#build-from-clean-committed-source);
+  once beforehand, as described in the [README](../../../README.md#build-from-clean-committed-source-optional);
    the Guardian and VSS Publisher images are built by `campaign run` unless
    `--no-build` is given.
 2. The taps start: uProtocol listeners on `BatteryTemperature` and
@@ -211,7 +211,8 @@ that did not pass.
 
 ## Verdicts
 
-As defined in the [Safety Concept](../../reference/hara.md#scenario-verdicts):
+The evaluator assigns these evidence verdicts to the expectations in the
+scenario catalog:
 
 | Verdict | When |
 |---------|------|
@@ -288,7 +289,7 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 
 All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
 `generate_traces.py` generates all of them: the fault traces of the original
-fault list and the ones the safety concept needs on top:
+fault list and the ones required by the HARA-derived test scenarios:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an
 in-range spike; `implausible_jump` goes beyond the plausible range and tests
 FSR-3.2).
@@ -358,9 +359,9 @@ spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
 - **Diagnostics outage alone**: still covered by
   [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). Combined
   with a source loss, it is TS-27 (below).
-- **EC-1 to EC-3** of the Safety Concept: only the attribution of a loss
-  behind the tap (`samples_continue`) exists; sequence diagnosis and delay
-  measurement do not.
+- **Evidence attribution and timing** (EC-1 to EC-3 referenced by HARA DFR-6):
+  only the attribution of a loss behind the tap (`samples_continue`) exists;
+  sequence diagnosis and delay measurement do not.
 
 ## AI Assistance
 
