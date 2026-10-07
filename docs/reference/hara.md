@@ -25,8 +25,7 @@ The Guardian is intended to monitor battery cell temperatures, identify conditio
 
 **Inputs:** Cell-temperature data and its source timestamp, sequence counter, and quality status received through the VSS uProtocol service interface. The Guardian must not read the KUKSA Data Broker directly.
 
-**Outputs:** Thermal-risk state, occupant-warning request, mitigation request,
-heartbeat, and diagnostic/fault events.
+**Outputs:** Diagnostic/fault events.
 
 **Provisional boundary:** The Guardian's evaluation and output requests are in scope. Physical sensors, CAN decoding, KUKSA components, the occupant interface, and physical mitigation actuators are external dependencies unless the system architecture explicitly brings them into the item. Their failure behavior and interfaces still need to be included in the system-level safety analysis.
 
