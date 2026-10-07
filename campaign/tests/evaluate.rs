@@ -1830,3 +1830,47 @@ fn campaign_summary_counts_verdicts_and_explains_failures() {
         1
     );
 }
+
+// --- Regressions from the full campaign run 20261007-204144 ------------------------
+
+#[test]
+fn a_state_already_held_at_the_reference_counts_as_reached() {
+    // The Guardian saw its first sample before the tool logged it as ready, so
+    // CLEAR → MONITORING came just before t0 (the first sample after ready).
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 10000);
+    r.injection(150, "guardian_ready");
+    r.event(
+        120,
+        0,
+        EventKind::ThermalStateChanged {
+            previous: "CLEAR".into(),
+            current: "MONITORING".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "normal");
+
+    assert!(
+        failed_checks(&evaluation).is_empty(),
+        "{:?}",
+        evaluation.checks
+    );
+    assert_eq!(evaluation.verdict, Verdict::Pass);
+}
+
+#[test]
+fn detection_after_a_stream_end_onset_is_in_the_evidence_chain() {
+    // In source_shutdown, the end of the stream is the fault: the detection
+    // after it belongs to the chain.
+    let context = context();
+    let mut r = Recording::default();
+    r.nominal(0, 6000);
+    r.full_reaction("BTG_TempFreshnessLost", 6200, 30000);
+
+    let evaluation = r.judge(&context, "source_shutdown");
+
+    assert_eq!(link_state(&evaluation, "Detection"), LinkState::Present);
+    assert_eq!(link_state(&evaluation, "Mitigation"), LinkState::Present);
+}

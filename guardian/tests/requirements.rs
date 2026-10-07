@@ -1603,6 +1603,23 @@ fn ts_25_drift_at_can_resolution_raises_warning() {
 }
 
 #[test]
+fn ts_25_short_fast_rise_after_a_plateau_is_no_trend() {
+    // Seen in the campaign (invalid_during_warning): 5 s at 30 °C, then
+    // +1 °C per 100 ms. The average over T_trend is high, but the rise is not
+    // sustained; only θ_warn may raise WARNING here.
+    let mut run = Run::new();
+    run.samples(50, 30.0, 22.0, 14.0);
+    for max in 31..45 {
+        let max = max as f32;
+        run.sample(max, max - 8.0, max - 16.0);
+    }
+    assert_eq!(run.thermal(), ThermalState::Monitoring);
+
+    run.sample(45.0, 37.0, 29.0);
+    assert_eq!(run.thermal(), ThermalState::Warning);
+}
+
+#[test]
 fn ts_25_slow_rise_is_no_trend() {
     let mut run = Run::new();
     run.samples(5, 20.0, 16.0, 12.0);
