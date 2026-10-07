@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 name: Guardian
 
@@ -22,9 +22,12 @@ on:
       - "Cargo.lock"
       - "guardian/**"
       - "guardian-service/**"
+      - "third-party/fault-lib/**"
       - "contracts/**"
       - "vss-publisher/**"
       - "config/guardian/**"
+      - "diagnostics/**"
+      - "docker-compose.yml"
       - ".github/workflows/guardian.yml"
 
 jobs:
@@ -45,3 +48,22 @@ jobs:
       - name: Test VSS Publisher
         # Built on its own, with its own lockfile.
         run: cargo test --locked --manifest-path vss-publisher/Cargo.toml
+
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit
+          ref: 97dd4a503f25674e866a89829e2bd92d2cf2655d
+          path: diagnostic-source
+      - name: Build the pinned diagnostic stack
+        run: sh diagnostics/build-images.sh diagnostic-source
+      - name: Test Guardian diagnostic campaigns
+        run: python3 diagnostics/smoke_test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-evidence
+          path: diagnostics/reports/
