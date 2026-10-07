@@ -284,7 +284,7 @@ TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 | TS-21 Repeated spikes | `spike` | campaign |
 | TS-22 Guardian termination | `guardian_crash` | campaign, with the watchdog |
 | TS-23 Guardian hang | `guardian_hang` | campaign, with the watchdog |
-| TS-24 Late-arriving stale message | `late_message` | planned: needs synchronized clocks (FSR-2.8) and a transport fault injector |
+| TS-24 Late-arriving stale message | `late_message` | planned: needs a transport fault injector; Guardian core tests cover the late-sample check |
 | TS-25 Gradual drift | `drift` | campaign |
 | TS-26 Upper-scale saturation | `saturation_255` | campaign |
 
@@ -297,6 +297,10 @@ caused by `GuardianLost`, within `T_hb + T_react` (HARA DFR-5);
 `BTG_GuardianHeartbeatLoss` within `T_hb + T_diag`. The `input_quality` check
 compares the raw CAN quality byte with the quality the Guardian input shows
 (TS-11, TS-16).
+
+Scenarios without a HARA test: `hot_spot` (FSR-1.4), `high_delta` (a large
+spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
+`avg_gt_max`, `min_gt_max` (FSR-3.1).
 
 ## Not covered yet
 

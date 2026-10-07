@@ -182,4 +182,8 @@ enum Mitigation {
   MITIGATION_UNSPECIFIED = 0;
   MITIGATION_DRIVER_WARNING_OVERTEMP = 1;
   MITIGATION_DRIVER_WARNING_MONITORING_UNAVAILABLE = 2;
+  // The Guardian did not evaluate a received sample (HARA TS-06, TS-19,
+  // TS-20). cause_event_id names the fault or status change that explains
+  // why, if this sample caused one.
+  MITIGATION_DISCARD_SAMPLE = 3;
 }

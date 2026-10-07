@@ -177,6 +177,7 @@ fn mitigation(mitigation: Mitigation) -> pb::Mitigation {
         Mitigation::DriverWarningMonitoringUnavailable => {
             pb::Mitigation::DriverWarningMonitoringUnavailable
         }
+        Mitigation::DiscardSample => pb::Mitigation::DiscardSample,
     }
 }
 

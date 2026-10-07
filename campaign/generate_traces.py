@@ -35,6 +35,8 @@ Campaign traces:
                  (ERROR_NOT_AVAILABLE) (HARA TS-11).
 - saturation_255.asc (TS-26), quality_single.asc (TS-16),
                  duplicate_message.asc (TS-07).
+- hot_spot.asc:  the maximum moves 12 degC above the average, below the
+                 warning threshold (FSR-1.4).
 - spike.asc:     an in-range spike from 40 degC to 100 degC for 1 s, then back
                  (FSR-3.3). implausible_jump.asc
                  jumps beyond the plausible range, so it tests FSR-3.2.
@@ -138,7 +140,9 @@ def max_stuck():
     for i in range(20):
         step = i // 5
         frames.append((38 + step, 22 + step, 30 + step))
-    avg, low = 30, 22
+    # Continue from the rising phase, so the spread stays below Δ_hotspot
+    # (FSR-1.4) and only the stuck maximum is abnormal.
+    avg, low = 32, 24
     for i in range(50):
         if i % 5 == 0:
             avg, low = avg + 1, low + 1
@@ -180,6 +184,16 @@ def drift():
     profile += [t for t in range(31, 43) for _ in range(6)]
     profile += [42] * 50
     return [(m, m - 16, m - 8) for m in profile]
+
+
+def hot_spot():
+    """5 s at 40 degC, then the maximum rises by 1 degC per 200 ms to 44 degC
+    while average and minimum stay: a 12 degC spread below the WARNING
+    threshold, held for 5 s (FSR-1.4)."""
+    frames = [(40, 24, 32)] * 50
+    frames += [(m, 24, 32) for m in range(41, 45) for _ in range(2)]
+    frames += [(44, 24, 32)] * 50
+    return frames
 
 
 def nominal():
@@ -471,6 +485,7 @@ def main():
     )
     write(here / "isolated_spike.asc", "One frame spiking from 40 to 70 degC.", isolated_spike())
     write(here / "drift.asc", "Sustained rise below the WARNING threshold.", drift())
+    write(here / "hot_spot.asc", "Maximum 12 degC above the average.", hot_spot())
     write_counted(
         here / "duplicate_message.asc",
         "One frame delivered twice with the same AliveCounter.",
