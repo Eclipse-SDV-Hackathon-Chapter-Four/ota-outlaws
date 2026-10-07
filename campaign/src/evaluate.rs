@@ -90,6 +90,26 @@ pub struct Evaluation {
     pub guardian_events: usize,
 }
 
+/// Fault type and severity of each DTC, from the DFM catalog.
+pub type Classes = BTreeMap<String, (String, String)>;
+
+/// Whether an OpenSOVD record carries the catalog's fault type and severity
+/// in its environment data.
+fn classified(body: &serde_json::Value, dtc: &str, classes: &Classes) -> Result<(), String> {
+    let Some((fault_type, severity)) = classes.get(dtc) else {
+        return Err(format!("{dtc} is not in the DFM catalog"));
+    };
+    let env = &body["environment_data"];
+    if env["fault_type"] == fault_type.as_str() && env["severity"] == severity.as_str() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{dtc} has fault type {} and severity {} in OpenSOVD, expected {fault_type} and {severity}",
+            env["fault_type"], env["severity"]
+        ))
+    }
+}
+
 /// Values for budget expressions such as `T_stale + T_react`.
 pub type Budgets = BTreeMap<String, u64>;
 
@@ -234,6 +254,7 @@ pub fn evaluate(
     observations: &[Observation],
     budgets: &Budgets,
     params: &OnsetParams,
+    classes: &Classes,
 ) -> Result<Evaluation, String> {
     let run = Run::new(observations, params.cycle_ms);
     let onset = scenario.onset.find(&run.samples, &run.injections, params);
@@ -241,7 +262,14 @@ pub fn evaluate(
     let mut checks = Vec::new();
     if let Some(found) = &onset {
         for expectation in &scenario.expectations {
-            checks.push(check(expectation, found.t_ms, &run, budgets, params)?);
+            checks.push(check(
+                expectation,
+                found.t_ms,
+                &run,
+                budgets,
+                params,
+                classes,
+            )?);
         }
     }
     let violations = match &onset {
@@ -320,6 +348,7 @@ fn check(
     run: &Run<'_>,
     budgets: &Budgets,
     params: &OnsetParams,
+    classes: &Classes,
 ) -> Result<Check, String> {
     let mut result = Check {
         expectation: expectation.clone(),
@@ -420,6 +449,10 @@ fn check(
                             "{dtc} of event #{} never failed in OpenSOVD",
                             fault.event_id
                         )),
+                        Some((t, body)) if classified(body, dtc, classes).is_err() => {
+                            result.t_ms = Some(t);
+                            failed(classified(body, dtc, classes).unwrap_err())
+                        }
                         Some((t, _)) => {
                             let latency = t.saturating_sub(t_fault);
                             result.t_ms = Some(t);
@@ -645,6 +678,78 @@ fn check(
                         "event #{} lowered the thermal state",
                         event.event_id
                     ))
+                }
+            };
+        }
+        Expectation::OvertempDtc {
+            dtc, state, budget, ..
+        } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            // The change to `state` from valid data: no fault as its cause.
+            let change = run.events.iter().copied().find(|(t, e)| {
+                *t >= t0
+                    && e.cause_event_id == 0
+                    && matches!(&e.kind, EventKind::ThermalStateChanged { previous, current }
+                        if severity(current) >= severity(state) && severity(previous) < severity(state))
+            });
+            result.outcome = match change {
+                None => failed(format!(
+                    "thermal state never reached {state} from valid data"
+                )),
+                Some(_) if !run.sovd_reachable() => Outcome::Unobservable {
+                    detail: "OpenSOVD never answered".to_owned(),
+                },
+                Some((t_change, event)) => {
+                    let records = run.sovd_records(dtc, event);
+                    let visible = records
+                        .iter()
+                        .find(|(_, body)| body["status"]["testFailed"] == true);
+                    match visible {
+                        None => failed(format!(
+                            "{dtc} of event #{} never failed in OpenSOVD",
+                            event.event_id
+                        )),
+                        Some((t, body)) => {
+                            let latency = t.saturating_sub(t_change);
+                            result.t_ms = Some(*t);
+                            result.latency_ms = Some(latency);
+                            let lowered = run.events.iter().any(|(_, e)| {
+                                e.event_id > event.event_id
+                                    && matches!(&e.kind, EventKind::ThermalStateChanged { previous, current }
+                                        if severity(previous) >= severity(state) && severity(current) < severity(state))
+                            });
+                            let passed = records.iter().any(|(_, b)| {
+                                b["status"]["testFailed"] == false
+                                    && b["status"]["testFailedSinceLastClear"] == true
+                            });
+                            if let Err(detail) = classified(body, dtc, classes) {
+                                failed(detail)
+                            } else if latency > budget {
+                                failed(format!(
+                                    "{dtc} of event #{} failed in OpenSOVD, late",
+                                    event.event_id
+                                ))
+                            } else if lowered && !passed {
+                                failed(format!(
+                                    "the thermal state was lowered below {state}, but OpenSOVD never showed {dtc} as passed"
+                                ))
+                            } else {
+                                let (fault_type, sev) = &classes[dtc.as_str()];
+                                Outcome::Met {
+                                    detail: format!(
+                                        "{dtc} failed for event #{} ({fault_type}, {sev}){}",
+                                        event.event_id,
+                                        if lowered {
+                                            ", passed after cooling, history kept"
+                                        } else {
+                                            ""
+                                        }
+                                    ),
+                                }
+                            }
+                        }
+                    }
                 }
             };
         }

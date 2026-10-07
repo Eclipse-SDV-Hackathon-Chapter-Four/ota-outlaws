@@ -86,6 +86,20 @@ kind = "overtemp_warning"
 requirement = "FSR-1.2"
 
 [[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempWarning"
+state = "WARNING"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "overtemp_dtc"
+dtc = "BTG_TempOverTempCritical"
+state = "CRITICAL"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
 kind = "no_fault"
 requirement = "SG-4"
 
