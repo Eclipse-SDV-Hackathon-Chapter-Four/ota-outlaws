@@ -15,8 +15,10 @@ SPDX-License-Identifier: EPL-2.0
 
 The Guardian Watchdog detects when the
 [Battery Thermal Guardian](battery-thermal-guardian.md) itself stops working,
-because it crashed or because it hangs, and reports this to DFM, so that
-OpenSOVD shows it next to the Guardian's own faults. Its required behavior is
+because it crashed or because it hangs. It then requests the occupant warning
+`DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own uProtocol topic (HARA DFR-5)
+and reports the failure to DFM, so that OpenSOVD shows it next to the
+Guardian's own faults. Its required behavior is
 FSR-2.7 in the [Safety Concept](../../explanation/safety-concept.md). This
 document explains how the watchdog is built. How to run it is in the
 [watchdog README](../../../watchdog/README.md).
@@ -32,11 +34,13 @@ publishes a heartbeat, and a separate process watches it.
  │  ├─ sample ──► core                    │          │ listener ──► HeartbeatMonitor    │
  │  ├─ tick (50 ms) ──► core              │  uProto- │ check (100 ms) ──►   │           │
  │  └─ heartbeat (500 ms) ────────────────┼── col ──►│                      ▼           │
- │                                        │  (Zenoh) │            Failed / Passed       │
- └────────────────────────────────────────┘          │                      │           │
-                                                     └──────────────────────┼───────────┘
-                                                                            ▼
-                                                                    DFM ──► OpenSOVD
+ │                                        │  (Zenoh) │      lost / restored             │
+ └────────────────────────────────────────┘          │       │              │           │
+                                                     │   Supervisor   Failed / Passed   │
+                                                     └───────┼──────────────┼───────────┘
+                                                             ▼              ▼
+                                  SupervisorEvent (uProtocol, DFR-5)     DFM ──► OpenSOVD
+                                  DRIVER_WARNING_MONITORING_UNAVAILABLE
 ```
 
 | Part | Status | Responsibility |
@@ -47,7 +51,7 @@ publishes a heartbeat, and a separate process watches it.
 | DFM reporter ([`watchdog/src/diagnostics.rs`](../../../watchdog/src/diagnostics.rs)) | **Implemented** | Report `BTG_GuardianHeartbeatLoss` to DFM without blocking the watchdog |
 | Restart of a crashed Guardian | **Implemented** (by Docker) | `restart: unless-stopped` in [`docker-compose.yml`](../../../docker-compose.yml) |
 | Restart of a hung Guardian | Not implemented | A hung Guardian is only reported |
-| Occupant warning (HARA DFR-5) | Not implemented | The watchdog does not request `DRIVER_WARNING_MONITORING_UNAVAILABLE` |
+| Occupant warning ([`watchdog/src/supervisor.rs`](../../../watchdog/src/supervisor.rs)) | **Implemented** | Request `DRIVER_WARNING_MONITORING_UNAVAILABLE` on `//guardian-watchdog/9003/1/8001` when the heartbeat is lost, withdraw it with `GuardianRestored` (HARA DFR-5) |
 
 ### Why this design
 
@@ -178,8 +182,9 @@ No campaign scenario automates these runs yet, so FSR-2.7 has the status
 
 ## Limits
 
-- **No occupant warning.** HARA DFR-5 asks for a monitoring-unavailable warning
-  when the Guardian fails. The watchdog only reports to diagnostics.
+- **The warning is only published.** No HMI in this project displays it; the
+  dashboard shows the topic. It is sent once per outage, and a consumer that
+  subscribes during an outage does not see it.
 - **No restart of a hung Guardian.** That would need access to the container
   runtime, which the watchdog does not have. `docker kill` is not restarted
   either: Docker treats it as a manual stop.

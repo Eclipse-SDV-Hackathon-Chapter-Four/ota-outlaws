@@ -21,7 +21,10 @@ use serde::Serialize;
 
 use crate::catalog::{Expectation, Scenario, ScenarioStatus};
 use crate::onset::{Found, Onset, OnsetParams};
-use crate::recording::{EventKind, GuardianEvent, Observation, SampleRef, Tap, Temperature};
+use crate::recording::{
+    EventKind, GuardianEvent, Observation, SampleRef, SupervisorEvent, SupervisorKind, Tap,
+    Temperature,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -238,6 +241,7 @@ struct Run<'a> {
     all_samples: Vec<(u64, &'a Temperature)>,
     ready: Option<u64>,
     events: Vec<(u64, &'a GuardianEvent)>,
+    supervisor: Vec<(u64, &'a SupervisorEvent)>,
     sovd: Vec<(u64, &'a str, Option<u16>, &'a serde_json::Value)>,
     injections: Vec<(u64, &'a str)>,
     session_id: Option<String>,
@@ -261,12 +265,14 @@ impl<'a> Run<'a> {
     fn new(observations: &'a [Observation], cycle_ms: u64) -> Self {
         let mut samples = Vec::new();
         let mut events = Vec::new();
+        let mut supervisor = Vec::new();
         let mut sovd = Vec::new();
         let mut injections = Vec::new();
         for observation in observations {
             match &observation.tap {
                 Tap::BatteryTemperature(sample) => samples.push((observation.t_ms, sample)),
                 Tap::GuardianEvent(event) => events.push((observation.t_ms, event)),
+                Tap::SupervisorEvent(event) => supervisor.push((observation.t_ms, event)),
                 Tap::SovdFault {
                     code,
                     http_status,
@@ -293,11 +299,40 @@ impl<'a> Run<'a> {
             all_samples,
             ready,
             events,
+            supervisor,
             sovd,
             injections,
             session_id,
             window_end,
         }
+    }
+
+    /// The first monitoring-unavailable request of the watchdog at or after
+    /// `t0` that is caused by a `GuardianLost` event of the same watchdog
+    /// session, with that loss.
+    fn supervisor_warning(
+        &self,
+        t0: u64,
+    ) -> Option<(u64, &'a SupervisorEvent, &'a SupervisorEvent)> {
+        self.supervisor.iter().find_map(|(t, warning)| {
+            let requested = matches!(
+                &warning.kind,
+                SupervisorKind::MitigationRequested { mitigation }
+                    if mitigation == "DRIVER_WARNING_MONITORING_UNAVAILABLE"
+            );
+            if *t < t0 || !requested {
+                return None;
+            }
+            self.supervisor
+                .iter()
+                .map(|(_, e)| *e)
+                .find(|lost| {
+                    lost.session_id == warning.session_id
+                        && lost.event_id == warning.cause_event_id
+                        && matches!(lost.kind, SupervisorKind::GuardianLost { .. })
+                })
+                .map(|lost| (*t, *warning, lost))
+        })
     }
 
     /// Maps the Guardian's own time of an event onto the tool's clock. The
@@ -1020,6 +1055,55 @@ fn check(
                                 Outcome::Met {
                                     detail: format!("{dtc} passed again, history kept"),
                                 }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::SupervisorWarning { budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = match run.supervisor_warning(t0) {
+                None => failed(
+                    "the watchdog never requested DRIVER_WARNING_MONITORING_UNAVAILABLE after the onset"
+                        .to_owned(),
+                ),
+                Some((t, warning, _)) => {
+                    let latency = t.saturating_sub(t0);
+                    result.t_ms = Some(t);
+                    result.latency_ms = Some(latency);
+                    let text = format!(
+                        "watchdog event #{} requested DRIVER_WARNING_MONITORING_UNAVAILABLE, cause #{} GuardianLost",
+                        warning.event_id, warning.cause_event_id
+                    );
+                    if latency <= budget {
+                        Outcome::Met { detail: text }
+                    } else {
+                        failed(format!("{text}, late"))
+                    }
+                }
+            };
+        }
+        Expectation::SupervisorRestored { .. } => {
+            result.outcome = match run.supervisor_warning(t0) {
+                None => failed("no watchdog warning to withdraw".to_owned()),
+                Some((t_warning, _, lost)) => {
+                    let restored = run.supervisor.iter().find(|(t, e)| {
+                        *t >= t_warning
+                            && e.session_id == lost.session_id
+                            && e.cause_event_id == lost.event_id
+                            && matches!(e.kind, SupervisorKind::GuardianRestored { .. })
+                    });
+                    match restored {
+                        None => failed("the watchdog never reported GuardianRestored".to_owned()),
+                        Some((t, event)) => {
+                            result.t_ms = Some(*t);
+                            Outcome::Met {
+                                detail: format!(
+                                    "watchdog event #{} GuardianRestored, cause #{}",
+                                    event.event_id, event.cause_event_id
+                                ),
                             }
                         }
                     }

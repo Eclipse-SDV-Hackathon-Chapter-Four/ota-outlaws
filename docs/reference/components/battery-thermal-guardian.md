@@ -48,7 +48,7 @@ The Guardian is split into a **core** that contains all safety logic and
 | Tick ([`guardian-service`](../../../guardian-service)) | **Implemented** | Call the core every 50 ms, so that missing samples are detected |
 | Output adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Publish every core event as a `GuardianEvent` over uProtocol |
 | DFM adapter | **Implemented / tested** | Write Guardian fault events to the DFM and expose them through OpenSOVD (FSR-D.1, FSR-D.2) |
-| Independent Guardian supervisor | **Missing** | Detect termination or loss of evaluation progress and request a monitoring-unavailable warning independently of the Guardian (HARA DFR-5) |
+| Independent Guardian supervisor ([`watchdog`](../../../watchdog/README.md)) | **Implemented** | Detect termination or loss of evaluation progress and request a monitoring-unavailable warning independently of the Guardian (HARA DFR-5) |
 
 The HARA item boundary includes Guardian evaluation and its output requests. The
 physical sensor, CAN decoding, KUKSA components, occupant interface, and physical
@@ -135,7 +135,7 @@ ThermalStateChanged (trigger: sample) ──cause──► MitigationRequested
 | Order and range checks | FSR-3.1, FSR-3.2 | Reject a sample that violates `Min ≤ Avg ≤ Max` or lies outside `[θ_min, θ_max]`; report the fault and set monitoring to `DEGRADED`. An above-range maximum also raises thermal state to at least `WARNING`. |
 | Rate plausibility | FSR-3.3, FSR-3.5, FSR-3.6; HARA DFR-4 | Discard a rate-implausible sample and raise thermal state to at least `WARNING`, because the rise could be real. An isolated spike sets `SUSPECT` only, without a fault or monitoring-unavailable warning (TS-20). `N_suspect` (3) spikes within `T_suspect` (1 s) report the rate fault and set `DEGRADED` (TS-21). Invalid spikes alone never cause `CRITICAL` or overtemperature mitigation. |
 | Thermal thresholds and trends | FSR-1.1 to FSR-1.4 | On valid samples, threshold criteria raise the state to `WARNING` or `CRITICAL`. A valid maximum that rises by at least `r_trend` (1 °C/s) on average over `T_trend` (5 s) raises `WARNING` below `θ_warn` and keeps it while the trend holds (FSR-1.3, TS-25). The rate uses source timestamps over the actual span, so a data gap cannot fake a trend. The hot-spot criterion (FSR-1.4) is not implemented. Invalid samples do not lower the thermal state. |
-| Independent supervision | HARA DFR-5 | An independent in-vehicle supervisor must detect Guardian termination or evaluation hang and request the defined monitoring-unavailable warning. This supervisor is not implemented; the Evidence Collector and runtime restart do not satisfy this occupant-protection requirement. |
+| Independent supervision | HARA DFR-5 | The [watchdog](guardian-watchdog.md), a separate process, detects Guardian termination or evaluation hang through the heartbeat and requests `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own topic, independent of the Guardian and the Evidence Collector. |
 
 The Guardian detects faults, but does not find out what caused them. Telling a
 source fault from a transport fault, and diagnosing duplicated or reordered
@@ -209,7 +209,7 @@ is implemented.
 | F-7: Temperature drifts over time | FSR-1.3 raises `WARNING` for a sustained upward trend below `θ_warn`; FSR-1.4 (hot spot) is planned. Aggregate signals cannot identify every sensor drift, and a downward drift is not detected. | TS-25 tests a rising thermal trend, not sensor-bias detection. |
 | F-8: Isolated rate-implausible spike | FSR-3.3/3.5 discard the sample, set `SUSPECT`, and raise at least `WARNING`; no fault, no mitigation. | TS-19, TS-20. |
 | F-9: Source disconnect or replay stops | FSR-2.2 reports freshness loss and requests the degraded response. | TS-03, TS-04, TS-15. |
-| F-10: Guardian terminates or evaluation hangs | FSR-2.7 observes heartbeat loss and restarts a terminated process; independent occupant warning and verified hang detection are missing per DFR-5. | TS-22, TS-23; these do not prove occupant protection. |
+| F-10: Guardian terminates or evaluation hangs | The watchdog detects heartbeat loss from a crash or a hang and requests the monitoring-unavailable warning (DFR-5); Docker restarts a crashed Guardian. | TS-22, TS-23. |
 | F-11: Source marks fresh sample invalid or unavailable | FSR-3.4 rejects the sample, sets `DEGRADED`, and reports the quality fault without debounce. | TS-11, TS-16. |
 | F-12: Temperature saturates at 255 °C | FSR-3.2 treats it as high out-of-range and requires at least `WARNING`; no separate saturation diagnosis is available. | TS-12 is generic high-range coverage; TS-26 uses 255 °C explicitly (core test). |
 | F-13: Repeated rate-implausible spikes | `N_suspect` spikes within `T_suspect` report the rate fault, set `DEGRADED`, and request the monitoring-unavailable warning; no overtemperature mitigation (FSR-3.5, DFR-4). | TS-21. |
@@ -265,7 +265,7 @@ and response latency for each applicable run.
 | TS-09, TS-10 | Stuck maximum and all-temperature-frozen limitation | FSR-2.4 tested for a stuck maximum with reference movement; TS-10 is not a detection pass. |
 | TS-11, TS-12, TS-16 to TS-19 | Quality, mitigation gating, range, and rate plausibility | FSR-3.2 to FSR-3.4 and FSR-3.6 are tested. |
 | TS-20, TS-21 | Isolated and repeated spikes | FSR-3.5 tested; campaign scenarios `isolated_spike` and `spike`. |
-| TS-22, TS-23 | Guardian process termination and evaluation hang | FSR-2.7 is planned; DFR-5's independent in-vehicle response is missing. |
+| TS-22, TS-23 | Guardian process termination and evaluation hang | Campaign scenarios `guardian_crash` and `guardian_hang` check the watchdog's warning (DFR-5) and the OpenSOVD fault. |
 | TS-24 | Late-arriving stale message | Not implemented: needs synchronized clocks (FSR-2.8). |
 | TS-25, TS-26 | Gradual trend, explicit upper-scale saturation (255 °C) | Tested in the core; campaign scenario `drift` for TS-25. TS-26 does not show that saturation can be told apart from a real extreme temperature. |
 | Diagnostic campaigns | DFM writes and OpenSOVD visibility | FSR-D.1/.2 are tested; diagnostic-path failures must not delay Guardian safety responses. |

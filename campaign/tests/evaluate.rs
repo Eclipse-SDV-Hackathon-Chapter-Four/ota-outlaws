@@ -19,7 +19,9 @@ use std::path::Path;
 use campaign::catalog::{Expectation, Scenario, ScenarioStatus, Stimulus};
 use campaign::evaluate::{evaluate, Evaluation, Outcome, Verdict};
 use campaign::onset::Onset;
-use campaign::recording::{EventKind, GuardianEvent, Observation, Tap, Temperature};
+use campaign::recording::{
+    EventKind, GuardianEvent, Observation, SupervisorEvent, SupervisorKind, Tap, Temperature,
+};
 use campaign::Context;
 
 fn repo() -> &'static Path {
@@ -1273,6 +1275,59 @@ impl Recording {
 }
 
 const HEARTBEAT_LOSS: &str = "BTG_GuardianHeartbeatLoss";
+const WATCHDOG: &str = "watchdog-1";
+
+impl Recording {
+    fn supervisor(&mut self, t_ms: u64, cause_event_id: u64, kind: SupervisorKind) -> u64 {
+        let event_id = 1 + self
+            .observations
+            .iter()
+            .filter(|o| matches!(o.tap, Tap::SupervisorEvent(_)))
+            .count() as u64;
+        self.observations.push(Observation {
+            t_ms,
+            tap: Tap::SupervisorEvent(SupervisorEvent {
+                session_id: WATCHDOG.into(),
+                event_id,
+                cause_event_id,
+                watchdog_time_ms: t_ms,
+                kind,
+            }),
+        });
+        event_id
+    }
+
+    /// The watchdog's loss and the warning it causes (HARA DFR-5). Returns
+    /// the loss event's ID.
+    fn watchdog_warning(&mut self, t_ms: u64) -> u64 {
+        let lost = self.supervisor(
+            t_ms,
+            0,
+            SupervisorKind::GuardianLost {
+                last_guardian_session_id: SESSION.into(),
+                silence_ms: 1550,
+            },
+        );
+        self.supervisor(
+            t_ms,
+            lost,
+            SupervisorKind::MitigationRequested {
+                mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+            },
+        );
+        lost
+    }
+
+    fn watchdog_restored(&mut self, t_ms: u64, lost: u64) {
+        self.supervisor(
+            t_ms,
+            lost,
+            SupervisorKind::GuardianRestored {
+                guardian_session_id: SESSION.into(),
+            },
+        );
+    }
+}
 
 /// A `guardian_crash` run: nominal samples, the Guardian is stopped at 6 s.
 fn guardian_stopped_run() -> Recording {
@@ -1297,6 +1352,7 @@ fn ts_24_heartbeat_loss_in_opensovd_within_budget_is_pass() {
     let mut r = guardian_stopped_run();
     // T_hb (1500 ms) plus T_diag (2000 ms) after the stop is the budget.
     r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.watchdog_warning(6000 + 1550);
 
     let evaluation = r.judge(&context, "guardian_crash");
 
@@ -1359,6 +1415,7 @@ fn ts_24_heartbeat_loss_before_the_stop_is_not_counted() {
 fn ts_24_unreachable_opensovd_is_inconclusive() {
     let context = context();
     let mut r = guardian_stopped_run();
+    r.watchdog_warning(6000 + 1550);
     r.observations.push(Observation {
         t_ms: 0,
         tap: Tap::SovdFault {
@@ -1388,6 +1445,8 @@ fn ts_25_loss_and_recovery_in_opensovd_is_pass() {
     let mut r = guardian_paused_run();
     r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
     r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, true);
+    let lost = r.watchdog_warning(6000 + 1550);
+    r.watchdog_restored(10000 + 100, lost);
 
     let evaluation = r.judge(&context, "guardian_hang");
 
@@ -1470,4 +1529,93 @@ fn input_quality_mapped_to_the_wrong_value_is_fail() {
     assert!(failed_checks(&evaluation)
         .iter()
         .any(|d| d.contains("NOT_AVAILABLE")));
+}
+
+// --- HARA DFR-5: the watchdog's occupant warning ---------------------------------
+
+fn supervisor_failures(evaluation: &Evaluation) -> Vec<String> {
+    evaluation
+        .checks
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.expectation,
+                Expectation::SupervisorWarning { .. } | Expectation::SupervisorRestored { .. }
+            )
+        })
+        .filter_map(|c| match &c.outcome {
+            Outcome::Failed { detail } => Some(detail.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn dfr_5_crash_without_watchdog_warning_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("never requested"));
+}
+
+#[test]
+fn dfr_5_late_watchdog_warning_is_fail() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    // Budget T_hb + T_react = 1600 ms after the stop.
+    r.watchdog_warning(6000 + 1700);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("late"));
+}
+
+#[test]
+fn dfr_5_warning_without_a_loss_as_cause_does_not_count() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.supervisor(
+        6000 + 1550,
+        0,
+        SupervisorKind::MitigationRequested {
+            mitigation: "DRIVER_WARNING_MONITORING_UNAVAILABLE".into(),
+        },
+    );
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn dfr_5_warning_before_the_stop_is_not_counted() {
+    let context = context();
+    let mut r = guardian_stopped_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.watchdog_warning(2000);
+
+    let evaluation = r.judge(&context, "guardian_crash");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+}
+
+#[test]
+fn dfr_5_hang_without_restoration_is_fail() {
+    let context = context();
+    let mut r = guardian_paused_run();
+    r.sovd_without_event(6000 + 1800, HEARTBEAT_LOSS, true, true);
+    r.sovd_without_event(10000 + 700, HEARTBEAT_LOSS, false, true);
+    r.watchdog_warning(6000 + 1550);
+
+    let evaluation = r.judge(&context, "guardian_hang");
+
+    assert_eq!(evaluation.verdict, Verdict::Fail);
+    assert!(supervisor_failures(&evaluation)[0].contains("GuardianRestored"));
 }
