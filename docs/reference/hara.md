@@ -151,7 +151,7 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. | **Covered for Guardian faults and campaign evidence. Missing allocation:** diagnostic reporting for the proposed independent supervisor in DFR-5 is not specified. |
 | DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| | **Missing** |
 | DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| | **Missing** |
-| DFR-9 (proposed) | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. | **Missing / Not currently detectable:** raw value `0 °C`, valid quality, and advancing counters do not reveal whether the physical temperature is below range. |
+| DFR-9 | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. | **Missing / Not currently detectable:** raw value `0 °C`, valid quality, and advancing counters do not reveal whether the physical temperature is below range. |
 
 ## HARA-derived test scenarios
 
@@ -190,7 +190,7 @@ the approved Safety Concept configuration.
 
 **Evidence and Verdict Focus:**
 
-### TS-01 Baseline
+### TS-01: Baseline nominal monitoring
 
 **HARA trace:** DRF-1 - DRF-4
 
@@ -204,7 +204,7 @@ the approved Safety Concept configuration.
 
 **Evidence and Verdict Focus**: Capture input/output stream, fail on unexpected fault, warning or emitted mitigation.
 
-### TS-02
+### TS-02: Thermal warning and critical thresholds
 
 **HARA trace:** HE-1 to HE-3; SG-1; DFR-1.
 
@@ -223,7 +223,7 @@ the configured `T_react` budget.
 **Evidence and Verdict Focus:** Record the threshold-crossing samples, state
 transitions, warning event, and input-to-output latency. This verifies threshold response and mitigations.
 
-### TS-03
+### TS-03: No data after startup
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
 
@@ -242,7 +242,7 @@ startup/connection-loss fault within the configured timeout `T_stale` and reacti
 reached its input, and capture the status transition, fault event, DFM record,
 and latency.
 
-### TS-04
+### TS-04: Temperature source shutdown
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
 
@@ -261,7 +261,7 @@ configured reaction budget.
 Guardian-input timeout, Guardian status/fault event, DFM record, and measured
 latency.
 
-### TS-05
+### TS-05: Delayed or withheld update
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
 
@@ -281,7 +281,7 @@ within the configured reaction budget.
 Guardian-input gap, `T_stale`, status/fault event, DFM record, and latency.
 Confirm the delayed stimulus reached the Guardian input.
 
-### TS-06
+### TS-06: Publisher-to-Guardian transport dropout
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
 
@@ -303,7 +303,7 @@ tap-point differences to attribute the dropout to the publisher-to-Guardian
 path. Mark attribution inconclusive if the observations cannot distinguish it
 from source loss.
 
-### TS-07 Duplicate message
+### TS-07: Duplicate message
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.2,
 FSR-3.7, and EC-2.
@@ -329,7 +329,7 @@ alive counter, Guardian-input arrival order, Guardian state/fault events, DFM
 record, and collector attribution. A duplicate not visible at the Guardian-
 input tap is an inconclusive injection, not a pass.
 
-### TS-08 Out-of-order message
+### TS-08: Out-of-order message
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.4.
 
@@ -354,7 +354,7 @@ do not claim Guardian-side out-of-order rejection for that variant.
 
 ---
 
-### TS-09 Stuck maximum temperature
+### TS-09: Stuck maximum temperature
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2 and DFR-6; FSR-2.4.
 
@@ -380,7 +380,7 @@ timestamps, detection time, the movement of average/minimum at detection,
 `T_stuck`, `Δ_stuck`, Guardian status/fault, and diagnostic record. Confirm the
 hidden temperature error remains within `Δ_stuck` plus one CAN step.
 
-### TS-10 All temperature values frozen probe
+### TS-10: All temperature values frozen probe
 
 **HARA trace:** HE-1 to HE-3; SG-2; DFR-2; F-1 limitation probe.
 
@@ -403,7 +403,7 @@ alive-counter values, monitoring status, and emitted faults. Treat this as a
 coverage/limitation result, not a passing detection test; do not claim F-1 is
 detected unless an implemented mechanism actually detects it.
 
-### TS-11
+### TS-11: Low out-of-range input during WARNING
 
 **HARA trace:** HE-1 to HE-3; SG-2 and SG-4; F-6 (low out-of-range value);
 DFR-2 and DFR-3; FSR-1.5, FSR-2.5, FSR-2.6, FSR-3.2, and FSR-3.6.
@@ -428,7 +428,7 @@ after injection, monitoring status, recovery sample count, hysteresis threshold,
 and the exact de-escalation point. Fail if a single invalid sample lowers or
 clears the active thermal state.
 
-### TS-12
+### TS-12: Low out-of-range input during CRITICAL
 
 **HARA trace:** HE-1 to HE-3; SG-2 and SG-4; F-6 (low out-of-range value);
 DFR-2 and DFR-3; FSR-1.5, FSR-2.5, FSR-2.6, FSR-3.2, and FSR-3.6.
@@ -453,7 +453,7 @@ after injection, monitoring status, recovery sample count, hysteresis threshold,
 and the exact de-escalation point. Fail if a single invalid sample lowers or
 clears the active thermal state.
 
-### TS-13
+### TS-13: Invalid source quality
 
 **HARA trace:** F-11; HE-1 to HE-3; SG-2 and SG-4; DFR-2 and DFR-3;
 FSR-3.4 and FSR-3.6.
@@ -480,7 +480,7 @@ uProtocol quality enum, source timestamp, alive counter, thermal state
 before/after, monitoring-status transition, fault code, DFM record, recovery
 sample count, and response latency. The catalog maps this case to F-11.
 
-### TS-14
+### TS-14: High anomalous samples and mitigation gating
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1 and SG-3; DFR-1 and DFR-4;
 FSR-3.2, FSR-3.3, and FSR-3.6.
@@ -506,7 +506,7 @@ mitigation events, fault record, and reaction latency. Do not classify the
 expected `WARNING` as a false positive solely because the injected sample was
 anomalous.
 
-### TS-15 Overtemperature Warning
+### TS-15: Overtemperature warning
 
 **HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Overtemperature Warning.
 
@@ -525,7 +525,7 @@ keeping it below `θ_crit`.
 state transition, any DTC, and emitted mitigation events. Fail if this
 warning-only condition triggers critical mitigation.
 
-### TS-16 Overtemperature Critical
+### TS-16: Overtemperature critical
 
 **HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Overtemperature Critical.
 
@@ -542,7 +542,7 @@ budget and reports the overtemperature-critical DTC.
 **Evidence and Verdict Focus:** Capture the valid sample, threshold, state
 transition, DTC/DFM record, mitigation event, and latency.
 
-### TS-17 Undertemperature
+### TS-17: Undertemperature
 
 **HARA trace:** No matching HARA fault ID or safety goal is currently defined;
 catalog fault: Undertemperature.
@@ -563,7 +563,7 @@ existing Guardian mitigation.
 **Evidence and Verdict Focus:** **Blocked:** record the approved limit, owner,
 requirement, and interface before executing this case as a pass/fail test.
 
-### TS-18 FreshnessLost
+### TS-18: Freshness lost
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-4/F-9; catalog fault: FreshnessLost.
 
@@ -582,7 +582,7 @@ fault within `T_stale + T_react`; it does not lower an existing thermal state.
 onset, timeout, Guardian status/fault, DFM/OpenSOVD evidence, and latency. Inject
 only the stream interruption and use taps to attribute its origin.
 
-### TS-19 QualityInvalid
+### TS-19: Quality invalid
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-11; catalog fault: QualityInvalid.
 
@@ -601,7 +601,7 @@ overtemperature mitigation from invalid quality alone.
 state/status transition, DTC, DFM/OpenSOVD record, and latency. F-11 provides
 the candidate malfunction trace for this scenario.
 
-### TS-20 OutOfRange: low value
+### TS-20: Out-of-range low value
 
 **HARA trace:** HE-1 to HE-3; SG-2/SG-4; F-6; catalog fault: OutOfRange.
 
@@ -622,7 +622,7 @@ approved invalid-input response.
 **Evidence and Verdict Focus:** Record range limits, injected value, state
 before/after, monitoring status, fault, diagnostic record, and latency.
 
-### TS-21 OutOfRange: high value
+### TS-21: Out-of-range high value
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-6; catalog fault: OutOfRange.
 
@@ -644,7 +644,7 @@ monitoring-unavailable warning if monitoring becomes `DEGRADED`.
 mitigation events, and latency. Fail if the warning is suppressed or invalid
 input alone triggers mitigation.
 
-### TS-22 RateImplausible
+### TS-22: Rate-implausible sample
 
 **HARA trace:** HE-1, HE-4, and HE-5; SG-1/SG-3; F-8; catalog fault:
 RateImplausible.
@@ -668,7 +668,7 @@ monitoring.
 computed rate, state/status, warning/DTC, mitigation, and latency. Resolve the
 FSR-3.3 versus FSR-3.5 isolated-invalid status rule before final pass/fail.
 
-### TS-23 Isolated Spike
+### TS-23: Isolated spike
 
 **HARA trace:** HE-1, HE-4, HE-5, and HE-6; SG-1/SG-3/SG-4; isolated F-8;
 catalog fault: Isolated Spike.
@@ -694,7 +694,7 @@ samples, status/state, warning/DTC, and mitigation. A pass requires reconciling
 the immediate `DEGRADED` response in FSR-3.3 with the `SUSPECT` debounce in
 FSR-3.5; until then report the requirement result as blocked/inconclusive.
 
-### TS-24 Repeated Spike
+### TS-24: Repeated spikes
 
 **HARA trace:** HE-1 to HE-6; SG-1/SG-2/SG-3/SG-4; F-13; catalog:
 Repeated Spikes.
@@ -722,7 +722,7 @@ Because FSR-3.5 is planned and FSR-3.3 currently requires immediate
 `DEGRADED`, report the implementation verdict as blocked until that requirement
 conflict is resolved.
 
-### TS-25 Heartbeat Loss: Process Termination
+### TS-25: Guardian process termination
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; F-10; catalog: Heartbeat Loss.
 
@@ -742,7 +742,7 @@ actually restarts it; independent warning remains a safety gap.
 process recovery, and collector event. Do not treat collector evidence as an
 occupant safety response.
 
-### TS-26 Heartbeat Loss: Evaluation Hang
+### TS-26: Guardian evaluation hang
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; F-10; catalog: Heartbeat Loss.
 
@@ -763,7 +763,7 @@ is implemented; occupant warning is not currently provided.
 progress and heartbeat. Mark blocked/failed against the catalog claim until
 hang detection/recovery is specified and implemented.
 
-### Proposed TS-27 Late-arriving stale message (F-2)
+### TS-27: Late-arriving stale message
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-2; FSR-2.8.
 
@@ -786,7 +786,7 @@ sample age, `T_age`, `T_stale`, Guardian acceptance, status/state transitions,
 fault/DFM record, mitigation, and recovery. This proposal depends on synchronized
 clocks and FSR-2.8 being implemented.
 
-### Proposed TS-28 Gradual temperature drift (F-7)
+### TS-28: Gradual temperature drift
 
 **HARA trace:** HE-1 to HE-3 and HE-6; SG-1/SG-4; F-7; FSR-1.3.
 
@@ -806,7 +806,7 @@ criterion is reached.
 trend window, threshold configuration, state transition, and latency. FSR-1.3
 is planned, so this remains a proposed requirement-gap test until implemented.
 
-### Proposed TS-29 Upper-scale saturation (F-12)
+### TS-29: Upper-scale saturation
 
 **HARA trace:** HE-1 and HE-6; SG-2/SG-4; F-12; DFR-2/DFR-4; FSR-3.2/FSR-3.6.
 
