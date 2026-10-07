@@ -195,12 +195,8 @@ meet their budgets, no forbidden reaction, and complete evidence. Use
 INCONCLUSIVE when the stimulus did not reach the Guardian or the required vehicle
 interface/evidence was unavailable. Retain failed runs in the report.
 
-These scenarios verify the stated software and evidence behaviors; they do not
-establish vehicle-level S/E/C ratings or prove occupant safety by themselves.
-Mark a scenario PASS only when its requirement is approved, the stimulus reaches
-the intended boundary, all specified reactions occur within budget, no forbidden
-reaction occurs, and required evidence is complete. Keep blocked and failed
-scenarios visible in the report.
+These scenarios verify the stated software and evidence behaviors; they do not establish vehicle-level S/E/C ratings or prove occupant safety by themselves.
+Mark a scenario PASS only when its requirement is approved, the stimulus reaches the intended boundary, all specified reactions occur within budget, no forbidden reaction occurs, and required evidence is complete. Keep blocked and failed scenarios visible in the report.
 
 ## AI Assistance
 
