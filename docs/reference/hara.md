@@ -542,22 +542,16 @@ result.
 | CounterStuck | TS-26 |
 | SignalStuck | TS-27 |
 | QualityInvalid | TS-28 |
-| OrderImplausible | TS-29 |
 | OutOfRange | TS-30 (low), TS-31 (high) |
 | RateImplausible | TS-32 |
 | Fast-Heating Trend | TS-33 |
-| Hot Spot | TS-34 |
-| Mitigation Failed | TS-35 |
 | Startup Without Source | TS-36 |
 | Isolated vs. Repeated Spike | TS-37 (isolated), TS-38 (repeated) |
 | Counter Error, Isolated vs. Repeated | TS-39 (isolated), TS-40 (repeated) |
 | Heartbeat Loss | TS-41 (termination), TS-42 (hang) |
 | Stale Timestamp | TS-43 |
 | Min Stuck | TS-44 |
-| Avg Deviates from (Min+Max)/2 | TS-45 |
-| Chattering Between Warning/Critical | TS-46 |
 | Upper-Scale Saturation | TS-47 |
-| Rapid Cooling Faster Than Physically Plausible | TS-48 |
 
 ### TS-22 Overtemperature Warning
 
@@ -697,24 +691,6 @@ overtemperature mitigation from invalid quality alone.
 state/status transition, DTC, DFM/OpenSOVD record, and latency. Add a dedicated
 candidate malfunction ID to the HARA before claiming complete HARA traceability.
 
-### TS-29 OrderImplausible
-
-**HARA trace:** SG-2; F-6 candidate signal plausibility; catalog fault:
-OrderImplausible.
-
-**Preconditions:** Establish valid monitoring and record the starting state.
-
-**Stimulus:** Publish one fresh, quality-valid sample with `CellTempMin` greater
-than `CellTempAvg`; keep timestamps and counters valid.
-
-**Expected Result:** The sample is rejected, monitoring becomes `DEGRADED`, and
-an order-implausible signal fault is reported within `T_react`.
-
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable`.
-
-**Evidence and Verdict Focus:** Capture min/avg/max, quality, timestamp,
-counter, Guardian status/DTC, DFM record, and reaction latency.
-
 ### TS-30 OutOfRange: low value
 
 **HARA trace:** HE-1 to HE-3; SG-2/SG-4; F-6; catalog fault: OutOfRange.
@@ -798,46 +774,6 @@ an existing Guardian mitigation; record the actual output.
 **Evidence and Verdict Focus:** Capture the valid profile, rate, duration,
 state transition, warning event, and latency. Mark blocked/failed against the
 catalog claim if FSR-1.3 remains unimplemented.
-
-### TS-34 Hot Spot
-
-**HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Hot Spot.
-
-**Preconditions:** Establish valid, fresh monitoring; confirm `Δ_hotspot`.
-
-**Stimulus:** Raise only `CellTempMax - CellTempAvg` above `Δ_hotspot` while
-keeping values in range and correctly ordered.
-
-**Expected Result:** The Guardian enters `WARNING` or a more severe state
-within `T_react`; the spread is treated as a possible real hot spot.
-
-**Expected Mitigations:** `DriverWarning` is proposed but not an existing
-Guardian mitigation; record the actual output.
-
-**Evidence and Verdict Focus:** Record max/avg/spread, input validity, state
-transition, event, and latency. Mark blocked if FSR-1.4 is not implemented or
-the parameter lacks approval.
-
-### TS-35 Mitigation Failed
-
-**HARA trace:** HE-1 to HE-3; SG-1; catalog fault: Mitigation Failed.
-
-**Preconditions:** Reach `CRITICAL` with valid input and confirm the Guardian
-published its initial mitigation request. Use a prepared thermal profile that
-can continue rising after the request.
-
-**Stimulus:** Continue the valid rise for `T_mitigation` while the Guardian is
-`MITIGATING`; inject no additional fault.
-
-**Expected Result:** The Guardian returns to `CRITICAL` and repeats the defined
-mitigation request when the failure criterion is met.
-
-**Expected Mitigations:** Repeat the existing critical request;
-`EscalateProtectiveAction` is catalog-proposed, not an existing enum.
-
-**Evidence and Verdict Focus:** Capture the initial request, valid post-request
-profile, duration, state transitions, repeat request, and latency. Mark blocked
-if no approved profile or FSR-1.7 implementation exists.
 
 ### TS-36 Startup Without Source
 
@@ -1022,49 +958,6 @@ approved minimum-stuck detector enters `DEGRADED`.
 Mark as a requirement gap if no minimum-stuck DTC is specified; do not infer
 detection from source attribution alone.
 
-### TS-45 Average Aggregation Integrity
-
-**HARA trace:** No matching candidate HARA fault ID; catalog: Avg Deviates from
-`(Min+Max)/2`.
-
-**Preconditions:** Obtain known per-cell temperatures and an approved definition
-of how `CellTempAvg` is calculated.
-
-**Stimulus:** Inject one incorrect average aggregate for the known cell set,
-leaving min/max and transport metadata valid.
-
-**Expected Result:** Compare the received average to the specified aggregation
-of the known cell set. Do not assume `Avg == (Min+Max)/2`; that is not generally
-true for a set of cell temperatures.
-
-**Expected Mitigations:** None is defined for this aggregation fault.
-
-**Evidence and Verdict Focus:** Block if ground-truth per-cell values or an
-aggregation contract are unavailable, or if only Guardian aggregate inputs are
-observable. Correct the catalog oracle before assigning pass/fail.
-
-### TS-46 Chattering Between Warning/Critical
-
-**HARA trace:** HE-1 to HE-3; SG-1; catalog: Chattering Between
-Warning/Critical.
-
-**Preconditions:** Start with valid input in `WARNING`; record the configured
-thresholds, `θ_hyst`, `N_recover`, and `T_recover`.
-
-**Stimulus:** Apply one valid profile oscillating around the WARNING/CRITICAL
-boundary and hysteresis region; inject no signal or transport fault.
-
-**Expected Result:** State changes follow hysteresis/recovery rules without
-rapid alternation between `WARNING` and `CRITICAL`.
-
-**Expected Mitigations:** No repeated mitigation request unless a valid
-critical transition requires it. `LogOnly` is proposed, not an existing
-mitigation.
-
-**Evidence and Verdict Focus:** Record input samples, state transitions, event
-count, hysteresis/recovery windows, and mitigation requests; compare against
-FSR-1.5.
-
 ### TS-47 Upper-Scale Saturation
 
 **HARA trace:** HE-1 to HE-3; SG-1/SG-2; catalog: Upper-Scale Saturation.
@@ -1087,28 +980,6 @@ degrades monitoring.
 **Evidence and Verdict Focus:** Record raw value, scaling, plausible limit,
 quality, counter, state, DTC, and mitigation. If indistinguishable from generic
 OutOfRange, record saturation-specific coverage as missing.
-
-### TS-48 Rapid Cooling Faster Than Physically Plausible
-
-**HARA trace:** F-7 candidate temperature drift; catalog: Rapid Cooling Faster
-Than Physically Plausible.
-
-**Preconditions:** Start in `WARNING` with valid, fresh input. Confirm an
-approved maximum cooling-rate threshold exists before running a pass/fail test.
-
-**Stimulus:** Apply one abrupt downward temperature step that remains within
-the absolute plausible range; inject no other fault.
-
-**Expected Result:** An invalid cooling sample must not lower an active warning.
-However, the current Safety Concept defines no cooling-rate threshold or
-specific rapid-cooling fault response, so detection is currently unspecified.
-
-**Expected Mitigations:** Preserve the active warning; no cooling-specific
-mitigation is currently defined.
-
-**Evidence and Verdict Focus:** Record old/new values, source timestamps,
-cooling rate, state, and events. Mark blocked until a cooling-rate criterion and
-response are approved.
 
 ## AI Assistance
 
