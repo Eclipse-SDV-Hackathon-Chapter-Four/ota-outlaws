@@ -89,8 +89,7 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 
 ## Hazardous Events
 
-For every hazardous event, assess **S** (severity of potential harm), **E** (exposure to the operational situation), and **C** (controllability of the hazardous event by the driver or other persons at risk). Use the definitions and ASIL determination table from the applicable ISO 26262 edition and vehicle category. Do not infer exposure from fault frequency. Record the rationale and evidence for each rating; derive ASIL only after S/E/C are agreed. **Most ratings
-remain TBD in this draft.**
+For every hazardous event, assess **S** (severity of potential harm), **E** (exposure to the operational situation), and **C** (controllability of the hazardous event by the driver or other persons at risk). Use the definitions and ASIL determination table from the applicable ISO 26262 edition and vehicle category. Do not infer exposure from fault frequency. Record the rationale and evidence for each rating; derive ASIL only after S/E/C are agreed.
 
 The events below group faults by the unsafe outcome they can produce, rather than treating every injected fault as a separate hazardous event. A fault is listed only for the effect stated in that row; where its direction or system response matters, that condition is noted. Separate rows are retained where the operational situation can change exposure or controllability. Confirm the mappings against the vehicle architecture before assigning ratings.
 
