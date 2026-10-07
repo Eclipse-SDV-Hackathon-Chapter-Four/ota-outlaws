@@ -170,14 +170,123 @@ safety objective; do not convert missing behavior into a passing test.
 
 ### Reviewed
 
-| ID | HARA trace | Preconditions | Stimulus | Expected result | Evidence and verdict focus |
-|---|---|---|---|---|--|
-| TS-01 | Baseline. DFR-1 to DFR-4 | Start the system | Publish valid, in-range, steadily updated temperatures below warning thresholds with valid quality (0x80) and monotonic increasing counter. | Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted. | Capture input/output stream, fail on unexpected fault or warning. |
-| TS-02 | HE-1 to HE-3; SG-1; DFR-1 | Start the system | Replay a valid rising-temperature profile through `θ_warn` and then `θ_crit`. | Reach WARNING at `θ_warn`; reach CRITICAL and emit `DRIVER_WARNING_OVERTEMP` at `θ_crit`, each within its configured reaction budget. | Measure if input to state event latency is below `T_react`. |
-| TS-03 | HE-1 to HE-3; SG-2; DFR-2 | Do not start CAN source, start Battery Thermal Guardian | No data is published | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
-| TS-04 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Publish valid, in-range, steadily updated data. After `3 sec`, shutdown the CAN source | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
-| TS-05 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Publish valid, in-range, steadily updated data, but delay data by more than `T_stale` | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
-| TS-06 | HE-1 to HE-3; SG-2; DFR-2 | Start CAN source and start Battery Thermal Guardian | Inject an upstream publisher/transport dropout at the Guardian input | Guardian enter `DEGRADED` state and reports the correpsonding connection loss error within `T_react` | Record tap-point fault, Guardian status/event and DFM record. |
+#### Template
+
+**HARA trace:** 
+
+**Preconditions:**
+
+**Stimulus:**
+
+**Expected Result:**
+
+**Evidence and Verdict Focus:**
+
+### TS-01 Baseline
+
+**HARA trace:** DRF-1 - DRF-4
+
+**Preconditions:** Start the system
+
+**Stimulus:** Publish valid, in-range, steadily updated temperatures below warning thresholds with valid quality (0x80) and monotonic increasing counter.
+
+**Expected Result:** Monitoring becomes `OK` and thermal state becomes `MONITORING`. No warning, mitigation, or fault is emitted.
+
+**Evidence and Verdict Focus**: Capture input/output stream, fail on unexpected fault or warning
+
+### TS-02
+
+**HARA trace:** HE-1 to HE-3; SG-1; DFR-1.
+
+**Preconditions:** Start the Guardian with a valid temperature stream and
+establish `MONITORING` below `θ_warn`.
+
+**Stimulus:** Replay a valid rising-temperature profile through `θ_warn` and
+then `θ_crit`.
+
+**Expected Result:** The Guardian enters `WARNING` at `θ_warn`, then enters
+`CRITICAL` and emits `DRIVER_WARNING_OVERTEMP` at `θ_crit`. Each response meets
+the configured `T_react` budget.
+
+**Evidence and Verdict Focus:** Record the threshold-crossing samples, state
+transitions, warning event, and input-to-output latency. This verifies threshold
+response.
+
+### TS-03
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
+
+**Preconditions:** Start the Battery Thermal Guardian without starting the CAN
+temperature source.
+
+**Stimulus:** Publish no temperature data and allow the startup timeout to
+expire.
+
+**Expected Result:** The Guardian enters `DEGRADED` and reports the corresponding
+startup/connection-loss fault within the configured timeout `T_stale` and reaction budget `T_react`.
+
+**Evidence and Verdict Focus:** Record Guardian startup time, confirm no samples
+reached its input, and capture the status transition, fault event, DFM record,
+and latency.
+
+### TS-04
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
+
+**Preconditions:** Start the CAN source and Guardian. Publish valid, in-range,
+steadily updated data for at least `3 sec`.
+
+**Stimulus:** Shut down the CAN source while leaving the Guardian running.
+
+**Expected Result:** After no fresh sample arrives for `T_stale`, the Guardian
+enters `DEGRADED` and reports the corresponding freshness fault within the
+configured reaction budget.
+
+**Evidence and Verdict Focus:** Record the last valid sample, source shutdown,
+Guardian-input timeout, Guardian status/fault event, DFM record, and measured
+latency.
+
+### TS-05
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
+
+**Preconditions:** Start the CAN source, Data Broker, VSS Publisher, Guardian, OpenSOVD
+and Evidence Collector tap points. Verify data is visible at the source and
+publisher output and reaches the Guardian.
+
+**Stimulus:** Delay or withhold an expected update so no fresh data reaches the
+Guardian for longer than `T_stale`.
+
+**Expected Result:** The Guardian enters `DEGRADED` and reports a freshness fault
+within the configured reaction budget. A constant delay with regularly arriving
+samples is not expected to be detected unless synchronized-clock age checking is
+enabled.
+
+**Evidence and Verdict Focus:** Record source timestamps and arrival times, the
+Guardian-input gap, `T_stale`, status/fault event, DFM record, and latency.
+Confirm the delayed stimulus reached the Guardian input.
+
+### TS-06
+
+**HARA trace:** HE-1 to HE-3; SG-2; DFR-2.
+
+**Preconditions:** Start the CAN source, Data Broker, VSS Publisher, Guardian, OpenSOVD
+and Evidence Collector tap points. Verify data is visible at the source and
+publisher output and reaches the Guardian.
+
+**Stimulus:** Inject a publisher/transport dropout between publisher output and
+the Guardian input while keeping the source and publisher output active.
+
+**Expected Result:** The Guardian enters `DEGRADED` and reports a freshness fault
+after `T_stale`, within the configured reaction budget.
+
+**Evidence and Verdict Focus:** Compare source, publisher-output, and
+Guardian-input observations. Capture the Guardian event and DFM record; use the
+tap-point differences to attribute the dropout to the publisher-to-Guardian
+path. Mark attribution inconclusive if the observations cannot distinguish it
+from source loss.
+
+---
 
 ### To be reviewed
 
