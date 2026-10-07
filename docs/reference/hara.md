@@ -160,8 +160,7 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 
 ## HARA-derived test scenarios
 
-The scenarios below verify DFR-1 through DFR-6 and their mapped Safety Concept
-requirements. Run each fault variant independently from a fresh Guardian instance
+Run each fault variant independently from a fresh Guardian instance
 unless a scenario explicitly tests recovery. Record the active configuration and
 observe the same input stream the Guardian receives. Timing parameters refer to
 the approved Safety Concept configuration.
