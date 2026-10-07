@@ -158,33 +158,6 @@ HARA; reconcile them into the Safety Concept before claiming requirement coverag
 | DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| | **Missing** |
 | DFR-9 (proposed) | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. | **Missing / Not currently detectable:** raw value `0 °C`, valid quality, and advancing counters do not reveal whether the physical temperature is below range. |
 
-### Safety Concept contradictions and missing requirements
-
-- **Guardian failure response (DFR-5):** HARA SG-2 requires an independent
-	in-vehicle response. Safety Concept FSR-2.7 only records a missing heartbeat
-	in the Evidence Collector and restarts a terminated process. These are
-	observability/recovery actions, not occupant protection; the safety response
-	and hang detection are missing.
-- **Mitigation gating (DFR-4):** FSR-3.2 and FSR-3.3 intentionally permit
-	WARNING for high out-of-range or implausibly fast samples, since they may
-	indicate a real thermal event. This is not a contradiction if WARNING is
-	distinct from CRITICAL/mitigation. The missing requirement is an explicit
-	rule that invalid data alone cannot trigger CRITICAL or mitigation.
-- **Warning lead time (DFR-1):** FSR reaction budgets measure response after a
-	criterion is observable. They do not establish that occupants are warned a
-	defined time before a real battery event becomes dangerous. That requirement
-	and its thermal validation basis are missing.
-- **Saturation bounds (DFR-2, DFR-4, DFR-9):** upper saturation is observable as
-	a high out-of-range value and should retain the fail-toward-warning response;
-	the current interface cannot distinguish it from a genuinely high value.
-	Lower saturation is not observable: `0 °C` is representable and considered
-	valid, so no Guardian-only test can prove under-range detection without source
-	metadata or a justified operating assumption.
-- **ASIL input inconsistency:** the hazardous-event table currently assigns
-	ASIL-D while E and C are shown as `-`. ASIL cannot be derived from S alone;
-	record justified E/C values and the applicable classification basis before
-	treating those ASIL-D entries as assessed ratings.
-
 ## HARA-derived test scenarios
 
 The scenarios below verify DFR-1 through DFR-6 and their mapped Safety Concept
