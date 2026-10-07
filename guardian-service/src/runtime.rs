@@ -88,7 +88,7 @@ pub async fn run_with_diagnostics(
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     // The heartbeat is driven by the same loop that runs the core, not by a
     // separate task: if the core hangs, the heartbeat stops too, so the
-    // watchdog sees a hang and not only a crash (HARA TS-13).
+    // watchdog sees a hang and not only a crash (HARA TS-23).
     let mut heartbeat = tokio::time::interval(HEARTBEAT_PERIOD);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut heartbeat_sequence: u64 = 0;

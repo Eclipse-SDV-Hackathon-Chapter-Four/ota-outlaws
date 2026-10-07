@@ -226,7 +226,7 @@ no fault.
 ## HARA test scenarios
 
 The [HARA](../hara.md#hara-derived-test-scenarios) defines the test scenarios
-TS-01 to TS-18. Each scenario in the catalog names the ones it implements
+TS-01 to TS-26. Each scenario in the catalog names the ones it implements
 (`hara_tests`); reports show them.
 
 | HARA test | Scenario | Status |
@@ -237,15 +237,25 @@ TS-01 to TS-18. Each scenario in the catalog names the ones it implements
 | TS-04 Source shut down | `source_shutdown`; hardware demo: `observe source_dropout` | campaign |
 | TS-05 Update delayed or withheld | `timeout` | campaign |
 | TS-06 Dropout between publisher and Guardian | `transport_dropout` | campaign |
-| TS-07 Duplicate, out of order | — | not covered: needs an injection point on the uProtocol channel |
-| TS-08 Stuck maximum | `max_stuck` | campaign |
-| TS-09 All values frozen | `temp_stuck` | campaign, as a known limitation |
-| TS-10 Invalid input during WARNING | `invalid_during_warning` | campaign |
-| TS-11 High out of range, spike | `out_of_range`, `implausible_jump`, `spike` | campaign |
-| TS-12 No mitigation from invalid input | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign, without the duplicate variant |
-| TS-13 HMI for uncertain data | — | blocked in the HARA (needs a driving simulator) |
-| TS-14 Diagnostics delayed or missing | — | [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py) (outage) |
-| TS-15, TS-16, TS-18 Guardian crash or hang, supervisor | — | not covered: no independent supervisor yet (HARA DFR-5) |
+| TS-07 Duplicate message | `counter_stuck` (persistent repeats only) | campaign for the repeated counter; exact duplicates on the uProtocol channel need an injection point; Guardian core tests |
+| TS-08 Out-of-order message | — | Guardian core tests only: needs an injection point on the uProtocol channel |
+| TS-09 Stuck maximum | `max_stuck` | campaign |
+| TS-10 All values frozen | `temp_stuck` | campaign, as a known limitation |
+| TS-11 Invalid source quality | `invalid_quality`, `invalid_during_warning` | campaign |
+| TS-12 High anomalous samples, mitigation gating | `out_of_range`, `implausible_jump`, `spike`; positive control `heating` | campaign |
+| TS-13 Overtemperature warning | `heating` | campaign |
+| TS-14 Overtemperature critical | `heating` | campaign |
+| TS-15 Freshness lost | `timeout` | campaign |
+| TS-16 Quality invalid | `invalid_quality` | campaign |
+| TS-17 Out-of-range low | — | Guardian core tests only |
+| TS-18 Out-of-range high | `out_of_range`, `implausible_jump` | campaign |
+| TS-19 Rate-implausible sample | `isolated_spike` | campaign |
+| TS-20 Isolated spike | `isolated_spike` | campaign |
+| TS-21 Repeated spikes | `spike` | campaign |
+| TS-22, TS-23 Guardian termination, hang | — | manual runs with the [watchdog](guardian-watchdog.md); no independent occupant warning yet (HARA DFR-5) |
+| TS-24 Late-arriving stale message | — | not implemented: needs synchronized clocks (FSR-2.8) |
+| TS-25 Gradual drift | `drift` | campaign |
+| TS-26 Upper-scale saturation | — | Guardian core tests only |
 
 ## Not covered yet
 

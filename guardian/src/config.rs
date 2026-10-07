@@ -13,8 +13,8 @@
 
 //! Safety parameters of the Guardian.
 //!
-//! The values live in `config/guardian/safety-params.toml`. The meaning of each
-//! parameter is explained in the "Parameters" section of
+//! The values live in `config/guardian/safety-params.toml`, which explains
+//! each parameter. The requirements they parameterize are traced in
 //! `docs/reference/hara.md`.
 
 use serde::Deserialize;
@@ -45,9 +45,17 @@ pub struct PlausibilityConfig {
     /// always plausible: it can appear at any moment, however close the
     /// source timestamps are.
     pub resolution_c: f32,
+    /// `N_suspect` for spikes: rate-implausible samples within
+    /// `suspect_window_ms` that lead to DEGRADED. Fewer only set SUSPECT
+    /// (FSR-3.5, HARA DFR-4, TS-20, TS-21).
+    pub suspect_spikes: u32,
+    /// `T_suspect` in milliseconds.
+    pub suspect_window_ms: u64,
 }
 
 /// Sustained recovery, with hysteresis and a minimum healthy observation period.
+/// `valid_samples` also sets how many consecutive fresh, valid samples bring
+/// SUSPECT back to OK (HARA DFR-8).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RecoveryConfig {
@@ -65,7 +73,8 @@ impl Default for RecoveryConfig {
     }
 }
 
-/// Thresholds for the maximum cell temperature (FSR-1.1, FSR-1.2).
+/// Thresholds for the maximum cell temperature (FSR-1.1, FSR-1.2) and the
+/// rising-trend criterion (FSR-1.3).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermalConfig {
@@ -73,6 +82,11 @@ pub struct ThermalConfig {
     pub warn_c: f32,
     /// `θ_crit` in °C.
     pub critical_c: f32,
+    /// `r_trend`: sustained rise of the maximum, in °C per second, that raises
+    /// WARNING below `θ_warn` (FSR-1.3, HARA F-7, TS-25).
+    pub trend_rise_c_per_s: f32,
+    /// `T_trend` in milliseconds: how long the rise must be sustained.
+    pub trend_duration_ms: u64,
 }
 
 /// Freshness monitoring (FSR-2.2) and repeated frames (FSR-2.3).
@@ -123,6 +137,12 @@ impl GuardianConfig {
         if self.thermal.warn_c >= self.thermal.critical_c {
             return invalid("thermal.warn_c must be below thermal.critical_c");
         }
+        if !(self.thermal.trend_rise_c_per_s.is_finite() && self.thermal.trend_rise_c_per_s > 0.0) {
+            return invalid("thermal.trend_rise_c_per_s must be greater than zero");
+        }
+        if self.thermal.trend_duration_ms == 0 {
+            return invalid("thermal.trend_duration_ms must be greater than zero");
+        }
         if self.freshness.stale_timeout_ms == 0 {
             return invalid("freshness.stale_timeout_ms must be greater than zero");
         }
@@ -162,6 +182,13 @@ impl GuardianConfig {
         }
         if !(plausibility.resolution_c.is_finite() && plausibility.resolution_c >= 0.0) {
             return invalid("plausibility.resolution_c must not be negative");
+        }
+        if plausibility.suspect_spikes < 2 {
+            // A single spike must only set SUSPECT (FSR-3.5).
+            return invalid("plausibility.suspect_spikes must be at least 2");
+        }
+        if plausibility.suspect_window_ms == 0 {
+            return invalid("plausibility.suspect_window_ms must be greater than zero");
         }
         if !self.recovery.hysteresis_c.is_finite()
             || self.recovery.hysteresis_c <= 0.0
