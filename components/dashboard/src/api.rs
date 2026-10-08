@@ -163,8 +163,13 @@ async fn select_backend(
     };
     if is_remote(&app) != selection {
         let status = if is_remote(&app) {
-            // A missing adapter cannot confirm that its controller has cleaned up.
-            remote(&app)?.get("/status").await?
+            // Leaving OpenDUT must work when its host controller is down: there is then
+            // nothing running to wait for. Reaching it, the answer still counts.
+            match remote(&app)?.get("/status").await {
+                Ok(status) => status,
+                Err(_) if !selection => json!({}),
+                Err(error) => return Err(error.into()),
+            }
         } else {
             app.launcher.status().await
         };
