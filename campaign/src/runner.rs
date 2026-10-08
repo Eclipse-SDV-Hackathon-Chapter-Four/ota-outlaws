@@ -42,7 +42,7 @@ const CHAIN: &[&str] = &[
 
 /// How long to keep recording after the last sample, so that OpenSOVD can
 /// catch up with the last Guardian events.
-const TAIL: Duration = Duration::from_secs(3);
+const TAIL: Duration = Duration::from_secs(2);
 
 pub struct Settings {
     pub repo: PathBuf,
@@ -542,7 +542,7 @@ async fn drive(
     loop {
         let quiet = recorder
             .since_last_sample()
-            .is_some_and(|since| since > Duration::from_millis(1500));
+            .is_some_and(|since| since > Duration::from_millis(700));
         if source_started.elapsed() > trace_duration && quiet {
             break;
         }

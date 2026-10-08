@@ -817,7 +817,7 @@ requirement = "SG-4"
 
 [[scenario]]
 id = "counter_error"
-description = "AliveCounter skips from 39 to 45, then resumes"
+description = "AliveCounter skips ahead by 7, then resumes"
 fault_class = "Transport"
 hazard = "HE-1"
 safety_goal = "SG-2"

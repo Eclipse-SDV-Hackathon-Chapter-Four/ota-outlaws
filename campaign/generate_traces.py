@@ -43,7 +43,7 @@ Campaign traces:
                  (FSR-3.3). implausible_jump.asc
                  jumps beyond the plausible range, so it tests FSR-3.2.
 
-Every trace starts with 5 s of nominal data: the campaign starts the Guardian
+Every trace starts with 2.5 to 3 s of nominal data: the campaign starts the Guardian
 once the source delivers data, and the Guardian needs a moment to start.
 
 BMS_MSG1 encoding of all traces:
@@ -122,69 +122,69 @@ def write_with_quality(path, purpose, frames):
 
 
 def heating():
-    """(max, min, avg) per frame: 5 s at 40 °C, +1 °C per 200 ms to 58 °C,
-    2 s hold, -1 °C per 100 ms back to 40 °C, 3 s hold."""
-    profile = [40] * 50
+    """(max, min, avg) per frame: 3 s at 40 °C, +1 °C per 200 ms to 58 °C,
+    2 s hold, -1 °C per 100 ms back to 40 °C, 2 s hold."""
+    profile = [40] * 30
     profile += [t for t in range(41, 59) for _ in range(2)]
     profile += [58] * 20
     profile += list(range(57, 39, -1))
-    profile += [40] * 30
+    profile += [40] * 20
     return [(m, m - 16, m - 8) for m in profile]
 
 
 def max_stuck():
-    """5 s nominal and 2 s rising together; then the maximum freezes at 42 °C for 5 s while the
+    """2.5 s nominal and 2 s rising together; then the maximum freezes at 42 °C for 4 s while the
     average and minimum rise by 1 °C per 500 ms (Min ≤ Avg ≤ Max holds); then
-    the maximum moves to 44 °C and everything stays constant for 6 s. The
+    the maximum moves to 44 °C and everything stays constant for 5 s. The
     Guardian clears a stuck fault only after T_stuck plus T_recover (4 s) of
     healthy samples, so the fault can recover."""
-    frames = [(38, 22, 30)] * 30
+    frames = [(38, 22, 30)] * 25
     for i in range(20):
         step = i // 5
         frames.append((38 + step, 22 + step, 30 + step))
     # Continue from the rising phase, so the spread stays below Δ_hotspot
     # (FSR-1.4) and only the stuck maximum is abnormal.
     avg, low = 32, 24
-    for i in range(50):
+    for i in range(40):
         if i % 5 == 0:
             avg, low = avg + 1, low + 1
         frames.append((42, low, avg))
-    frames += [(44, low, avg)] * 60
+    frames += [(44, low, avg)] * 50
     return frames
 
 
 def spike():
-    """4 s at 40 degC, 1 s at 100 degC (in range, but 60 degC within 100 ms),
-    then 5 s at 40 degC so the fault can recover."""
+    """3 s at 40 degC, 1 s at 100 degC (in range, but 60 degC within 100 ms),
+    then 3.5 s at 40 degC so the fault can recover."""
     nominal = (40, 24, 32)
-    return [nominal] * 40 + [(100, 84, 92)] * 10 + [nominal] * 50
+    return [nominal] * 30 + [(100, 84, 92)] * 10 + [nominal] * 35
 
 
 def invalid_during_warning():
-    """5 s at 30 degC, heat to 47 degC (WARNING) at 1 degC per 100 ms, hold 2 s, then 1 s of
-    low readings marked INVALID, then 5 s at 47 degC again. Returns frames with
+    """3 s at 30 degC, heat to 47 degC (WARNING) at 1 degC per 100 ms, hold 2 s, then 1 s of
+    low readings marked INVALID, then 3 s at 47 degC again. Returns frames with
     their quality."""
-    frames = [((30, 14, 22), VALID)] * 50
+    frames = [((30, 14, 22), VALID)] * 30
     frames += [((m, m - 16, m - 8), VALID) for m in range(30, 48)]
     frames += [((47, 31, 39), VALID)] * 20
     frames += [((20, 10, 15), INVALID)] * 10
-    frames += [((47, 31, 39), VALID)] * 50
+    frames += [((47, 31, 39), VALID)] * 30
     return frames
 
 
 def isolated_spike():
-    """4 s at 40 degC, one frame at 70 degC (30 degC within 100 ms), then 6 s
+    """3 s at 40 degC, one frame at 70 degC (30 degC within 100 ms), then 4 s
     at 40 degC (FSR-3.5, HARA TS-20)."""
     nominal = (40, 24, 32)
-    return [nominal] * 40 + [(70, 54, 62)] + [nominal] * 60
+    return [nominal] * 30 + [(70, 54, 62)] + [nominal] * 40
 
 
 def drift():
-    """5 s at 30 degC, then +1 degC per 600 ms to 42 degC, below the WARNING
-    threshold, then 5 s hold (FSR-1.3, HARA F-7, TS-25)."""
-    profile = [30] * 50
+    """3 s at 30 degC, then +1 degC per 600 ms to 42 degC, below the WARNING
+    threshold, then 3 s hold (FSR-1.3, HARA F-7, TS-25)."""
+    profile = [30] * 30
     profile += [t for t in range(31, 43) for _ in range(6)]
-    profile += [42] * 50
+    profile += [42] * 30
     return [(m, m - 16, m - 8) for m in profile]
 
 
@@ -225,17 +225,23 @@ def write_slotted(path, purpose, slotted):
 
 
 def nominal():
-    """20 s at 40 degC."""
-    return [(40, 24, 32)] * 200
+    """14 s at 40 degC: the stop, pause and isolate scenarios act at 6 s and need the
+    time after them to recover."""
+    return [(40, 24, 32)] * 140
 
 
 
 # -----------------------------------------------------------------------------
-TOTAL_FRAMES = 100
-LEAD_IN_FRAMES = 40
+# Frames are 100 ms apart. The lead-in leaves the Guardian about 2 s of judged
+# samples after it is ready (the campaign starts it after the first sample); the
+# recovery covers the 10 valid samples and the 1 s the Guardian needs to clear a fault.
+LEAD_IN_FRAMES = 30
 FAULT_FRAMES = 20
-RECOVERY_FRAMES = 40
-TIMEOUT_LEAD_IN_FRAMES = 50
+RECOVERY_FRAMES = 30
+TOTAL_FRAMES = LEAD_IN_FRAMES + FAULT_FRAMES + RECOVERY_FRAMES
+TIMEOUT_LEAD_IN_FRAMES = 30
+TIMEOUT_AFTER_FRAMES = 30
+COUNTER_JUMP = 6  # counter_error: AliveCounter skips this far ahead
 FRAME_PERIOD = 0.1
 TIMEOUT_GAP = 1.8
 
@@ -249,7 +255,7 @@ FAULT_LOG_SCENARIOS = {
     "normal": ("Nominal data with an incrementing alive counter.", None),
     "timeout": ("A 1.8-second missing-frame gap between normal sections.", None),
     "counter_error": (
-        "AliveCounter skips from 39 to 45, then resumes incrementing.",
+        "AliveCounter skips ahead by {}, then resumes incrementing.".format(COUNTER_JUMP + 1),
         None,
     ),
     "counter_stuck": (
@@ -381,7 +387,7 @@ def build_fault_trace(name, fault_frames):
         recovery_start = (
             trace[-1][0] + TIMEOUT_GAP
         )
-        for index in range(TOTAL_FRAMES - TIMEOUT_LEAD_IN_FRAMES):
+        for index in range(TIMEOUT_AFTER_FRAMES):
             counter = (TIMEOUT_LEAD_IN_FRAMES + index) % 256
             timestamp = recovery_start + index * FRAME_PERIOD
             trace.append((timestamp, 40, 24, 32, 0x80, counter))
@@ -395,7 +401,7 @@ def build_fault_trace(name, fault_frames):
     for index in range(FAULT_FRAMES):
         timestamp = (LEAD_IN_FRAMES + index) * FRAME_PERIOD
         if name == "counter_error":
-            counter = (45 + index) % 256
+            counter = (LEAD_IN_FRAMES + COUNTER_JUMP + index) % 256
         elif name == "counter_stuck":
             counter = LEAD_IN_FRAMES
         else:
@@ -415,7 +421,7 @@ def build_fault_trace(name, fault_frames):
     if name == "counter_stuck":
         recovery_counter = LEAD_IN_FRAMES + 1
     elif name == "counter_error":
-        recovery_counter = 45 + FAULT_FRAMES
+        recovery_counter = LEAD_IN_FRAMES + COUNTER_JUMP + FAULT_FRAMES
     else:
         recovery_counter = LEAD_IN_FRAMES + FAULT_FRAMES
 
@@ -452,38 +458,38 @@ def write_fault_logs(output_dir):
 
 
 def invalid_during_critical():
-    """5 s at 30 degC, heat to 58 degC (CRITICAL) at 1 degC per 100 ms, hold 2 s, then 1 s of
-    low readings marked ERROR_NOT_AVAILABLE (0xFF), then 5 s at 58 degC again
+    """3 s at 30 degC, heat to 58 degC (CRITICAL) at 1 degC per 100 ms, hold 2 s, then 1 s of
+    low readings marked ERROR_NOT_AVAILABLE (0xFF), then 3 s at 58 degC again
     (HARA TS-11 from CRITICAL; the raw byte 0xFF must reach the Guardian as NOT_AVAILABLE)."""
-    frames = [((30, 14, 22), VALID)] * 50
+    frames = [((30, 14, 22), VALID)] * 30
     frames += [((m, m - 16, m - 8), VALID) for m in range(30, 59)]
     frames += [((58, 42, 50), VALID)] * 20
     frames += [((20, 10, 15), NOT_AVAILABLE)] * 10
-    frames += [((58, 42, 50), VALID)] * 50
+    frames += [((58, 42, 50), VALID)] * 30
     return frames
 
 
 def saturation_255():
-    """5 s at 40 degC, ONE frame with CellTempMax at the representable maximum
-    255 degC (0x00FF), then 5 s at 40 degC (HARA TS-26)."""
+    """3 s at 40 degC, ONE frame with CellTempMax at the representable maximum
+    255 degC (0x00FF), then 3 s at 40 degC (HARA TS-26)."""
     nominal = (40, 24, 32)
-    return [nominal] * 50 + [(255, 24, 32)] + [nominal] * 50
+    return [nominal] * 30 + [(255, 24, 32)] + [nominal] * 30
 
 
 def quality_single():
-    """5 s at 40 degC, ONE frame with quality ERROR_NOT_AVAILABLE (0xFF), then 5 s
+    """3 s at 40 degC, ONE frame with quality ERROR_NOT_AVAILABLE (0xFF), then 3 s
     at 40 degC (HARA TS-16)."""
     nominal = ((40, 24, 32), VALID)
-    return [nominal] * 50 + [((40, 24, 32), NOT_AVAILABLE)] + [nominal] * 50
+    return [nominal] * 30 + [((40, 24, 32), NOT_AVAILABLE)] + [nominal] * 30
 
 
 def duplicate_message():
-    """5 s at 40 degC, the frame of slot 50 delivered twice with the same AliveCounter,
+    """3 s at 40 degC, the frame of slot 30 delivered twice with the same AliveCounter,
     then fresh frames (HARA TS-07)."""
     nominal = (40, 24, 32)
-    frames = [(nominal, VALID, i) for i in range(50)]
-    frames += [(nominal, VALID, 49)]  # duplicate of the previous frame
-    frames += [(nominal, VALID, 50 + i) for i in range(50)]
+    frames = [(nominal, VALID, i) for i in range(30)]
+    frames += [(nominal, VALID, 29)]  # duplicate of the previous frame
+    frames += [(nominal, VALID, 30 + i) for i in range(30)]
     return frames
 
 

@@ -42,17 +42,19 @@ UINT16 value without a DBC-defined signed encoding or offset. The out-of-range
 scenario therefore uses high positive values. Confirm scaling, offset,
 signedness, units, ranges, and invalid-value encoding against the project DBC.
 
-Each ASC contains exactly 100 CAN messages. Fault scenarios begin with normal
-frames, inject the fault in the middle, and finish with normal recovery frames.
-Most scenarios use 40 normal lead-in frames, 20 fault frames, and 40 recovery
-frames. The timeout scenario uses 50 normal frames before and after a 1.8-second
-missing-frame gap, keeping the total transmitted message count at 100.
-The normal.asc file contains 100 nominal frames.
+Each fault log contains 80 CAN messages (8 s). Fault scenarios begin with normal
+frames, inject the fault in the middle, and finish with normal recovery frames:
+30 normal lead-in frames, 20 fault frames, and 30 recovery frames. The timeout
+scenario uses 30 normal frames before and after a 1.8-second missing-frame gap.
+The normal.asc file contains 80 nominal frames. The traces are kept short because
+every scenario starts its own Docker chain and plays its trace in real time; the
+lead-in leaves the Guardian about 2 s of judged samples after it is ready, and the
+recovery covers the 10 valid samples and 1 s that clear a fault.
 
 Scenario files:
-  normal.asc             100 nominal temperatures and incrementing counter
-  timeout.asc            50 normal frames, missing-frame gap, 50 normal frames
-  counter_error.asc      counter skips from 39 to 45, then resumes incrementing
+  normal.asc             80 nominal temperatures and incrementing counter
+  timeout.asc            30 normal frames, missing-frame gap, 30 normal frames
+  counter_error.asc      counter skips ahead by 7, then resumes incrementing
   counter_stuck.asc      counter sticks in the middle, then resumes incrementing
   invalid_quality.asc    quality is 00 or FF in the fault segment
   min_gt_avg.asc         minimum temperature exceeds average in the fault segment
