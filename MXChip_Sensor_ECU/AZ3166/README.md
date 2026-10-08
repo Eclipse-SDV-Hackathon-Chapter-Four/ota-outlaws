@@ -159,17 +159,15 @@ wsl.exe -e bash -lc 'cd /mnt/c/path/to/samplex/MXChip/AZ3166 && python3 host/cam
 
 When Button A is pressed, the bridge runs the OTA Outlaws full campaign
 (`campaign run --all`) and immediately forwards each scenario verdict printed
-by the running campaign to the board over UDP. Each `campaign_result`
-message carries the scenario, the verdict, and, from `host/hara_map.json`, the
-HARA test ID `ts` (for example `TS-05`), a short `name`, the `title`, and a
-ready display `line` of at most 21 characters (for example
-`TS-05 LateData   PASS`; `INCO` stands for INCONCLUSIVE). The OLED can show one
-line per test as soon as that scenario completes; it does not wait for the
-campaign's final report. Before it starts, the bridge removes Docker projects
-that an interrupted run left behind.
-Campaign evidence remains in the `runs/` directory of the `ota-outlaws`
-repository. This runs the campaign's built-in trace-based tests; the board's
-HTS221 samples are not inputs to those tests.
+by the running campaign to the board over UDP. The OLED displays each scenario
+name, verdict, and progress (for example, `12/30`, `counter_stuck`, and
+`PASS`) as soon as that scenario completes; it does not wait for the campaign's
+final report. The bridge reads `campaign/scenarios.toml`, validates its
+referenced `.asc` files, and derives the total from non-external scenarios, so
+the progress count follows the selected `ota-outlaws` checkout. Use the latest
+campaign checkout to run the latest traces. Campaign evidence remains in the
+`runs/` directory of the `ota-outlaws` repository. The campaign replays its
+CAN trace inputs; the board's HTS221 samples are not inputs to those tests.
 
 In a separate, non-admin PowerShell window, run
 `scripts/start-guardian-udp-relay.ps1` and leave that window open. It forwards
@@ -184,6 +182,8 @@ New-NetFirewallRule -DisplayName "AZ3166 OTA Outlaws UDP 30502" -Direction Inbou
 The bridge only accepts a campaign request; it does not accept shell commands
 or scenario paths from the board. Button B continues to send its existing
 one-shot bad-sample event, which is separate from the campaign bridge.
+See [COMMUNICATION_FLOW.md](./COMMUNICATION_FLOW.md) for the end-to-end network
+diagram, UDP packet examples, and OLED result handling.
 
 To deploy, use `deploy.ps1` (adjust the destination drive as needed):
 ```powershell

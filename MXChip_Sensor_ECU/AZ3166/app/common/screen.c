@@ -20,6 +20,8 @@
 #include "nanoprintf.h"
 #include "ssd1306.h"
 
+#include <string.h>
+
 void screen_print(char* str, LINE_NUM line)
 {
     ssd1306_Fill(Black);
@@ -155,12 +157,29 @@ void screen_print_button_status(char button, const char* action, const char* det
     ssd1306_UpdateScreen();
 }
 
-void screen_print_campaign_result(const char* scenario, const char* verdict)
+void screen_print_campaign_result(const char* scenario, const char* verdict,
+                                 uint32_t result_index, uint32_t result_total)
 {
     char lines[3][22] = {{0}};
 
-    npf_snprintf(lines[0], sizeof(lines[0]), "CAMPAIGN RESULT");
-    npf_snprintf(lines[1], sizeof(lines[1]), "%s", scenario);
+    if (result_index > 0U && result_total > 0U)
+    {
+        npf_snprintf(lines[0], sizeof(lines[0]), "CAMPAIGN %lu/%lu",
+                     (unsigned long)result_index, (unsigned long)result_total);
+    }
+    else
+    {
+        npf_snprintf(lines[0], sizeof(lines[0]), "CAMPAIGN RESULT");
+    }
+
+    if (strlen(scenario) > 21U)
+    {
+        npf_snprintf(lines[1], sizeof(lines[1]), "%.18s...", scenario);
+    }
+    else
+    {
+        npf_snprintf(lines[1], sizeof(lines[1]), "%s", scenario);
+    }
     npf_snprintf(lines[2], sizeof(lines[2]), "%s", verdict);
 
     ssd1306_Fill(Black);

@@ -12,16 +12,64 @@ import time
 import uuid
 from pathlib import Path
 
-CAMPAIGN_RESULT = re.compile(
+CONSOLE_RESULT = re.compile(
+    r"^(?:✓\s+PASS|✗\s+FAIL|\?\s+INCONCLUSIVE)\s+([A-Za-z0-9_-]+)\b"
+)
+LEGACY_RESULT = re.compile(
     r"^([A-Za-z0-9_-]+):\s+(Pass|Fail|Inconclusive)\s+[—-]"
 )
+SCENARIO_BLOCK = re.compile(
+    r"(?ms)^\[\[scenario\]\]\s*(.*?)(?=^\[\[scenario\]\]|\Z)"
+)
+SCENARIO_ID = re.compile(r'(?m)^id\s*=\s*"([A-Za-z0-9_-]+)"\s*$')
+STIMULUS_TYPE = re.compile(
+    r'(?m)^stimulus\s*=\s*\{\s*type\s*=\s*"([A-Za-z0-9_-]+)"'
+)
+TRACE_PATH = re.compile(r'(?m)\btrace\s*=\s*"([^"]+\.asc)"')
+ISOLATION_SERVICE = re.compile(r'\bisolate\s*=\s*"([^"]+)"')
 MAX_REQUEST_ID = 0xFFFFFFFF
-LINE_WIDTH = 21  # characters of one display line (assumption for the 128x64 OLED)
 VERDICTS = {
     "Pass": "PASS",
     "Fail": "FAIL",
     "Inconclusive": "INCONCLUSIVE",
 }
+
+
+def campaign_scenario_total(campaign_dir):
+    catalog_path = campaign_dir / "campaign" / "scenarios.toml"
+    catalog = catalog_path.read_text(encoding="utf-8")
+    blocks = SCENARIO_BLOCK.findall(catalog)
+    if not blocks:
+        raise ValueError("campaign/scenarios.toml contains no scenarios")
+
+    total = 0
+    for block in blocks:
+        scenario_match = SCENARIO_ID.search(block)
+        stimulus_match = STIMULUS_TYPE.search(block)
+        if scenario_match is None or stimulus_match is None:
+            raise ValueError("campaign catalog has a scenario without an id or stimulus")
+        if stimulus_match.group(1) == "external":
+            continue
+        isolation_match = ISOLATION_SERVICE.search(block)
+        if (
+            isolation_match is not None
+            and isolation_match.group(1) == "can-link"
+        ):
+            # The bridge invokes `campaign run --all` without a runtime hook;
+            # the CLI's default runtime supports network isolation and watchdogs.
+            continue
+
+        total += 1
+        for trace in TRACE_PATH.findall(block):
+            trace_path = campaign_dir / trace
+            if not trace_path.is_file():
+                raise ValueError(
+                    "campaign trace is missing: " + str(trace_path)
+                )
+
+    if total == 0:
+        raise ValueError("campaign catalog has no runnable scenarios")
+    return total
 
 
 def decode_campaign_request(payload):
@@ -41,53 +89,18 @@ def decode_campaign_request(payload):
 
 
 def parse_campaign_result(line):
-    match = CAMPAIGN_RESULT.match(line)
+    match = CONSOLE_RESULT.match(line)
+    if match is not None:
+        if line.startswith("✓"):
+            return match.group(1), "PASS"
+        if line.startswith("✗"):
+            return match.group(1), "FAIL"
+        return match.group(1), "INCONCLUSIVE"
+
+    match = LEGACY_RESULT.match(line)
     if match is None:
         return None
     return match.group(1), VERDICTS[match.group(2)]
-
-
-def load_hara_map():
-    """Scenario -> HARA test ID, title and short name (hara_map.json next to this file)."""
-    try:
-        data = json.loads(Path(__file__).with_name("hara_map.json").read_text())
-    except (OSError, ValueError):
-        return {}
-    return {key: value for key, value in data.items() if not key.startswith("_")}
-
-
-def display_fields(hara_map, scenario, verdict):
-    """ts, short name, title and a ready display line such as 'TS-05 LateData   PASS'."""
-    entry = hara_map.get(scenario, {})
-    ts = entry.get("ts", "")
-    short = entry.get("short") or scenario[:10]
-    result = {"PASS": "PASS", "FAIL": "FAIL"}.get(verdict, "INCO")
-    width = LINE_WIDTH - len(result) - 1
-    line = f"{(ts or '--').ljust(5)} {short}".ljust(width)[:width] + " " + result
-    return {"ts": ts, "name": short, "title": entry.get("title", scenario), "line": line}
-
-
-def remove_leftover_projects():
-    """Remove Docker Compose projects of interrupted campaign runs.
-
-    The campaign tool names its project campaign-<scenario>. A project left over
-    from an interrupted run would be reused by the next run and mix old and new
-    containers, which gives wrong verdicts.
-    """
-    try:
-        listing = subprocess.run(
-            ["docker", "ps", "-a", "--filter", "name=^campaign-", "--format",
-             '{{.Label "com.docker.compose.project"}}'],
-            capture_output=True, text=True, timeout=60,
-        )
-        for project in sorted({p.strip() for p in listing.stdout.splitlines() if p.strip()}):
-            logging.info("Removing leftover Docker project %s", project)
-            subprocess.run(
-                ["docker", "compose", "-p", project, "down", "-v", "--remove-orphans"],
-                capture_output=True, text=True, timeout=180,
-            )
-    except (OSError, subprocess.SubprocessError):
-        logging.warning("Could not remove leftover campaign containers")
 
 
 def send_message(sock, address, message):
@@ -95,7 +108,9 @@ def send_message(sock, address, message):
     sock.sendto(payload, address)
 
 
-def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock):
+def run_campaign(
+    sock, address, request_id, campaign_dir, scenario_total, display_interval, lock
+):
     output_name = "az3166-" + uuid.uuid4().hex
     output_dir = Path("runs") / output_name
     command = [
@@ -113,8 +128,6 @@ def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock
     ]
 
     try:
-        remove_leftover_projects()
-        hara_map = load_hara_map()
         logging.info("Starting full campaign for request %d", request_id)
         process = subprocess.Popen(
             command,
@@ -134,18 +147,23 @@ def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock
                 continue
 
             scenario, verdict = result
+            result_count += 1
+            if result_count > scenario_total:
+                raise RuntimeError(
+                    "campaign printed more results than catalog scenarios"
+                )
             send_message(
                 sock,
                 address,
                 {
                     "type": "campaign_result",
                     "id": request_id,
+                    "n": result_count,
+                    "total": scenario_total,
                     "scenario": scenario,
                     "verdict": verdict,
-                    **display_fields(hara_map, scenario, verdict),
                 },
             )
-            result_count += 1
             logging.info("Request %d: %s %s", request_id, scenario, verdict)
             time.sleep(display_interval)
 
@@ -154,8 +172,12 @@ def run_campaign(sock, address, request_id, campaign_dir, display_interval, lock
             raise RuntimeError(
                 "campaign command exited with status " + str(return_code)
             )
-        if result_count == 0:
-            raise RuntimeError("campaign produced no scenario results")
+        if result_count != scenario_total:
+            raise RuntimeError(
+                "campaign produced {} of {} scenario results".format(
+                    result_count, scenario_total
+                )
+            )
 
         send_message(sock, address, {"type": "campaign_complete", "id": request_id})
         logging.info("Campaign request %d complete", request_id)
@@ -194,6 +216,10 @@ def main():
     campaign_dir = args.campaign_dir.expanduser().resolve()
     if not (campaign_dir / "Cargo.toml").is_file():
         parser.error("--campaign-dir must contain Cargo.toml")
+    try:
+        scenario_total = campaign_scenario_total(campaign_dir)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     if args.port < 1 or args.port > 65535:
         parser.error("--port must be between 1 and 65535")
     if args.display_interval < 0.5:
@@ -206,7 +232,12 @@ def main():
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(message)s",
         )
-        logging.info("Listening on %s:%d for AZ3166 campaign requests", args.host, args.port)
+        logging.info(
+            "Listening on %s:%d for AZ3166 campaign requests (%d scenarios)",
+            args.host,
+            args.port,
+            scenario_total,
+        )
         while True:
             payload, address = sock.recvfrom(2048)
             try:
@@ -233,6 +264,7 @@ def main():
                     address,
                     request_id,
                     campaign_dir,
+                    scenario_total,
                     args.display_interval,
                     lock,
                 ),
