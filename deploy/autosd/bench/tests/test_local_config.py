@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("bench_controller", Path(__file__).parents[1] / "controller.py")
 bench = importlib.util.module_from_spec(spec)
@@ -23,6 +25,34 @@ spec.loader.exec_module(bench)
 
 
 class LocalConfig(unittest.TestCase):
+    def test_host_clock_anchor_rejects_offset_and_ssh_uncertainty(self):
+        for guest_time, duration in ((1_100_000_000, 100_000_000),
+                                     (1_100_000_000, 2_200_000_000)):
+            with self.subTest(guest_time=guest_time, duration=duration), tempfile.TemporaryDirectory() as directory:
+                controller = bench.Bench.__new__(bench.Bench)
+                controller.config = {"peers": [{"role": "a"}]}
+                controller.state = Path(directory)
+                controller.save = Mock()
+                controller.ssh = Mock(return_value=SimpleNamespace(stdout=str(guest_time)))
+                with patch.object(bench.time, "time_ns", side_effect=[0, 0, duration]):
+                    with self.assertRaisesRegex(RuntimeError, "within 1 s"):
+                        controller.provision(None)
+                self.assertEqual(controller.ssh.call_count, 2)
+                self.assertTrue((controller.state / "a-boot-clock.json").exists())
+
+    def test_bounded_host_clock_anchor_allows_provisioning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = bench.Bench.__new__(bench.Bench)
+            controller.config = {"peers": [{"role": "a"}]}
+            controller.state = Path(directory)
+            controller.save = Mock()
+            controller.ssh = Mock(side_effect=[SimpleNamespace(stdout=""), SimpleNamespace(stdout="120000000"),
+                                              OSError("stop before asset provisioning")])
+            with patch.object(bench.time, "time_ns", side_effect=[0, 0, 100_000_000]):
+                with self.assertRaisesRegex(OSError, "stop before asset provisioning"):
+                    controller.provision(None)
+            self.assertEqual(controller.ssh.call_count, 3)
+
     def test_paths_follow_config_location(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "local.toml"

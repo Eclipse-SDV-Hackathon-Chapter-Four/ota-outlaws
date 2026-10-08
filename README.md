@@ -15,6 +15,8 @@ SPDX-License-Identifier: EPL-2.0
 
 Project plan: [Project Plan](docs/reference/project-plan.md)
 
+Hack Coach Interview Presentation: [Hack Coach Interview](OTA_Outlaws_HackCoachInterview_[EF_SDV_Hackathon_2026].pptx)
+
 ## Run the tests
 
 ```sh
