@@ -172,12 +172,12 @@ warnings on a physical actuator.
 
 ## Verification
 
-After deploying with `make -C deploy/autosd up`, run the shared campaign driver
+From `deploy/autosd`, deploy with `make up` and run the shared campaign driver
 inside AutoSD through Ankaios:
 
 ```sh
-make -C deploy/autosd campaigns
-make -C deploy/autosd campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
+make campaigns
+make campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
 ```
 
 The scenarios in `campaign/scenarios.toml` exercise the deployed CAN → KUKSA →

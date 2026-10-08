@@ -79,7 +79,8 @@ if [[ "$image_codes" != "$expected_codes" ]]; then
     echo 'Guardian image and repository fault catalog have different DTCs.' >&2
     echo 'From the repository root, rebuild and transfer the Guardian image:' >&2
     echo '  docker build --platform linux/arm64 -t ota-outlaws/guardian:dev -f guardian-service/Containerfile .' >&2
-    echo '  make -C deploy/autosd up' >&2
+    echo 'Then, from deploy/autosd:' >&2
+    echo '  make up' >&2
     exit 1
 fi
 if [[ "$SKIP_IMAGES" == 0 ]]; then

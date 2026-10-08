@@ -10,7 +10,7 @@
 # SPDX-License-Identifier: EPL-2.0
 # AI-assisted: Codex / GPT-6 (gpt-6)
 
-# Run on the host: make -C deploy/autosd up SKIP_IMAGES=1
+# Run on the host from deploy/autosd: make up SKIP_IMAGES=1
 # Service definitions stay in pod.yaml; Ankaios is the only lifecycle owner.
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
@@ -18,6 +18,10 @@ SHELL := /bin/bash
 REPO_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 CAMPAIGNS ?= --all
 CAMPAIGN_OUT ?= $(REPO_DIR)/runs/autosd
+
+PYTHON ?= $(shell command -v python3.14 || command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3)
+CONFIG ?= bench/local.toml
+SCENARIOS ?= normal timeout invalid_quality source_dropout_replay can_link_interruption
 
 AUTOSD_BENCH_DIR ?= $(abspath ../../../can-testbench)
 AUTOSD_SSH_HOST ?= root@127.0.0.1
@@ -33,16 +37,25 @@ SERVICE ?= guardian
 SOVD_PORT ?= 17690
 ZENOH_PORT ?= 17447
 
-# Export target settings so transfer.sh and recursive make use the same guest.
-export AUTOSD_BENCH_DIR AUTOSD_SSH_HOST AUTOSD_SSH_PORT AUTOSD_SSH_KEY
-export AUTOSD_KNOWN_HOSTS AUTOSD_GUEST_DIR AUTOSD_AGENT_NAME DIAGNOSTICS_IMAGE SKIP_IMAGES
-export CAMPAIGNS CAMPAIGN_OUT AUTOSD_CAN_MODE
+# Pass legacy guest settings only to single-VM scripts. Bench commands use
+# their own TOML/backend and production image defaults.
+DEPLOY_SETTINGS = AUTOSD_BENCH_DIR AUTOSD_SSH_HOST AUTOSD_SSH_PORT AUTOSD_SSH_KEY \
+    AUTOSD_KNOWN_HOSTS AUTOSD_GUEST_DIR AUTOSD_AGENT_NAME DIAGNOSTICS_IMAGE SKIP_IMAGES \
+    CAMPAIGNS CAMPAIGN_OUT AUTOSD_CAN_MODE
+DEPLOY_ENV = $(foreach setting,$(DEPLOY_SETTINGS),$(setting)="$($(setting))")
 SSH = ssh -p "$(AUTOSD_SSH_PORT)" -i "$(AUTOSD_SSH_KEY)" \
     -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$(AUTOSD_KNOWN_HOSTS)"
 
-.PHONY: help up down status logs connect campaigns
+.PHONY: help up down status logs connect campaigns remote-doctor remote-run remote-cleanup remote-test
 help:
+	@echo 'Two-peer openDuT bench (configure bench/local.toml):'
+	@echo 'remote-doctor  Verify host prerequisites and reusable artifact hashes'
+	@echo 'remote-run     Create fresh peers and run SCENARIOS; empty selects all supported cases'
+	@echo 'remote-cleanup Retry interrupted cleanup: STATE=/absolute/path/to/run'
+	@echo 'remote-test    Check CAN evidence, clocks and local configuration'
+	@echo ''
+	@echo 'Single-VM AutoSD deployment:'
 	@echo 'up       Transfer updates, install missing Ankaios, start and wait for readiness'
 	@echo '         Use SKIP_IMAGES=1 to reuse guest application images'
 	@echo 'down     Cancel active campaigns, then stop the workload and Ankaios'
@@ -54,7 +67,7 @@ help:
 
 # ss includes TIME_WAIT sockets; probing a listener alone misses KUKSA rebind failures.
 up:
-	@./transfer.sh
+	@$(DEPLOY_ENV) ./transfer.sh
 	@echo 'Waiting for KUKSA port availability, then starting Ankaios...'
 	@$(SSH) "$(AUTOSD_SSH_HOST)" 'set -eu; \
 	    for attempt in $$(seq 1 75); do \
@@ -153,4 +166,18 @@ connect:
 
 # Fault replay and verification run on the deployed AutoSD guest.
 campaigns:
-	@./campaigns.sh
+	@$(DEPLOY_ENV) ./campaigns.sh
+
+# The shared controller owns fresh peers, bench resources and final teardown.
+remote-doctor:
+	$(PYTHON) bench/controller.py doctor --config "$(CONFIG)"
+
+remote-run:
+	$(PYTHON) bench/controller.py run --config "$(CONFIG)" $(SCENARIOS)
+
+remote-cleanup:
+	@test -n "$(STATE)" || { echo 'STATE must name the existing run directory'; exit 2; }
+	$(PYTHON) bench/controller.py cleanup --config "$(CONFIG)" --state "$(STATE)"
+
+remote-test:
+	$(PYTHON) -m unittest discover -s bench/tests -v

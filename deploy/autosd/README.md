@@ -24,8 +24,18 @@ The default target is the existing automated `bench-beta` from sibling
 The original manual AutoSD VMs have separate disks.
 
 For the portable local openDuT-connected two-peer campaign bench,
-see [bench/README.md](bench/README.md). The original single-VM replay remains the
-default for this directory's existing Make targets.
+use the same Makefile from `deploy/autosd`:
+
+```sh
+make remote-doctor
+make remote-run
+make remote-run SCENARIOS=""
+make remote-cleanup STATE=/absolute/path/to/run
+```
+
+Configure `bench/local.toml` first; see [bench/README.md](bench/README.md) for
+prerequisites and evidence. `make remote-test` checks the bench helpers. The
+`up`, `campaigns` and other existing targets retain the single-VM replay path.
 
 ## Deploy and run
 
@@ -34,14 +44,14 @@ Service configuration stays in `pod.yaml` and `ankaios.yaml`; the Makefile
 uses native SSH, systemd and Ankaios commands for lifecycle and access.
 `transfer.sh` prepares/transfers the deployment and installs missing binaries.
 
-From the OTA Outlaws repository root:
+Run these commands from `deploy/autosd`:
 
 ```sh
-make -C deploy/autosd up
-make -C deploy/autosd status
-make -C deploy/autosd logs SERVICE=guardian
-make -C deploy/autosd connect
-make -C deploy/autosd down
+make up
+make status
+make logs SERVICE=guardian
+make connect
+make down
 ```
 
 | Target | Purpose |
@@ -58,9 +68,9 @@ make -C deploy/autosd down
 Run the AutoSD campaigns after `make up`:
 
 ```sh
-make -C deploy/autosd campaigns
-make -C deploy/autosd campaigns CAMPAIGNS=counter_stuck
-make -C deploy/autosd campaigns CAMPAIGNS="timeout invalid_quality" CAMPAIGN_OUT=/tmp/autosd-evidence
+make campaigns
+make campaigns CAMPAIGNS=counter_stuck
+make campaigns CAMPAIGNS="timeout invalid_quality" CAMPAIGN_OUT=/tmp/autosd-evidence
 ```
 
 `campaigns` builds the existing Rust campaign CLI for Linux ARM64, transfers it
@@ -104,7 +114,7 @@ the deployed inputs; a mismatch fails before stopping the stack.
 For your already provisioned bench, update configuration with compatible guest images:
 
 ```sh
-make -C deploy/autosd up SKIP_IMAGES=1
+make up SKIP_IMAGES=1
 ```
 
 Every `up` restarts the workload. It prepares the local bundle before stopping
@@ -125,8 +135,8 @@ rebuild instructions. For a catalog change, build Guardian from the same checkou
 and transfer the image:
 
 ```sh
-docker build --platform linux/arm64 -t ota-outlaws/guardian:dev -f guardian-service/Containerfile .
-make -C deploy/autosd up
+docker build --platform linux/arm64 -t ota-outlaws/guardian:dev -f ../../guardian-service/Containerfile ../..
+make up
 ```
 
 `SKIP_IMAGES=1` does not rebuild or transfer updated binaries.
@@ -196,7 +206,7 @@ events establish requests, not physical actuator effects.
 Keep this running in a terminal:
 
 ```sh
-make -C deploy/autosd connect
+make connect
 ```
 
 - OpenSOVD: `http://127.0.0.1:17690/sovd/v1/apps/battery_guardian/faults`
@@ -211,8 +221,8 @@ no longer includes ad hoc source manipulation commands. Guardian never reads
 the databroker directly.
 
 ```sh
-make -C deploy/autosd logs SERVICE=publisher
-make -C deploy/autosd logs SERVICE=gateway
+make logs SERVICE=publisher
+make logs SERVICE=gateway
 ```
 
 ## Target overrides
@@ -223,8 +233,8 @@ Use `AUTOSD_SSH_HOST`, `AUTOSD_SSH_PORT`, `AUTOSD_SSH_KEY`,
 directory and agent are Make variables as well as environment overrides. Example:
 
 ```sh
-make -C deploy/autosd status AUTOSD_SSH_PORT=2233
-make -C deploy/autosd connect SOVD_PORT=27690 ZENOH_PORT=27447
+make status AUTOSD_SSH_PORT=2233
+make connect SOVD_PORT=27690 ZENOH_PORT=27447
 ```
 
 The guest directory must be an absolute path containing only letters, digits,

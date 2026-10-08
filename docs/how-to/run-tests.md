@@ -13,7 +13,8 @@ SPDX-License-Identifier: EPL-2.0
 
 # Run the Tests
 
-Every command runs from the repository root. Unit tests need Rust; runtime
+Run Cargo and documentation checks from the repository root, and Make commands
+from `deploy/autosd`. Unit tests need Rust; runtime
 verification uses the shared campaign driver on AutoSD or Docker Compose.
 
 | Level | Command | Proves | Needs |
@@ -21,13 +22,13 @@ verification uses the shared campaign driver on AutoSD or Docker Compose.
 | 0. Documentation checks | `python3 docs/check_architecture.py` | local Markdown links and selected architecture claims resolve against the implementation | Python 3 |
 | 1. Unit and integration tests | `cargo test` | every component on its own, including the Guardian's requirements | Rust |
 | 2. Format and lint | `cargo fmt --all --check`<br>`cargo clippy --all-targets -- -D warnings` | code quality, as in CI | Rust |
-| 3. Fault campaigns | `make -C deploy/autosd campaigns` | the Guardian's reaction through the deployed chain, with diagnostic evidence and a verdict per scenario | AutoSD deployment |
+| 3. Fault campaigns | `make campaigns` | the Guardian's reaction through the deployed chain, with diagnostic evidence and a verdict per scenario | AutoSD deployment |
 | 4. Hardware demo | `cargo run -p campaign -- observe source_dropout` | the same verdict for a fault injected by hand | running stack |
 
 ## Prerequisites
 
 - Rust (stable); `protoc` is vendored, no installation needed.
-- For AutoSD campaigns, deploy with `make -C deploy/autosd up`. See the
+- For AutoSD campaigns, deploy with `make up`. See the
   [AutoSD guide](../../deploy/autosd/README.md) for image and bench prerequisites.
 - For the optional Compose runtime, use Docker with Compose and the pinned
   diagnostic image configured in `diagnostics/image.env`.
@@ -57,8 +58,8 @@ CI runs both, and level 1, on every pull request.
 ## 3. Fault campaigns
 
 ```sh
-make -C deploy/autosd campaigns
-make -C deploy/autosd campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
+make campaigns
+make campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
 ```
 
 The shared driver runs inside AutoSD and controls the deployed services through

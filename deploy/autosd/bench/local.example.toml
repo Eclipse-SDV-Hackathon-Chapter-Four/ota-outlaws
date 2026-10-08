@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6 (gpt-6)
+
+# Copy to local.toml. Paths resolve relative to this file.
+# Keep the reviewed artifact bundle anywhere; no sibling checkout is required.
+base = "assets/peer-base.qcow2"
+air = "assets/air"
+ca = "assets/backend-ca.pem"
+base_sha256 = "REPLACE_WITH_REVIEWED_BASE_SHA256"
+air_sha256 = "REPLACE_WITH_REVIEWED_LAUNCHER_SHA256"
+backend = "https://carl.example.org"
+edgar_sha256 = "REPLACE_WITH_BACKEND_EDGAR_ARCHIVE_SHA256"
+cleo_command = ["opendut-cleo"]
+# Supply OPENDUT_CLEO_SETUP through your shell environment when needed.
+# Optional: one hosts line for guests reaching a backend published on the host.
+# backend_hosts = "10.0.2.2 carl.example.org auth.example.org netbird.example.org"
+# Diagnostics defaults to the production image in diagnostics/image.env.
+# diagnostics = "local/opensovd-demo-fork:verified"
+
+# Optional guest sizing; defaults leave capacity for the host and image builds.
+source_memory = "1G"
+dut_memory = "3G"
+source_cpus = 2
+dut_cpus = 4
