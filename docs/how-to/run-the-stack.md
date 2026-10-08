@@ -13,7 +13,7 @@ SPDX-License-Identifier: EPL-2.0
 
 # Build and Run the Whole Stack
 
-Builds and starts every service of [`docker-compose.yml`](../../docker-compose.yml),
+Builds and starts every service of [`deploy/docker-compose.yml`](../../deploy/docker-compose.yml),
 including the [dashboard](../reference/components/dashboard.md), from a fresh
 checkout. Commands are for PowerShell in the repository root; the ones marked
 Git Bash need a POSIX shell (Git Bash on Windows, any shell on Linux and macOS).
@@ -28,7 +28,7 @@ Git Bash need a POSIX shell (Git Bash on Windows, any shell on Linux and macOS).
 ## 2. Once: log in to GHCR
 
 DFM and the OpenSOVD gateway use the diagnostics image published on the
-GitHub Container Registry (`diagnostics/image.env`). The package is private,
+GitHub Container Registry (`deploy/diagnostics/image.env`). The package is private,
 so Docker needs a GitHub token to pull it.
 
 1. On GitHub: **Settings → Developer settings → Personal access tokens →
@@ -74,7 +74,7 @@ exist yet. In Git Bash:
 
 ```sh
 git clone https://github.com/Eclipse-SDV-Hackathon-Chapter-Four/Doctor-Whodunit.git ../Doctor-Whodunit
-sh diagnostics/build-images.sh ../Doctor-Whodunit
+sh deploy/diagnostics/build-images.sh ../Doctor-Whodunit
 ```
 
 The script builds the pinned source revision, so the image matches the
@@ -128,7 +128,7 @@ volume too.
 | Symptom | Fix |
 |---------|-----|
 | `denied` when pulling the diagnostics image | Token missing, expired, or without `read:packages` (step 2), or no access to the package; use step 4b |
-| DFM restarts again and again | `diagnostics/entrypoint.sh` has Windows line endings (`core.autocrlf=true`). In Git Bash: `sed -i 's/\r$//' diagnostics/entrypoint.sh`, then `docker compose up -d --force-recreate opensovd-dfm opensovd-gateway guardian watchdog` |
+| DFM restarts again and again | `deploy/diagnostics/entrypoint.sh` has Windows line endings (`core.autocrlf=true`). In Git Bash: `sed -i 's/\r$//' deploy/diagnostics/entrypoint.sh`, then `docker compose up -d --force-recreate opensovd-dfm opensovd-gateway guardian watchdog` |
 | `catalog hash mismatch` in the Guardian or watchdog log | The fault catalog changed while DFM kept the old one: `docker compose up -d --force-recreate opensovd-dfm opensovd-gateway guardian watchdog` |
 | A port is in use | Set another one before starting: `DASHBOARD_PORT`, `SOVD_PORT`, `KUKSA_HOST_PORT`, `ZENOH_HOST_PORT`, for example `$env:DASHBOARD_PORT=8090` |
 | Docker commands hang | Restart Docker Desktop |

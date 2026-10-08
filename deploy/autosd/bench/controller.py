@@ -73,7 +73,7 @@ def local_config(path):
 
 def production_diagnostics():
     return next(line.split("=", 1)[1].strip()
-                for line in (ROOT / "diagnostics/image.env").read_text().splitlines()
+                for line in (ROOT / "deploy/diagnostics/image.env").read_text().splitlines()
                 if line.startswith("DIAGNOSTICS_IMAGE="))
 
 
@@ -708,9 +708,9 @@ class Bench:
         a, b = self.config["peers"]
         if not self.args.skip_build:
             for service, path in [
-                ("guardian", "guardian-service"),
-                ("vss-publisher", "vss-publisher"),
-                ("campaign", "campaign"),
+                ("guardian", "components/guardian-service"),
+                ("vss-publisher", "components/vss-publisher"),
+                ("campaign", "components/campaign"),
             ]:
                 run(
                     [
@@ -751,7 +751,7 @@ class Bench:
                 run(["docker", "pull", "--platform", "linux/arm64", image], timeout=600)
         production_pin = next(
             line.split("=", 1)[1].strip()
-            for line in (ROOT / "diagnostics/image.env").read_text().splitlines()
+            for line in (ROOT / "deploy/diagnostics/image.env").read_text().splitlines()
             if line.startswith("PINNED_SOURCE_REV=")
         )
         diagnostics_info = json.loads(
@@ -781,13 +781,13 @@ class Bench:
         )
         (self.state / "deployment.log").write_text(result.stdout + result.stderr)
         tools = self.state / "input"
-        (tools / "campaign").mkdir(parents=True)
-        shutil.copytree(ROOT / "campaign/traces", tools / "campaign/traces")
+        (tools / "components/campaign").mkdir(parents=True)
+        shutil.copytree(ROOT / "components/campaign/traces", tools / "components/campaign/traces")
         shutil.copyfile(
-            ROOT / "campaign/scenarios.toml", tools / "campaign/scenarios.toml"
+            ROOT / "components/campaign/scenarios.toml", tools / "components/campaign/scenarios.toml"
         )
         shutil.copytree(ROOT / "config/guardian", tools / "config/guardian")
-        shutil.copytree(ROOT / "diagnostics/catalog", tools / "diagnostics/catalog")
+        shutil.copytree(ROOT / "deploy/diagnostics/catalog", tools / "deploy/diagnostics/catalog")
         revision = run(["git", "-C", ROOT, "rev-parse", "HEAD"]).stdout.strip()
         if run(
             ["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=all"]
@@ -860,7 +860,7 @@ class Bench:
         # shared evaluator's measurement windows and budgets remain unchanged.
         count = len(self.args.scenarios)
         if "--all" in self.args.scenarios:
-            count = len(tomllib.loads((ROOT / "campaign/scenarios.toml").read_text())["scenario"])
+            count = len(tomllib.loads((ROOT / "components/campaign/scenarios.toml").read_text())["scenario"])
         campaign_timeout = max(3600, count * 600)
         self.ssh(
             b,

@@ -19,7 +19,7 @@
     },
     "features": {
         // Own Docker daemon inside the container, so relative bind mounts in
-        // docker-compose.yml (e.g. ./can) resolve against the workspace.
+        // deploy/docker-compose.yml (e.g. ./can) resolve against the workspace.
         "ghcr.io/devcontainers/features/docker-in-docker:2": {},
         "ghcr.io/devcontainers/features/python:1": {
             "version": "3.12"

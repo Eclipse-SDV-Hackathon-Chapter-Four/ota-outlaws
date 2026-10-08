@@ -195,7 +195,7 @@ class Integrity(unittest.TestCase):
                 list(io.frames(p))
 
     def test_all_shared_traces_parse(self):
-        for path in (Path(__file__).parents[4] / "campaign/traces").glob("*.asc"):
+        for path in (Path(__file__).parents[4] / "components/campaign/traces").glob("*.asc"):
             self.assertTrue(list(io.frames(path)), path.name)
 
 

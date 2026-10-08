@@ -23,7 +23,7 @@ cleo_command = ["opendut-cleo"]
 # Supply OPENDUT_CLEO_SETUP through your shell environment when needed.
 # Optional: one hosts line for guests reaching a backend published on the host.
 # backend_hosts = "10.0.2.2 carl.example.org auth.example.org netbird.example.org"
-# Diagnostics defaults to the production image in diagnostics/image.env.
+# Diagnostics defaults to the production image in deploy/diagnostics/image.env.
 # diagnostics = "local/opensovd-demo-fork:verified"
 
 # Optional guest sizing; defaults leave capacity for the host and image builds.

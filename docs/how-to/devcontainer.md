@@ -23,7 +23,7 @@ The repository ships a [Dev Container](https://containers.dev/) in
 | Rust (stable), clippy, rustfmt | Battery Thermal Guardian |
 | `protoc` | uProtocol / KUKSA gRPC code generation |
 | Python 3.12, `kuksa-client` | Scripts and inspecting the KUKSA Data Broker |
-| Docker (in Docker) + Compose | Running `docker-compose.yml` from inside the container |
+| Docker (in Docker) + Compose | Running `deploy/docker-compose.yml` from inside the container |
 | `can-utils`, `jq` | Inspecting CAN traces and evidence JSON |
 
 Port `55555` (KUKSA Data Broker) is forwarded to the host.

@@ -73,12 +73,12 @@ if [[ "$SKIP_IMAGES" == 0 ]]; then
 else
     "${ssh_guest[@]}" 'podman run --rm --network=none --entrypoint /bin/cat localhost/ota-autosd/guardian:deployed /etc/guardian/catalog/battery_guardian.json' > "$work/guardian-catalog.json"
 fi
-expected_codes=$(jq -ce '[.faults[].id.Text] | sort' "$repo/diagnostics/catalog/battery_guardian.json")
+expected_codes=$(jq -ce '[.faults[].id.Text] | sort' "$repo/deploy/diagnostics/catalog/battery_guardian.json")
 image_codes=$(jq -ce '[.faults[].id.Text] | sort' "$work/guardian-catalog.json")
 if [[ "$image_codes" != "$expected_codes" ]]; then
     echo 'Guardian image and repository fault catalog have different DTCs.' >&2
     echo 'From the repository root, rebuild and transfer the Guardian image:' >&2
-    echo '  docker build --platform linux/arm64 -t ota-outlaws/guardian:dev -f guardian-service/Containerfile .' >&2
+    echo '  docker build --platform linux/arm64 -t ota-outlaws/guardian:dev -f components/guardian-service/Containerfile .' >&2
     echo 'Then, from deploy/autosd:' >&2
     echo '  make up' >&2
     exit 1
@@ -104,14 +104,14 @@ for unit in ota-ankaios-*.service; do
     sed -e "s|/opt/ota-outlaws-autosd|$AUTOSD_GUEST_DIR|g" \
         -e "s|--name bench-beta|--name $AUTOSD_AGENT_NAME|" "$unit" > "$work/$unit"
 done
-cp -R "$repo/can" "$work/can"
+cp -R "$repo/config/can" "$work/can"
 case "${AUTOSD_CAN_MODE:-replay}" in
     replay) ;;
     socketcan) touch "$work/can/.socketcan" ;;
     *) echo 'AUTOSD_CAN_MODE must be replay or socketcan' >&2; exit 2 ;;
 esac
-cp -R "$repo/diagnostics/catalog" "$work/catalog"
-cp "$repo/diagnostics/entrypoint.sh" "$work/entrypoint.sh"
+cp -R "$repo/deploy/diagnostics/catalog" "$work/catalog"
+cp "$repo/deploy/diagnostics/entrypoint.sh" "$work/entrypoint.sh"
 cp "$repo/config/guardian/safety-params.toml" "$work/safety-params.toml"
 
 # Download missing Ankaios before interrupting services. Always refresh units.

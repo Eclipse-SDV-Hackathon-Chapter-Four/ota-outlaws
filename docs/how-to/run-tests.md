@@ -31,7 +31,7 @@ verification uses the shared campaign driver on AutoSD or Docker Compose.
 - For AutoSD campaigns, deploy with `make up`. See the
   [AutoSD guide](../../deploy/autosd/README.md) for image and bench prerequisites.
 - For the optional Compose runtime, use Docker with Compose and the pinned
-  diagnostic image configured in `diagnostics/image.env`.
+  diagnostic image configured in `deploy/diagnostics/image.env`.
 
 ## 1. Unit and integration tests
 
@@ -89,7 +89,7 @@ cargo run -p campaign -- evaluate runs/<campaign>/<scenario>
 ```
 
 The scenarios and their expectations are in
-[`campaign/scenarios.toml`](../../campaign/scenarios.toml); the tool is
+[`components/campaign/scenarios.toml`](../../components/campaign/scenarios.toml); the tool is
 described in [Campaign Tool](../reference/components/campaign.md).
 
 ## 4. Hardware demo

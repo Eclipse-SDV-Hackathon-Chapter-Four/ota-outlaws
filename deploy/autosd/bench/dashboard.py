@@ -44,7 +44,7 @@ def read(path, default=None):
 
 
 def scenarios():
-    catalog = tomllib.loads((ROOT / 'campaign/scenarios.toml').read_text())
+    catalog = tomllib.loads((ROOT / 'components/campaign/scenarios.toml').read_text())
     return [s['id'] for s in catalog['scenario']
             if s['stimulus']['type'] != 'external'
             and not s['stimulus'].get('watchdog')

@@ -13,12 +13,11 @@ SPDX-License-Identifier: EPL-2.0
 
 # Dashboard
 
-The dashboard is a web page for the whole stack. It shows the state, memory,
-and settings of every component and starts and stops them. It also shows what
-goes into each component and what comes out, the DTCs stored in OpenSOVD, and
-the campaign reports while a campaign runs. It only observes and operates the
-stack. It takes no part in the safety function, and the Guardian does not
-depend on it. How to run it is in the [dashboard README](../../../dashboard/README.md).
+The dashboard is a web page for the safety evidence. It shows the result of
+every HARA test with its evidence chain, runs campaigns, shows the live signal
+chain and the DTCs stored in OpenSOVD, and starts and stops the components. It
+only observes and operates the stack. It takes no part in the safety function, and the Guardian does not
+depend on it. How to run it is in the [dashboard README](../../../components/dashboard/README.md).
 
 ## Structure
 
@@ -37,127 +36,80 @@ depend on it. How to run it is in the [dashboard README](../../../dashboard/READ
 
 | Part | Status | Responsibility |
 |------|--------|----------------|
-| Components ([`components.rs`](../../../dashboard/src/components.rs)) | **Implemented** | Every 2 s: state, health, memory, settings of each container in the Compose project. Start, stop, restart |
-| Docker client ([`docker.rs`](../../../dashboard/src/docker.rs)) | **Implemented** | The Docker Engine API over the Unix socket: list, inspect, stats, start/stop, logs, files |
-| Taps ([`taps.rs`](../../../dashboard/src/taps.rs)) | **Implemented** | Passive observers of the data between the components, for the input and output logs |
-| OpenSOVD ([`sovd.rs`](../../../dashboard/src/sovd.rs)) | **Implemented** | DTC list joined with the fault catalog, one DTC with its environment data, clearing |
-| Campaign evidence ([`runs.rs`](../../../dashboard/src/runs.rs)) | **Implemented** | Campaigns in `runs/`, which one is running, the reports of its scenarios |
-| Signal plot ([`signal.rs`](../../../dashboard/src/signal.rs)) | **Implemented** | Reduces a scenario's `recording.jsonl` to the series of its signal plot |
-| Web page ([`static/`](../../../dashboard/static)) | **Implemented** | Overview, one tab per component, campaign tab. Plain JavaScript, no build step |
-| Launcher ([`launcher.rs`](../../../dashboard/src/launcher.rs)) | **Implemented** | Starts a campaign in a `campaign-runner` container, stops it, removes what it left behind |
+| Components ([`components.rs`](../../../components/dashboard/src/components.rs)) | **Implemented** | Every 2 s: state, health, memory, settings of each container in the Compose project. Start, stop, restart |
+| Docker client ([`docker.rs`](../../../components/dashboard/src/docker.rs)) | **Implemented** | The Docker Engine API over the Unix socket: list, inspect, stats, start/stop, logs, files |
+| Taps ([`taps.rs`](../../../components/dashboard/src/taps.rs)) | **Implemented** | Passive observers of the data between the components, for the input and output logs |
+| OpenSOVD ([`sovd.rs`](../../../components/dashboard/src/sovd.rs)) | **Implemented** | DTC list joined with the fault catalog, one DTC with its environment data, clearing |
+| Campaign evidence ([`runs.rs`](../../../components/dashboard/src/runs.rs)) | **Implemented** | Campaigns in `runs/`, which one is running, the reports of its scenarios |
+| Signal plot ([`signal.rs`](../../../components/dashboard/src/signal.rs)) | **Implemented** | Reduces a scenario's `recording.jsonl` to the series of its signal plot |
+| Web page ([`static/`](../../../components/dashboard/static)) | **Implemented** | Campaign, live chain, and diagnostics view, designed after DASHBOARDS.md. Plain JavaScript, no build step. Fonts (Sora, Manrope) load from Google Fonts and fall back to system fonts offline |
+| Launcher ([`launcher.rs`](../../../components/dashboard/src/launcher.rs)) | **Implemented** | Starts a campaign in a `campaign-runner` container, stops it, removes what it left behind |
 
-## Overview
+## Design
 
-One row per component of the Compose project, in the order of the signal chain:
+The design follows the look of
+[eclipsesdv.org](https://eclipsesdv.org/): Sora for headings and Manrope for
+text and numbers, the Eclipse SDV purple, magenta, and orange, and its logo.
+Every view opens with one sentence that answers its question, at most four key
+metrics each shown against a reference, one chart, and the details on request.
+The page is light; **Dark** in the header switches, and the choice is
+remembered. Purple marks what to look at, never "good". The attention colour,
+the Eclipse orange, appears only on something that needs action, always with a
+sign and words.
 
-| Column | Content |
-|--------|---------|
-| Component | Name, role, container |
-| Run state | Docker state (running, exited, paused, restarting), health check, uptime, restart count |
-| Memory | Memory in use without the page cache, as `docker stats` shows it, and the limit |
-| Settings | Image, published ports, restart policy, number of environment variables, shared namespaces |
-| Actions | Start or stop, restart |
+**Runtime** in the header selects what the dashboard watches and runs
+campaigns on: the Docker Compose stack on this host, or AutoSD peers through
+OpenDUT, if configured (see the
+[dashboard README](../../../components/dashboard/README.md)). On AutoSD,
+Ankaios manages the services, so start, stop, restart, and clearing DTCs are
+not offered; campaigns build the images from the checkout and show the bench
+phase, evidence retrieval errors, and cleanup failures under "Runner output".
 
-**Start all** starts the services in dependency order: the Zenoh router, the
-Data Broker, DFM, the gateway, then the signal chain from the CAN provider to the
-Guardian. **Stop all** goes the other way.
+## Campaign view
 
-The Guardian, the gateway, and the watchdog (where it exists) share DFM's IPC
-namespace. When DFM starts, the dashboard therefore restarts the running
-services that share its namespace, as the [README](../../../README.md#lifecycle)
-asks for. Otherwise they would stay in the namespace of the stopped DFM and
-lose their connection to it.
+The start page answers whether the Guardian passes its HARA tests, and why.
 
-The campaign tool has a row too, with the campaign that is running. **Start…**
-opens the campaign tab; while a campaign runs, **Stop** stops it.
+- **Headline sentence**, generated from the data: for example "All 23 HARA tests
+  passed, but 1 evidence chain is incomplete.", "2 HARA tests failed: TS-12,
+  TS-21.", or, when nothing is wrong, "A normal run. … nothing needs your
+  attention." While a campaign runs it names the running scenario. Under it, a
+  line lists what changed since this browser last saw a finished campaign.
+- **Four key metrics**, each with its reference: tests passing (target: all,
+  and the previous campaign), evidence chains complete, the tightest reaction
+  as a percentage of its budget, and open requirements (planned checks that do
+  not pass yet).
+- **Needs your attention**, only if a test failed or could not be judged.
+- **Reaction time against budget**: one bar per timed test, sorted by how much
+  of its budget it used. The light band is the budget; a bar beyond it is
+  marked. The tightest test is highlighted. Eight bars show; the rest follow.
+- **All HARA tests**, collapsed: one row per HARA test with its title,
+  scenarios, verdict, and reaction, then the scenarios that belong to no HARA
+  test ("Further checks"). A click on a row opens the report of its scenarios:
+  the reason, the injected fault and onset, the [signal plot](#signal-plot)
+  (also while the scenario runs), the
+  [evidence chain](campaign.md#evidence-chain), and, one click further, the
+  evidence table, detections, mitigations (with their cause chain), DTCs, the
+  checks with latency and budget, the Guardian events, and the run details.
+  **Run again →** starts that scenario alone.
 
-## Component tabs
+A planned scenario that fails shows as Planned: it checks a requirement that is
+not implemented yet. Tests without a scenario in the catalog, and scenarios of
+type `external`, which someone else has to inject, do not appear.
 
-Each component has a tab with its state, memory, start time, restart count,
-and all settings. The settings come from `docker inspect`: image, entrypoint,
-command, environment, ports, mounts, networks, and namespaces. The Guardian tab
-also shows its safety parameters, read from the running container
-(`/etc/guardian/safety-params.toml`). These are the values the Guardian
-actually uses, not the copy in the repository.
+Filters and the selection live in the address: the campaign and the opened
+tests are in the URL, and **Copy link to this view** copies it. **Print this
+report** opens the browser's print dialog, with the signal plot of every judged
+scenario; "Save as PDF" writes the file.
 
-Three logs per component:
-
-| Log | Content |
-|-----|---------|
-| Input log | What the component receives |
-| Output log | What it produces |
-| Container log | Its own stdout and stderr |
-
-Where data flows between components, the dashboard observes it on the way with
-its own taps, like the campaign's evidence collector. Where it does not, it
-filters the component's own log:
-
-| Component | Input log | Output log |
-|-----------|-----------|------------|
-| KUKSA CAN Provider | its log: CAN trace replay | KUKSA tap: the battery signals in the Data Broker |
-| KUKSA Data Broker | KUKSA tap | KUKSA tap, its warnings (for example slow subscribers) |
-| VSS Publisher | KUKSA tap | uProtocol tap: `BatteryTemperature` |
-| Zenoh Router | uProtocol taps | uProtocol taps |
-| Guardian | uProtocol tap: `BatteryTemperature` | uProtocol tap: `GuardianEvent`; its log: DFM records |
-| Guardian Watchdog | its log: heartbeats | its log: DFM records |
-| OpenSOVD DFM | its log: received fault records | OpenSOVD tap: fault status changes |
-| OpenSOVD Gateway | its log: HTTP requests | OpenSOVD tap |
-
-| Tap | How | Line |
-|-----|-----|------|
-| KUKSA | gRPC subscription to the five battery signals; one line per CAN frame, when the alive counter arrives | `Temperature.Max 54.0 °C, Average 46.0 °C, Min 38.0 °C, BMS.SignalQuality 128, BMS.AliveCounter 14` |
-| uProtocol | Listeners on the contract's topics, decoded with the campaign's recording types | `#7 MitigationRequested DRIVER_WARNING_OVERTEMP, cause #6 (session 01234567…, t=1200 ms)` |
-| OpenSOVD | Polls the fault list every second and logs every change | `BTG_TempOutOfRange: testFailed (mask 0xAB, occurrences 3, confirmedDtc)` |
-
-The taps keep the last 600 lines each, in memory. They only listen and never
-publish. The KUKSA tap is a second subscriber of the Data Broker, next to the
-VSS Publisher. The dashboard is not the Guardian, so the rule that the Guardian
-reads VSS data only through uProtocol is not affected.
-
-## OpenSOVD tab: DTCs
-
-The DFM and gateway tabs show every DTC of the `battery_guardian` entity:
-
-| Column | Content |
-|--------|---------|
-| Severity | From the fault catalog, colored: Fatal (dark red), Error (red), Warn (amber), Info (blue), Debug and Trace (gray) |
-| DTC | Fault code |
-| Description | Summary from the catalog |
-| Category | Fault type from the catalog (Hardware, Communication, Software) |
-| Status | ACTIVE (test failed now), CONFIRMED, PENDING, HISTORY (failed since the last clear), warning lamp, PASSED, NOT TESTED |
-| Occurrences | Occurrence, aging, and healing counters |
-
-Active DTCs come first, then by severity. **Details** shows a DTC's status bits
-and environment data (Guardian session, event ID, requirement, triggering
-sample). **Clear** clears one DTC, and **Clear all faults** clears the entity.
-Both use OpenSOVD's `DELETE …/faults[/{code}]`, after a confirmation. **Print
-report (PDF)** opens the browser's print dialog with a report of all DTCs and
-the environment data of the failed ones; "Save as PDF" writes the file.
-
-OpenSOVD reports severity as a number. The dashboard takes the name from the
-DFM fault catalog, and from the number only for a code that is not in the
-catalog.
-
-## Campaign tab
-
-The banner shows whether a campaign is running, which scenario, and how many
-scenarios are done. Below it is the report of the selected campaign: by
-default the running one, otherwise the newest. It shows the counts of PASS,
-FAIL, and INCONCLUSIVE, a progress bar, and one card per scenario.
-
-| Scenario state | Card |
-|----------------|------|
-| Judged | Verdict, reason, hazard → safety goal, onset, Guardian session, the [signal plot](#signal-plot), the [evidence chain](campaign.md#evidence-chain) with its links, detections, mitigations (with their cause chain), and DTCs (severity, fault type, status, environment data), the checks (requirement, expectation, observation, latency, budget, result), forbidden reactions, result per requirement, and the Guardian event timeline |
-| Running | Number of observations recorded so far, and the signal plot as it is recorded |
-| To come | Listed from the campaign's plan |
-| Not judged | The campaign tool stopped during the scenario |
-
-**Print report (PDF)** prints the campaign summary and every judged scenario,
-with its signal plot.
+The dashboard reads what the campaign tool writes to `runs/`. To show what is
+still to come, the campaign tool writes `plan.json` with the campaign's
+scenarios when it starts. A scenario counts as running while its Compose
+project (`campaign-<scenario>`) has running containers, or while its recording
+keeps growing.
 
 ### Signal plot
 
-Each scenario card plots what the campaign tool recorded, on one time axis
+Each scenario report plots what the campaign tool recorded, on one time axis
 from the start of the recording:
 
 | Row | Shows | From the recording |
@@ -176,21 +128,81 @@ states at that time. The page fetches the series from
 (`<campaign>/<scenario>`, or `<campaign>` for an `observe` run); judged runs
 once, a running scenario on every poll.
 
-The dashboard reads what the campaign tool writes to `runs/`. To show what is
-still to come, the campaign tool now writes `plan.json` with the campaign's
-scenarios when it starts. A scenario counts as running while its Compose
-project (`campaign-<scenario>`) has running containers, or while its recording
-keeps growing. Campaigns from before `plan.json` existed are shown with the
-scenarios that started.
+## Live chain view
+
+The headline says whether the chain runs ("The chain is running. All 8
+components are up.", or which component is down). A row of the eight
+components follows, each with a dot for its Docker state (green running, red
+exited, amber paused); a click shows its container log with **Start**, **Stop**,
+and **Restart**.
+
+While a campaign runs, the view shows the chain of the running scenario instead:
+"Scenario counter_stuck is running. 7 of 7 containers are up.", with the
+containers of its Compose project `campaign-<scenario>` as they are built and
+torn down. Between two scenarios the headline says so.
+
+**Container events** lists, with time, chain (the scenario or the stack),
+container, and what happened, every start, exit (with its exit code), stop,
+kill, pause, resume, and restart: who was switched on or off, and when. The
+dashboard asks Docker for these once a second, through the events API with a
+window in the past (`GET /events?since=…&until=…`), and keeps the last 500.
+They show what happened since the dashboard started. **Start all** starts
+the services in dependency order: the Zenoh router, the Data Broker, DFM, the
+gateway, then the chain from the CAN provider to the Guardian. **Stop all**
+goes the other way.
+
+Three streams show how a fault travels through the stack's chain (not during
+a campaign):
+
+| Stream | Source |
+|--------|--------|
+| Sample at the Guardian input | uProtocol tap on `BatteryTemperature` (`//battery-vss/9001/1/9001`) |
+| Guardian events | uProtocol tap on `GuardianEvent` (`//guardian/9002/1/8001`) |
+| Open DTCs in OpenSOVD | The fault list of the `battery_guardian` entity: DTCs that are active or failed since the last clear |
+
+The Guardian, the gateway, and the watchdog share DFM's IPC namespace. When DFM
+starts, the dashboard therefore restarts the running services that share its
+namespace, as the [README](../../../README.md#lifecycle) asks for. Otherwise
+they would stay in the namespace of the stopped DFM and lose their connection
+to it.
+
+The taps are listeners of their own, like the campaign's evidence collector.
+They keep the last 600 lines each, in memory, and only listen; they never
+publish. The dashboard is not the Guardian, so the rule that the Guardian
+reads VSS data only through uProtocol is not affected.
+
+## Diagnostics view
+
+Two parts answer which DTCs the Guardian reports.
+
+- **Raised in the last campaign**: every DTC that the evidence chains of the
+  last finished campaign show, with its severity, the HARA tests and scenarios
+  that raised it, how soon OpenSOVD reported it, and how often it was cleared
+  again. It comes from the scenario reports, so it is there after the campaign
+  has torn down its chains. The headline sums it up, for example "The campaign
+  of 2026-10-07 23:12 raised 10 different DTCs in 20 scenarios."
+- **Live chain**: the DTCs of the stack's OpenSOVD, if you started the stack
+  under Live chain. A campaign builds its own OpenSOVD for every scenario, so
+  this part is empty during and after a campaign: the note says so. Failed or
+  active DTCs are listed with severity, summary, status, and the occurrence
+  counter; all DTCs of the `battery_guardian` entity follow in a collapsed
+  list. A click on a row shows the status bits and the environment data
+  (Guardian session, event ID, requirement, triggering sample). **Clear** clears
+  one DTC, and **Clear all DTCs** clears the entity. Both use OpenSOVD's
+  `DELETE …/faults[/{code}]`, after a confirmation.
+
+OpenSOVD reports severity as a number. The dashboard takes the name from the
+DFM fault catalog, and from the number only for a code that is not in the
+catalog.
 
 ### Running a campaign
 
-The campaign tab starts campaigns: all scenarios, or the ones ticked in the
+The campaign view starts campaigns: all scenarios, or the ones ticked in the
 list (all except `external` ones, which need someone else to inject). The
 option **rebuild the Guardian and VSS Publisher images first** runs the tool
 without `--no-build`, so the campaign judges the current code; without it,
 the campaign uses the images that exist. The output of the campaign tool
-appears below the buttons, and its exit code when it ends (0: every
+appears under "Runner output" below the results, and its exit code when it ends (0: every
 implemented scenario passed, 1: one did not, 2: the tool failed).
 
 The campaign tool starts one Compose project per scenario, with bind mounts
@@ -212,7 +224,7 @@ there locally. Without a running DFM it uses the Compose default from GHCR,
 which needs a login (see [Build and Run the Whole Stack](../../how-to/run-the-stack.md)).
 
 The campaign tool runs exactly as from a shell on the host and writes its
-evidence to `runs/`. **Stop campaign** stops the runner and removes the
+evidence to `runs/`. **Stop** stops the runner and removes the
 Compose projects `campaign-*` with their networks and volumes. The scenario in
 progress stays unjudged and is shown as such.
 

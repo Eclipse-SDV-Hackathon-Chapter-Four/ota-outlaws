@@ -274,7 +274,7 @@ configuration-only `make up SKIP_IMAGES=1` were also checked.
 
 The team's existing Rust collector/verdict tool observed a source dropout over
 `make connect` forwards on ports 27690/27447. For a healthy baseline, the team's
-`campaign/traces/nominal.asc` temporarily replaced the guest replay; the actual
+`components/campaign/traces/nominal.asc` temporarily replaced the guest replay; the actual
 CAN provider was paused for three seconds and resumed. The result was PASS:
 fault 84 → degraded 85 → mitigation request 86 → recovered 87 → OK 88, with a
 matching Failed then Passed OpenSOVD record retaining fault history. Evidence is

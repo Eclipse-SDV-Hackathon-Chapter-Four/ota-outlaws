@@ -104,22 +104,22 @@ def check_markdown_links() -> list[str]:
 def check_architecture_claims() -> list[str]:
     errors = []
     architecture = (ROOT / "docs/reference/architecture.md").read_text(encoding="utf-8")
-    catalog = tomllib.loads((ROOT / "campaign/scenarios.toml").read_text(encoding="utf-8"))
+    catalog = tomllib.loads((ROOT / "components/campaign/scenarios.toml").read_text(encoding="utf-8"))
     scenario = next(
         (item for item in catalog["scenario"] if item["id"] == "source_loss_during_diagnostics_outage"),
         None,
     )
     if scenario is None or scenario.get("status") != "implemented" or "TS-27" not in scenario.get("hara_tests", []):
-        errors.append("campaign/scenarios.toml: TS-27 must map to the implemented diagnostics-outage scenario")
+        errors.append("components/campaign/scenarios.toml: TS-27 must map to the implemented diagnostics-outage scenario")
     if "source_loss_during_diagnostics_outage" not in architecture:
         errors.append("docs/reference/architecture.md: document the catalogued TS-27 scenario")
 
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = (ROOT / "deploy/docker-compose.yml").read_text(encoding="utf-8")
     if not re.search(r"(?m)^  watchdog:\s*$", compose):
-        errors.append("docker-compose.yml: missing watchdog service")
-    watchdog = (ROOT / "watchdog/src/main.rs").read_text(encoding="utf-8")
+        errors.append("deploy/docker-compose.yml: missing watchdog service")
+    watchdog = (ROOT / "components/watchdog/src/main.rs").read_text(encoding="utf-8")
     if "SUPERVISOR_EVENTS" not in watchdog or "DRIVER_WARNING_MONITORING_UNAVAILABLE" not in watchdog:
-        errors.append("watchdog/src/main.rs: expected SupervisorEvent warning publication")
+        errors.append("components/watchdog/src/main.rs: expected SupervisorEvent warning publication")
     if "SupervisorEvent" not in architecture or "DRIVER_WARNING_MONITORING_UNAVAILABLE" not in architecture:
         errors.append("docs/reference/architecture.md: document the watchdog SupervisorEvent warning request")
 

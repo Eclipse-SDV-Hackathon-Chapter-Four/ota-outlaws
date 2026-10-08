@@ -17,7 +17,7 @@ Runs the chain from the recorded CAN trace to the Battery Thermal Guardian and
 its diagnostics in Docker:
 
 ```text
-can/BMS_MSG1_CAN.asc → KUKSA CAN Provider → KUKSA Data Broker → VSS Publisher
+config/can/BMS_MSG1_CAN.asc → KUKSA CAN Provider → KUKSA Data Broker → VSS Publisher
   → uProtocol (Zenoh router) → Battery Thermal Guardian → DFM → OpenSOVD
 ```
 

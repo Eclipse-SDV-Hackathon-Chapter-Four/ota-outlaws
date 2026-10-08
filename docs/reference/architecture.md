@@ -58,7 +58,7 @@ scenario execution and evidence collection are handled by the Rust campaign tool
 | Guardian heartbeat publication | Guardian service, every 500 ms |
 | Heartbeat-loss detection and reporting | Separate Rust watchdog publishes a monitoring-unavailable `SupervisorEvent` and reports a DTC; it does not restart a hung Guardian |
 | Input/event taps, OpenSOVD polling, timing evaluation, and verdict | Rust campaign tool; attribution is limited to the evidence available at its tap points |
-| Fault scenario execution and manifest | Rust campaign tool using `campaign/scenarios.toml`; TS-27 is the catalogued source-loss/diagnostics-outage scenario |
+| Fault scenario execution and manifest | Rust campaign tool using `components/campaign/scenarios.toml`; TS-27 is the catalogued source-loss/diagnostics-outage scenario |
 
 # 3. Quality Attributes
 
@@ -66,7 +66,7 @@ scenario execution and evidence collection are handled by the Rust campaign tool
 |---|---|---|
 | Functional safety | Hazards, operating situations, safety goals, and candidate ratings | [HARA risk classification and safety goals](hara.md#risk-classification-and-safety-goals); S/E/C and ASIL remain subject to vehicle/system safety-owner confirmation |
 | Safety behavior | Thermal state and monitoring status remain distinct; loss or invalidity must not be interpreted as a safe battery | [HARA-derived requirements](hara.md#derived-functional-requirements) and their current tests in [HARA-derived test scenarios](hara.md#hara-derived-test-scenarios) |
-| Timing | Warning, freshness, reaction, and diagnostic visibility have measurable budgets | HARA DFR-1 and test-case budgets; implementation values are in `config/guardian/safety-params.toml` and `campaign/scenarios.toml` |
+| Timing | Warning, freshness, reaction, and diagnostic visibility have measurable budgets | HARA DFR-1 and test-case budgets; implementation values are in `config/guardian/safety-params.toml` and `components/campaign/scenarios.toml` |
 | Diagnostic observability | Guardian faults can be correlated to DFM and OpenSOVD records | Integration and campaign tests cover selected fault paths; coverage remains incomplete |
 | Reproducibility | Fault campaigns can be rerun with the same inputs and expected reactions | Scenario manifest, configured environment, and repeat-run comparison |
 | Portability | Guardian logic depends on the uProtocol service contract, not direct broker or CAN-decoder internals | Architecture/interface review and deployment rerun |
@@ -114,7 +114,7 @@ The AZ3166 UDP bridge is a manual campaign-control/demo path: a Windows
 PowerShell relay forwards UDP to the WSL2 Python bridge, which starts the Rust
 campaign and relays verdicts to the board. Board sensor samples are not inputs
 to `campaign run`; scenarios use catalogued CAN traces through KUKSA. See the
-[AZ3166 communication flow](../../MXChip_Sensor_ECU/AZ3166/COMMUNICATION_FLOW.md).
+[AZ3166 communication flow](../../hardware/az3166/COMMUNICATION_FLOW.md).
 The Dashboard is omitted from this flow view; it is a local Compose service
 that controls Docker and can launch the campaign runner.
 
@@ -145,18 +145,18 @@ For each component, document:
 | State and lifecycle | Campaign traces play once per run; the development Compose trace loops. The board sends telemetry and waits for campaign results. |
 | Dependencies | Traces, provider, and Docker Compose; the hardware demo additionally needs the AZ3166, Wi-Fi, Windows relay, WSL2, and Python bridge. |
 | Failure behavior | Missing trace fails campaign setup; absent CAN frames cause Guardian freshness handling. Loss of the board UDP path interrupts only the manual demo exchange. |
-| Verification | [Campaign traces](../../campaign/traces/README.md), [signal-chain guide](../how-to/run-signal-chain.md), and [AZ3166 communication flow](../../MXChip_Sensor_ECU/AZ3166/COMMUNICATION_FLOW.md). |
+| Verification | [Campaign traces](../../components/campaign/traces/README.md), [signal-chain guide](../how-to/run-signal-chain.md), and [AZ3166 communication flow](../../hardware/az3166/COMMUNICATION_FLOW.md). |
 
 ### KUKSA CAN Provider
 
 | Field | Description |
 |---|---|
 | Responsibility | Decode CAN frames into mapped VSS signals. |
-| Interfaces | Reads CAN/ASC frames using [`BMS_MSG1_CAN.dbc`](../../can/BMS_MSG1_CAN.dbc) and [`vss_dbc.json`](../../can/vss_dbc.json); publishes signal updates to the Data Broker over gRPC. |
+| Interfaces | Reads CAN/ASC frames using [`BMS_MSG1_CAN.dbc`](../../config/can/BMS_MSG1_CAN.dbc) and [`vss_dbc.json`](../../config/can/vss_dbc.json); publishes signal updates to the Data Broker over gRPC. |
 | State and lifecycle | External Compose image; development replay loops, while the campaign project replays its selected trace once. |
 | Dependencies | Data Broker, DBC, VSS mapping, and trace or configured CAN source. |
 | Failure behavior | Provider/source loss stops updates; the Guardian eventually reports freshness loss. |
-| Verification | [Signal-chain guide](../how-to/run-signal-chain.md) and end-to-end [campaign scenarios](../../campaign/scenarios.toml). |
+| Verification | [Signal-chain guide](../how-to/run-signal-chain.md) and end-to-end [campaign scenarios](../../components/campaign/scenarios.toml). |
 
 ### KUKSA Data Broker
 
@@ -165,7 +165,7 @@ For each component, document:
 | Responsibility | Store decoded VSS values and serve them to subscribers. |
 | Interfaces | Accepts provider updates and serves VSS subscriptions over gRPC to the VSS Publisher and dashboard tap. |
 | State and lifecycle | External Compose service populated with the project VSS tree; Compose restarts it unless stopped. |
-| Dependencies | VSS tree/mapping in `can/vss_dbc.json`, KUKSA CAN Provider, and subscriber connections. |
+| Dependencies | VSS tree/mapping in `config/can/vss_dbc.json`, KUKSA CAN Provider, and subscriber connections. |
 | Failure behavior | Missing/stale values prevent new publisher messages; Guardian freshness logic reports loss instead of treating cached data as current. |
 | Verification | [Signal-chain guide](../how-to/run-signal-chain.md) and campaign observations at the Guardian input. |
 
@@ -178,7 +178,7 @@ For each component, document:
 | State and lifecycle | Rust Compose service; waits until all five signals are known and publishes when the alive-counter update completes a frame. |
 | Dependencies | Data Broker, configured signal paths, and Zenoh endpoints. |
 | Failure behavior | A failed subscription or incomplete frame prevents publication; Guardian freshness monitoring detects missing input. |
-| Verification | `cargo test -p vss-publisher`, [Battery Thermal Contract](../../contracts/README.md), and [signal-chain guide](../how-to/run-signal-chain.md). |
+| Verification | `cargo test -p vss-publisher`, [Battery Thermal Contract](../../components/contracts/README.md), and [signal-chain guide](../how-to/run-signal-chain.md). |
 
 ### Battery Thermal Guardian
 
@@ -189,7 +189,7 @@ For each component, document:
 | State and lifecycle | Deterministic Rust core receives samples and 50 ms ticks; service loads `config/guardian/safety-params.toml` and runs in Compose. |
 | Dependencies | uProtocol contract, Zenoh, safety parameters, and DFM for diagnostics. |
 | Failure behavior | Invalid or missing input raises defined monitoring faults. Docker restarts a crashed process; the watchdog detects hangs. Diagnostic unavailability does not gate core evaluation. |
-| Verification | [Guardian requirement tests](../../guardian/tests/requirements.rs), [campaign diagnostic checks](../../campaign/tests/evaluate.rs), and Rust campaign scenarios. |
+| Verification | [Guardian requirement tests](../../components/guardian/tests/requirements.rs), [campaign diagnostic checks](../../components/campaign/tests/evaluate.rs), and Rust campaign scenarios. |
 
 ### Rust Campaign Tool
 
@@ -198,7 +198,7 @@ For each component, document:
 | Responsibility | Run catalogued stimuli, record system observations, evaluate evidence, and report verdicts. |
 | Interfaces | `run`, `observe`, and `evaluate` CLI commands; passive uProtocol taps for Guardian input/events and supervisor events; read-only OpenSOVD HTTP polling. |
 | State and lifecycle | `run` creates a fresh Compose project per scenario, writes a manifest and JSONL recording, tails diagnostics, emits reports, and removes the project. `observe` taps an existing stack. |
-| Dependencies | Docker Compose, `campaign/scenarios.toml`, Guardian parameters, traces, diagnostics image, and repository root. |
+| Dependencies | Docker Compose, `components/campaign/scenarios.toml`, Guardian parameters, traces, diagnostics image, and repository root. |
 | Failure behavior | Preserves logs/errors and judges missing evidence INCONCLUSIVE; failed expected checks produce FAIL, and scenarios remain in reports. |
 | Verification | `cargo test -p campaign` and `cargo run -p campaign -- run --all`; see [Campaign Tool](components/campaign.md). |
 
@@ -208,7 +208,7 @@ For each component, document:
 |---|---|
 | Responsibility | Store DTC lifecycle records reported by the Guardian and watchdog. |
 | Interfaces | `fault_lib` reporters over local iceoryx2 IPC; serves records to the OpenSOVD gateway. |
-| State and lifecycle | External diagnostics-image container loads `diagnostics/catalog/battery_guardian.json` and initializes DTCs as NotTested. |
+| State and lifecycle | External diagnostics-image container loads `deploy/diagnostics/catalog/battery_guardian.json` and initializes DTCs as NotTested. |
 | Dependencies | Diagnostics image, DTC catalog, shared IPC/PID namespaces, and `dfm-storage` volume. |
 | Failure behavior | Guardian evaluation continues if DFM is unavailable; reporter delivery is asynchronous and best-effort. Persistence across abrupt DFM restart is not established. |
 | Verification | Guardian diagnostics integration tests, TS-27, and [diagnostics setup](../../README.md#interfaces-and-ipc). |
@@ -250,11 +250,11 @@ For each component, document:
 
 | Codebase | Language/runtime | Responsibility | Entry point and build/test instructions |
 |---|---|---|---|
-| [vss-publisher](../../vss-publisher) | Rust | Subscribes to KUKSA VSS data and publishes `BatteryTemperature` over uProtocol | `cargo run -p vss-publisher`; see [contract](../../contracts/README.md) |
-| [guardian](../../guardian) and [guardian-service](../../guardian-service) | Rust | Evaluate samples, publish Guardian events/heartbeat, and report DTC lifecycle updates | `cargo test -p guardian -p guardian-service`; service entry point: `guardian-service/src/main.rs` |
-| [campaign](../../campaign) | Rust | Runs catalog scenarios, records evidence, evaluates runs, and writes reports | `cargo run -p campaign -- run --all`; [commands and artifacts](components/campaign.md) |
-| [watchdog](../../watchdog) | Rust | Monitors Guardian heartbeat and reports heartbeat loss to DFM | `cargo test -p watchdog`; service entry point: `watchdog/src/main.rs` |
-| [dashboard](../../dashboard) | Rust | Inspects and controls the local Compose stack and launches campaign runs | `cargo test -p dashboard`; [Dashboard](components/dashboard.md) |
+| [vss-publisher](../../components/vss-publisher) | Rust | Subscribes to KUKSA VSS data and publishes `BatteryTemperature` over uProtocol | `cargo run -p vss-publisher`; see [contract](../../components/contracts/README.md) |
+| [guardian](../../components/guardian) and [guardian-service](../../components/guardian-service) | Rust | Evaluate samples, publish Guardian events/heartbeat, and report DTC lifecycle updates | `cargo test -p guardian -p guardian-service`; service entry point: `components/guardian-service/src/main.rs` |
+| [campaign](../../components/campaign) | Rust | Runs catalog scenarios, records evidence, evaluates runs, and writes reports | `cargo run -p campaign -- run --all`; [commands and artifacts](components/campaign.md) |
+| [watchdog](../../components/watchdog) | Rust | Monitors Guardian heartbeat and reports heartbeat loss to DFM | `cargo test -p watchdog`; service entry point: `components/watchdog/src/main.rs` |
+| [dashboard](../../components/dashboard) | Rust | Inspects and controls the local Compose stack and launches campaign runs | `cargo test -p dashboard`; [Dashboard](components/dashboard.md) |
 
 The checked-in [workspace SBOM](../../sbom.cdx.json) is a single CycloneDX 1.6
 document covering all eight Cargo workspace members and their resolved
@@ -265,8 +265,8 @@ followed by `cargo sbom --output-format cyclone_dx_json_1_6 > sbom.cdx.json`.
 **Code organization pattern:**
 
 - Package/module: Rust workspace crates, listed in the Code table above
-- Public interface: Protobuf schema in [`contracts/battery_thermal.proto`](../../contracts/battery_thermal.proto)
-- Configuration and parameter loading: [`config/guardian/safety-params.toml`](../../config/guardian/safety-params.toml), Compose environment, and [`campaign/scenarios.toml`](../../campaign/scenarios.toml)
+- Public interface: Protobuf schema in [`components/contracts/battery_thermal.proto`](../../components/contracts/battery_thermal.proto)
+- Configuration and parameter loading: [`config/guardian/safety-params.toml`](../../config/guardian/safety-params.toml), Compose environment, and [`components/campaign/scenarios.toml`](../../components/campaign/scenarios.toml)
 - Error handling and diagnostics: Guardian/watchdog events over uProtocol; DFM records exposed by OpenSOVD
 - Unit/integration test locations: crate `tests/` directories; see [Run the Tests](../how-to/run-tests.md)
 
@@ -307,8 +307,8 @@ BMS. Byte order is little endian. Temperatures are raw degrees Celsius, factor
 
 `AliveCounter` increments on every transmitted frame and wraps at 255. A counter
 that stops advancing marks the data as stale even while the last value looks
-plausible. The authoritative signal definition is [can/BMS_MSG1_CAN.dbc](../../can/BMS_MSG1_CAN.dbc);
-[can/BMS_MSG1_CAN.asc](../../can/BMS_MSG1_CAN.asc) is a sample trace.
+plausible. The authoritative signal definition is [config/can/BMS_MSG1_CAN.dbc](../../config/can/BMS_MSG1_CAN.dbc);
+[config/can/BMS_MSG1_CAN.asc](../../config/can/BMS_MSG1_CAN.asc) is a sample trace.
 
 ## Quality enum
 
@@ -321,7 +321,7 @@ ERROR_NOT_AVAILABLE = 0xFF
 ## VSS mapping
 
 The KUKSA CAN Provider maps these signals as defined in
-[can/vss_dbc.json](../../can/vss_dbc.json):
+[config/can/vss_dbc.json](../../config/can/vss_dbc.json):
 
 | CAN signal | VSS path | Type |
 |---|---|---|
@@ -339,7 +339,7 @@ extension, not part of the VSS standard catalogue.
 | Field | Purpose | Status |
 |---|---|---|
 | `run_id` | Identifies a campaign or observed run | Written by the Rust campaign tool |
-| `scenario` | Selects the catalog scenario | Written by the Rust campaign tool; scenario definition and expectations are in `campaign/scenarios.toml` |
+| `scenario` | Selects the catalog scenario | Written by the Rust campaign tool; scenario definition and expectations are in `components/campaign/scenarios.toml` |
 | `mode` | `run` for tool-driven stimulus or `observe` for external stimulus | Written by the Rust campaign tool |
 | `started_at`, `git_revision` | Run start and repository revision | Written when available |
 | `stimulus` | Serialized stimulus configuration | Written by the Rust campaign tool |
@@ -351,15 +351,15 @@ and scenario, Guardian `session_id`, `event_id` and `cause_event_id`, and the
 session/event metadata in DFM/OpenSOVD records. Scenario expectations are stored
 in the TOML catalog, not duplicated in the manifest. [HARA TS-27](hara.md#ts-27-source-loss-during-dfmopensovd-outage)
 is the implemented `source_loss_during_diagnostics_outage` entry in
-[`campaign/scenarios.toml`](../../campaign/scenarios.toml).
+[`components/campaign/scenarios.toml`](../../components/campaign/scenarios.toml).
 
 # 9. Infrastructure Architecture
 
 | Infrastructure element | Purpose | Current details or open point |
 |---|---|---|
-| Developer host with Docker Compose | Runs the demonstrated signal chain, diagnostics, dashboard, and campaign projects | Configuration is in `docker-compose.yml`; environment-specific host ports can be overridden |
+| Developer host with Docker Compose | Runs the demonstrated signal chain, diagnostics, dashboard, and campaign projects | Configuration is in `deploy/docker-compose.yml`; environment-specific host ports can be overridden |
 | CAN trace replay / optional MXChip source | Supplies temperature frames | Automated scenarios replay checked-in ASC traces; the board is an external/manual source |
-| Zenoh, KUKSA CAN Provider, and Data Broker | Route uProtocol and decode/store VSS data | Container services in `docker-compose.yml`; Guardian receives data only through the uProtocol contract |
+| Zenoh, KUKSA CAN Provider, and Data Broker | Route uProtocol and decode/store VSS data | Container services in `deploy/docker-compose.yml`; Guardian receives data only through the uProtocol contract |
 | Guardian and Watchdog | Evaluate temperature data and supervise Guardian heartbeat | Separate Rust containers; DFM IPC and Zenoh transport are configured in Compose |
 | DFM and OpenSOVD gateway | Store and expose diagnostic records | External image and local IPC; Compose ports/configuration are environment-specific |
 | Network and Docker socket | Connect services; dashboard controls Docker | Trust boundaries, production credentials, and hardened deployment controls remain unspecified |
@@ -414,9 +414,9 @@ development stack with `docker compose down`; campaign evidence remains under
 |---|---|
 | Host prerequisites | Stable Rust; Python 3 for trace generation and the optional AZ3166 bridge; Docker Compose for container campaigns | [Run the Tests](../how-to/run-tests.md) |
 | Build | `cargo build --workspace`; Compose builds local service images; diagnostics image setup is documented separately | [README build instructions](../../README.md#pull-the-published-diagnostics-image) |
-| Tests | `cargo test`, formatting/lint, and Rust campaigns from `campaign/scenarios.toml` | [Run the Tests](../how-to/run-tests.md) |
+| Tests | `cargo test`, formatting/lint, and Rust campaigns from `components/campaign/scenarios.toml` | [Run the Tests](../how-to/run-tests.md) |
 | Local services | `docker compose up --build -d`; CAN replay, KUKSA, Zenoh, Guardian, watchdog, DFM/OpenSOVD, and dashboard | [Run the Signal Chain](../how-to/run-signal-chain.md) |
-| Configuration | Guardian thresholds/timeouts in `config/guardian/safety-params.toml`; service endpoints and ports in Compose/environment; diagnostics image pin in `diagnostics/image.env` | [Compose file](../../docker-compose.yml); [image config](../../diagnostics/image.env) |
+| Configuration | Guardian thresholds/timeouts in `config/guardian/safety-params.toml`; service endpoints and ports in Compose/environment; diagnostics image pin in `deploy/diagnostics/image.env` | [Compose file](../../deploy/docker-compose.yml); [image config](../../deploy/diagnostics/image.env) |
 | CI | GitHub Actions build, test, lint, and image workflows | [Guardian workflow](../../.github/workflows/guardian.yml); [diagnostics image workflow](../../.github/workflows/diagnostics-image.yml) |
 | Reproduction | Clean checkout, pinned diagnostics image, and expected baseline behavior | [README build instructions](../../README.md#build-from-clean-committed-source-optional); [Run the Signal Chain](../how-to/run-signal-chain.md) |
 

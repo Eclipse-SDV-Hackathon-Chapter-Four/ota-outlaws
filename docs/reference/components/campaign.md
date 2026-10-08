@@ -13,7 +13,7 @@ SPDX-License-Identifier: EPL-2.0
 
 # Campaign Tool
 
-The campaign tool (`campaign/`) runs fault campaigns against the real signal
+The campaign tool (`components/campaign/`) runs fault campaigns against the real signal
 chain and judges them. It fills both the *fault campaign runner* and the
 *evidence collector* building blocks of the challenge, as two parts of one
 tool, like a test case on a HIL bench that holds stimulus and verification
@@ -72,7 +72,7 @@ events. The exercised endpoint and response fields are described in the
 
 ## Scenario catalog
 
-[`campaign/scenarios.toml`](../../../campaign/scenarios.toml) holds one test
+[`components/campaign/scenarios.toml`](../../../components/campaign/scenarios.toml) holds one test
 case per scenario:
 
 ```toml
@@ -83,7 +83,7 @@ fault_class = "Source"
 hazard = "HE-1"
 safety_goal = "SG-2"
 status = "implemented"            # or "planned": expected to fail until implemented
-stimulus = { type = "can_trace", trace = "campaign/traces/counter_stuck.asc" }
+stimulus = { type = "can_trace", trace = "components/campaign/traces/counter_stuck.asc" }
 onset = "alive_counter_repeats"
 
 [[scenario.expect]]
@@ -95,7 +95,7 @@ requirement = "FSR-2.3"
 
 The tool refuses to load the catalog if an `implemented` scenario expects a
 `dtc` that is not in the DFM catalog
-([`battery_guardian.json`](../../../diagnostics/catalog/battery_guardian.json)):
+([`battery_guardian.json`](../../../deploy/diagnostics/catalog/battery_guardian.json)):
 a misspelt DTC would otherwise look like a missing reaction of the Guardian.
 A `planned` scenario may name a DTC that does not exist yet.
 
@@ -252,7 +252,7 @@ thermal change refers to. Recordings from before that have none.
 ## Combined fault: source loss during a diagnostics outage (TS-27)
 
 `source_loss_during_diagnostics_outage` replays
-[`source_loss.asc`](../../../campaign/traces/source_loss.asc) (8 s nominal,
+[`source_loss.asc`](../../../components/campaign/traces/source_loss.asc) (8 s nominal,
 2 s without frames, 12 s nominal) and pauses `opensovd-dfm` and
 `opensovd-gateway` from 6 s to 13 s. The source loss and the Guardian's
 recovery both fall into the pause.
@@ -286,7 +286,7 @@ cargo run -p campaign -- observe source_dropout --seconds 60
 
 ## Traces
 
-All traces are in [`campaign/traces/`](../../../campaign/traces/README.md).
+All traces are in [`components/campaign/traces/`](../../../components/campaign/traces/README.md).
 `generate_traces.py` generates all of them: the fault traces of the original
 fault list and the ones required by the HARA-derived test scenarios:
 `heating` (FSR-1.1, FSR-1.2), `max_stuck` (FSR-2.4), and `spike` (FSR-3.3, an

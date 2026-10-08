@@ -82,7 +82,7 @@ case "$operation" in
             echo 'Refresh the AutoSD deployment with make up SKIP_IMAGES=1 first.' >&2; exit 1;
         }
         "$busybox" cmp "$root/safety-params.toml" config/guardian/safety-params.toml
-        "$busybox" cmp "$root/catalog/battery_guardian.json" diagnostics/catalog/battery_guardian.json
+        "$busybox" cmp "$root/catalog/battery_guardian.json" deploy/diagnostics/catalog/battery_guardian.json
         cp "$root/can/BMS_MSG1_CAN.asc" "$evidence/original-source.asc"
         echo 'Restarting the Ankaios workload for the campaign trace...'
         stop_stack

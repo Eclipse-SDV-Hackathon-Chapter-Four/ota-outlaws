@@ -150,7 +150,7 @@ design.
 
 The following candidate requirements are derived from SG-1 to SG-4 and are the
 repository's safety-requirement reference. Tunable implementation values are
-defined in `config/guardian/safety-params.toml` and `campaign/scenarios.toml`;
+defined in `config/guardian/safety-params.toml` and `components/campaign/scenarios.toml`;
 the comments and test mappings there trace values and checks back to HARA IDs.
 Implementation status is recorded in component documentation and verification
 tests; a listed requirement is not proof that it is implemented.

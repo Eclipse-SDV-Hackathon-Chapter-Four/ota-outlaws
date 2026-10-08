@@ -44,12 +44,12 @@ The Guardian is split into a **core** that contains all safety logic and
 
 | Part | Status | Responsibility |
 |------|--------|----------------|
-| Core ([`guardian`](../../../guardian)) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
-| Input adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Subscribe to `BatteryTemperature` over uProtocol, decode the Protobuf payload, call the core |
-| Tick ([`guardian-service`](../../../guardian-service)) | **Implemented** | Call the core every 50 ms, so that missing samples are detected |
-| Output adapter ([`guardian-service`](../../../guardian-service)) | **Implemented** | Publish every core event as a `GuardianEvent` over uProtocol |
+| Core ([`components/guardian`](../../../components/guardian)) | **Implemented** | Detectors, thermal state machine, monitoring status, events |
+| Input adapter ([`components/guardian-service`](../../../components/guardian-service)) | **Implemented** | Subscribe to `BatteryTemperature` over uProtocol, decode the Protobuf payload, call the core |
+| Tick ([`components/guardian-service`](../../../components/guardian-service)) | **Implemented** | Call the core every 50 ms, so that missing samples are detected |
+| Output adapter ([`components/guardian-service`](../../../components/guardian-service)) | **Implemented** | Publish every core event as a `GuardianEvent` over uProtocol |
 | DFM adapter | **Implemented / tested** | Write Guardian fault events to the DFM and expose them through OpenSOVD (FSR-D.1, FSR-D.2) |
-| Independent Guardian supervisor ([`watchdog`](../../../watchdog/README.md)) | **Implemented** | Detect termination or loss of evaluation progress and request a monitoring-unavailable warning independently of the Guardian (HARA DFR-5) |
+| Independent Guardian supervisor ([`components/watchdog`](../../../components/watchdog/README.md)) | **Implemented** | Detect termination or loss of evaluation progress and request a monitoring-unavailable warning independently of the Guardian (HARA DFR-5) |
 
 The HARA item boundary includes Guardian evaluation and its output requests. The
 physical sensor, CAN decoding, KUKSA components, occupant interface, and physical
@@ -58,7 +58,7 @@ to the item. A `MitigationRequested` event is therefore a request, not proof tha
 an occupant was warned or an actuator acted.
 
 The messages and topics are defined in the
-[Battery Thermal Contract](../../../contracts/README.md). A payload the Guardian
+[Battery Thermal Contract](../../../components/contracts/README.md). A payload the Guardian
 cannot decode is rejected before it reaches the core; if only such payloads
 arrive, the core reports the loss of fresh data. An unknown quality value is
 passed to the core as `UNDEFINED`, so the core reports it instead of using the
@@ -253,7 +253,7 @@ configuration.
 The table under [Core and adapters](#core-and-adapters) shows which parts exist.
 Which requirements are implemented is recorded in the
 [HARA fault allocation](#hara-fault-allocation) above and in the requirement
-tests, [`guardian/tests/requirements.rs`](../../../guardian/tests/requirements.rs).
+tests, [`components/guardian/tests/requirements.rs`](../../../components/guardian/tests/requirements.rs).
 
 ## Verification strategy
 

@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+# Guardian watchdog. Build from the repository root:
+#   docker build -f components/watchdog/Containerfile .
+# Same toolchain image and IPC entrypoint as the Guardian, since it reports to
+# DFM through the same fault_lib/iceoryx2 interface.
+
+FROM docker.io/library/rust:1-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends clang libclang-dev cmake && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p watchdog --bin watchdog \
+    && cp target/release/watchdog /usr/local/bin/watchdog
+
+FROM docker.io/library/debian:bookworm-slim
+COPY --from=build /usr/local/bin/watchdog /usr/local/bin/watchdog
+COPY deploy/diagnostics/entrypoint.sh /diagnostics-entrypoint.sh
+COPY deploy/diagnostics/catalog /etc/guardian/catalog
+ENV FAULT_CATALOG=/etc/guardian/catalog/battery_guardian.json
+ENTRYPOINT ["/bin/sh", "/diagnostics-entrypoint.sh", "/usr/local/bin/watchdog"]

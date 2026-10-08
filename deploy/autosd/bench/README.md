@@ -34,7 +34,7 @@ Guardian test expectations, diagnostic client or safety evaluator.
 
 The same two-peer controller can be launched from the dashboard. Start
 `make dashboard-controller` on the native host, then select **AutoSD / OpenDUT**
-in the dashboard's Runtime selector. See the [dashboard README](../../../dashboard/README.md)
+in the dashboard's Runtime selector. See the [dashboard README](../../../components/dashboard/README.md)
 for configuration, evidence paths, cancellation/recovery and current observation
 limits. Campaign scenarios and verdict logic remain in the shared Rust CLI.
 
@@ -59,7 +59,7 @@ with the artifact bundle; `remote-doctor` checks the base and launcher before bo
 Run the following commands from `deploy/autosd`. Copy `bench/local.example.toml`
 to the ignored `bench/local.toml` and edit the paths, hashes and backend settings.
 Paths resolve relative to the TOML file, so moving the config and its `assets/` directory together does not change them. CLI options
-override config values. Diagnostics defaults to `diagnostics/image.env`.
+override config values. Diagnostics defaults to `deploy/diagnostics/image.env`.
 
 ```sh
 cp bench/local.example.toml bench/local.toml
@@ -107,9 +107,9 @@ The container needs the matching backend CA and authentication configured.
 There is no default developer container name.
 
 Local production diagnostics can be built with the existing
-`sh ../../diagnostics/build-images.sh /path/to/Doctor-Whodunit` and selected with
+`sh ../../deploy/diagnostics/build-images.sh /path/to/Doctor-Whodunit` and selected with
 `--diagnostics local/opensovd-demo-fork:verified`. Otherwise the controller reads
-`diagnostics/image.env` and retrieves that production image. Log in to its
+`deploy/diagnostics/image.env` and retrieves that production image. Log in to its
 registry with Docker if it is private. Application Guardian, publisher and campaign
 images are built from the checked-out source and use unique job tags.
 
@@ -267,7 +267,7 @@ bundle and share its trusted hashes separately. OS repositories are moving input
 recording exact installed RPMs documents the image without claiming byte-for-byte
 OS reproducibility.
 
-The production diagnostic image from `diagnostics/image.env` must be available to
+The production diagnostic image from `deploy/diagnostics/image.env` must be available to
 Docker. A locally built production image may be selected explicitly, provided its
 revision label matches the pinned production revision. Application images are built
 from the current checkout. No diagnostic smoke harness or smoke job is introduced.

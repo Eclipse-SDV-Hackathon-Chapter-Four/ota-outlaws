@@ -17,6 +17,17 @@ Project plan: [Project Plan](docs/reference/project-plan.md)
 
 Hack Coach Interview Presentation: [Hack Coach Interview](OTA_Outlaws_HackCoachInterview_[EF_SDV_Hackathon_2026].pptx)
 
+## Repository layout
+
+| Folder | Content |
+|--------|---------|
+| [`components/`](components/) | Everything that is built: [`guardian`](components/guardian/) (core), [`guardian-service`](components/guardian-service/) (uProtocol service), [`watchdog`](components/watchdog/), [`vss-publisher`](components/vss-publisher/), [`contracts`](components/contracts/) (Protobuf), [`dashboard`](components/dashboard/), and the [`campaign`](components/campaign/) tool with its scenarios and CAN traces |
+| [`config/`](config/) | [`guardian/`](config/guardian/) safety parameters and [`can/`](config/can/) DBC, VSS mapping, and the default CAN trace |
+| [`deploy/`](deploy/) | [`docker-compose.yml`](deploy/docker-compose.yml) of the stack and [`diagnostics/`](deploy/diagnostics/) (OpenSOVD image, fault catalog), and [`autosd/`](deploy/autosd/) (AutoSD/Ankaios deployment and the openDuT bench); `docker compose up` works from the repository root through [`compose.yaml`](compose.yaml) |
+| [`hardware/az3166/`](hardware/az3166/) | The MXChip AZ3166 board (ThreadX firmware) and the host bridge that starts campaigns from its button |
+| [`third-party/`](third-party/) | `fault-lib`, vendored |
+| [`docs/`](docs/) | Reference, how-to, and explanation |
+
 ## Run the tests
 
 ```sh
@@ -29,7 +40,7 @@ levels, from unit tests to the hardware demo, are described in
 [Run the Tests](docs/how-to/run-tests.md).
 
 Compose runs KUKSA plus separate `opensovd-dfm` and `opensovd-gateway` containers.
-Both services pull the versioned GHCR image configured in `diagnostics/image.env`.
+Both services pull the versioned GHCR image configured in `deploy/diagnostics/image.env`.
 The image supports Linux AMD64 (CI) and ARM64 (Apple Silicon and AutoSD).
 The image also contains legacy example tools; the campaign suite uses Guardian.
 This is a custom development image because the
@@ -39,7 +50,7 @@ published upstream gateway does not contain the example's DFM adapter.
 
 ```sh
 set -a
-. diagnostics/image.env
+. deploy/diagnostics/image.env
 set +a
 docker compose pull opensovd-dfm opensovd-gateway
 docker compose up -d --wait opensovd-dfm opensovd-gateway
@@ -50,7 +61,7 @@ our Guardian test runner, because that contains the code under test.
 The separate **Diagnostics image** workflow is called before main-branch tests
 and can also be manually dispatched. It checks for the pinned version first and
 only builds when that tag is missing. Pull-request CI only pulls existing images;
-publish a new pin before testing a PR that changes it. Existing tags are reused. Bump the `-v1` suffix in `diagnostics/image.env` and both Compose defaults
+publish a new pin before testing a PR that changes it. Existing tags are reused. Bump the `-v1` suffix in `deploy/diagnostics/image.env` and both Compose defaults
 when changing the recipe; update the source SHA in the same places when upgrading.
 The workflow builds on native AMD64 and ARM64 runners and caches build layers.
 Publishing uses GitHub Actions' `GITHUB_TOKEN` with `packages: write`; routine CI
@@ -60,13 +71,13 @@ fork PRs. An organization owner can set its visibility on the package settings p
 ## Build from clean committed source (optional)
 
 ```sh
-sh diagnostics/build-images.sh /path/to/Doctor-Whodunit
+sh deploy/diagnostics/build-images.sh /path/to/Doctor-Whodunit
 DIAGNOSTICS_IMAGE=local/opensovd-demo-fork:verified docker compose up -d --wait opensovd-dfm opensovd-gateway
 curl -fsS http://localhost:7690/sovd/v1/apps/battery_guardian/faults
 ```
 
 The source revision is pinned to `97dd4a503f25674e866a89829e2bd92d2cf2655d` in
-`diagnostics/image.env`. This committed Doctor-Whodunit revision contains separate commits for restoring omitted upstream CLI
+`deploy/diagnostics/image.env`. This committed Doctor-Whodunit revision contains separate commits for restoring omitted upstream CLI
 support crates and repairing the diagnostic demo. It retains the
 adapter's original Git dependency: `bburda42dot/fault-lib` at
 `2b638d84a38568a70d5acab4b46cbe17a84e8e7c`. The DFM daemon still builds from the
@@ -100,7 +111,7 @@ it. Containers continue using `kuksa-databroker:55555`.
 
 ## Interfaces and IPC
 
-DFM loads `diagnostics/catalog/battery_guardian.json`; its configured storage
+DFM loads `deploy/diagnostics/catalog/battery_guardian.json`; its configured storage
 directory is mounted at `/data` using the `dfm-storage` volume. Gateway exposes
 `http://localhost:7690/sovd/v1/apps/battery_guardian/faults`.
 Set `SOVD_PORT` to change the published port; access is bound to localhost.
@@ -125,7 +136,7 @@ The Guardian service (`guardian-service`) writes ten diagnostic codes to DFM.
   and `BTG_TempNoDataAtStartup`;
 - the overtemperature codes `BTG_TempOverTempWarning` and
   `BTG_TempOverTempCritical`, derived from thermal state changes
-  (`guardian-service/src/dtc.rs`). They fail when the thermal state reaches
+  (`components/guardian-service/src/dtc.rs`). They fail when the thermal state reaches
   WARNING or CRITICAL from valid data and pass when it is lowered again. A
   WARNING raised by an implausible sample is caused by its sensor fault and is
   not an overtemperature.
@@ -182,7 +193,7 @@ make campaigns
 make campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
 ```
 
-The scenarios in `campaign/scenarios.toml` exercise the deployed CAN → KUKSA →
+The scenarios in `components/campaign/scenarios.toml` exercise the deployed CAN → KUKSA →
 uProtocol → Guardian → DFM → OpenSOVD chain. Reports and recordings are copied
 into `runs/autosd/<run>/`; the original replay is restored after each campaign.
 See [AutoSD deployment](deploy/autosd/README.md) for prerequisites and
@@ -230,9 +241,9 @@ Campaigns do not assert durable persistence.
 ## Historical diagnostic validation
 
 The retired diagnostic harness passed five isolated checks on 7 October 2026.
-Its passing evidence remains under `diagnostics/reports/20261007-002330-a5a9a93c/`;
+Its passing evidence remains under `deploy/diagnostics/reports/20261007-002330-a5a9a93c/`;
 the earlier failed packaging-transition run remains under
-`diagnostics/reports/20261007-002232-cebb1a09/`. These historical results do not
+`deploy/diagnostics/reports/20261007-002232-cebb1a09/`. These historical results do not
 establish coverage in the current campaign catalog.
 
 ## AI Assistance

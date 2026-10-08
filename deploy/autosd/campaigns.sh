@@ -57,21 +57,21 @@ if [[ "$launching" == true ]]; then
         rm -rf "$work"
     }
     trap cleanup EXIT
-    docker build --platform linux/arm64 -f "$repo/campaign/Containerfile" \
+    docker build --platform linux/arm64 -f "$repo/components/campaign/Containerfile" \
         -t ota-outlaws/campaign:autosd "$repo"
     container=$(docker create --platform linux/arm64 ota-outlaws/campaign:autosd /campaign)
     docker cp "$container:/campaign" "$work/campaign-cli"
     docker rm "$container" >/dev/null
     container=''
-    mkdir -p "$work/campaign-input/campaign" "$work/campaign-input/config/guardian" "$work/campaign-input/diagnostics/catalog"
+    mkdir -p "$work/campaign-input/components/campaign" "$work/campaign-input/config/guardian" "$work/campaign-input/deploy/diagnostics/catalog"
     revision=$(git -C "$repo" rev-parse HEAD)
     if [[ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ]]; then revision="$revision-dirty"; fi
     printf '%s\n' "$revision" > "$work/campaign-input/git-revision.txt"
     cp runtime.sh "$work/campaign-input/runtime.sh"
-    cp "$repo/campaign/scenarios.toml" "$work/campaign-input/campaign/"
-    cp -R "$repo/campaign/traces" "$work/campaign-input/campaign/"
+    cp "$repo/components/campaign/scenarios.toml" "$work/campaign-input/components/campaign/"
+    cp -R "$repo/components/campaign/traces" "$work/campaign-input/components/campaign/"
     cp "$repo/config/guardian/safety-params.toml" "$work/campaign-input/config/guardian/"
-    cp "$repo/diagnostics/catalog/battery_guardian.json" "$work/campaign-input/diagnostics/catalog/"
+    cp "$repo/deploy/diagnostics/catalog/battery_guardian.json" "$work/campaign-input/deploy/diagnostics/catalog/"
     COPYFILE_DISABLE=1 tar -czf "$work/input.tar.gz" -C "$work/campaign-input" .
     "${ssh_guest[@]}" "mkdir -p '$AUTOSD_GUEST_DIR/.campaign-tools/$run_id' '$remote'"
     scp -q -P "$AUTOSD_SSH_PORT" "${options[@]}" "$work/campaign-cli" "$work/input.tar.gz" \
