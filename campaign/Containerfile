@@ -1,0 +1,26 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+
+# AI-assisted: Codex / GPT-6 (gpt-6)
+
+# Build the shared campaign CLI for the AutoSD guest from the repository root:
+#   docker build --platform linux/arm64 -f campaign/Containerfile .
+
+FROM docker.io/library/rust:1-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends clang libclang-dev cmake && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p campaign --bin campaign \
+    && cp target/release/campaign /campaign
+FROM scratch
+COPY --from=build /campaign /campaign

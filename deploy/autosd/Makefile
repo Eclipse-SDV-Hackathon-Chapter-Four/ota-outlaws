@@ -15,6 +15,10 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
+REPO_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
+CAMPAIGNS ?= --all
+CAMPAIGN_OUT ?= $(REPO_DIR)/runs/autosd
+
 AUTOSD_BENCH_DIR ?= $(abspath ../../../can-testbench)
 AUTOSD_SSH_HOST ?= root@127.0.0.1
 AUTOSD_SSH_PORT ?= $(shell jq -er '.peers[] | select(.name == "bench-beta") | .ssh_port' "$(AUTOSD_BENCH_DIR)/bench.json")
@@ -24,6 +28,7 @@ AUTOSD_GUEST_DIR ?= /opt/ota-outlaws-autosd
 AUTOSD_AGENT_NAME ?= bench-beta
 DIAGNOSTICS_IMAGE ?= local/opensovd-demo-fork:verified
 SKIP_IMAGES ?= 0
+AUTOSD_CAN_MODE ?= replay
 SERVICE ?= guardian
 SOVD_PORT ?= 17690
 ZENOH_PORT ?= 17447
@@ -31,18 +36,21 @@ ZENOH_PORT ?= 17447
 # Export target settings so transfer.sh and recursive make use the same guest.
 export AUTOSD_BENCH_DIR AUTOSD_SSH_HOST AUTOSD_SSH_PORT AUTOSD_SSH_KEY
 export AUTOSD_KNOWN_HOSTS AUTOSD_GUEST_DIR AUTOSD_AGENT_NAME DIAGNOSTICS_IMAGE SKIP_IMAGES
+export CAMPAIGNS CAMPAIGN_OUT AUTOSD_CAN_MODE
 SSH = ssh -p "$(AUTOSD_SSH_PORT)" -i "$(AUTOSD_SSH_KEY)" \
     -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$(AUTOSD_KNOWN_HOSTS)"
 
-.PHONY: help up down status logs connect
+.PHONY: help up down status logs connect campaigns
 help:
 	@echo 'up       Transfer updates, install missing Ankaios, start and wait for readiness'
 	@echo '         Use SKIP_IMAGES=1 to reuse guest application images'
-	@echo 'down     Stop the workload and Ankaios; retain images, storage and evidence'
+	@echo 'down     Cancel active campaigns, then stop the workload and Ankaios'
 	@echo 'status   Show Ankaios workload and container states'
 	@echo 'logs     Show the last 100 lines; select SERVICE=guardian (default)'
 	@echo 'connect  Forward OpenSOVD and Zenoh until Ctrl-C'
+	@echo 'campaigns Run the shared Rust campaign CLI inside the Ankaios-managed AutoSD guest'
+	@echo '          Select catalogue IDs, e.g. CAMPAIGNS="timeout invalid_quality"; default --all'
 
 # ss includes TIME_WAIT sockets; probing a listener alone misses KUKSA rebind failures.
 up:
@@ -69,12 +77,34 @@ up:
 	    echo "Stack did not become ready. Use make status and make logs." >&2; exit 1'
 	@echo 'AutoSD stack ready. Use make connect to access diagnostics and Zenoh.'
 
-# Ask Ankaios to remove its workload before stopping its units. Repeated down is safe.
+# Wait for campaign source restoration before removing the Ankaios workload.
 down:
-	@echo 'Stopping the Ankaios workload, if present...'
+	@echo 'Cancelling active campaigns and waiting for source restoration...'
 	@$(SSH) "$(AUTOSD_SSH_HOST)" 'set -eu; \
+	    while read -r campaign rest; do \
+	        [ -n "$$campaign" ] || continue; \
+	        echo "Cancelling $$campaign; waiting for cleanup..."; \
+	        systemctl kill --kill-whom=main --signal=SIGTERM "$$campaign" 2>/dev/null || true; \
+	        finished=0; \
+	        for attempt in $$(seq 1 330); do \
+	            state=$$(systemctl show "$$campaign" --property=ActiveState --value 2>/dev/null || true); \
+	            case "$$state" in active|activating|deactivating) sleep 1 ;; \
+	                *) finished=1; break ;; esac; \
+	        done; \
+	        if [ "$$finished" -ne 1 ]; then \
+	            echo "Campaign cleanup is still running. Inspect $$campaign before retrying down." >&2; exit 1; \
+	        fi; \
+	    done < <(systemctl list-units "ota-campaign-*" --state=active,activating,deactivating \
+	        --no-legend --plain --no-pager); \
+	    echo "Stopping the Ankaios workload, if present..."; \
 	    if systemctl is-active --quiet ota-ankaios-server.service; then \
 	        /opt/ota-ankaios-1.0.4/ank -k delete workload thermal-stack >/dev/null; \
+	    fi; \
+	    for attempt in $$(seq 1 90); do \
+	        podman pod exists ota-autosd || break; sleep 1; \
+	    done; \
+	    if podman pod exists ota-autosd; then \
+	        echo "Ankaios has not finished removing ota-autosd; its agent remains running." >&2; exit 1; \
 	    fi; \
 	    for unit in ota-ankaios-agent.service ota-ankaios-server.service; do \
 	        if systemctl cat "$$unit" >/dev/null 2>&1; then systemctl stop "$$unit"; fi; \
@@ -86,6 +116,12 @@ down:
 
 status:
 	@$(SSH) "$(AUTOSD_SSH_HOST)" 'set -eu; \
+	    campaigns=$$(systemctl list-units "ota-campaign-*" --state=active,activating,deactivating --no-legend --plain --no-pager); \
+	    if [ -n "$$campaigns" ]; then \
+	        echo "Active AutoSD campaign; the stack may be restarting or restoring:"; \
+	        printf "%s\n" "$$campaigns"; \
+	        echo "Use make campaigns to follow progress and wait for restoration."; \
+	    fi; \
 	    if systemctl is-active --quiet ota-ankaios-server.service; then \
 	        /opt/ota-ankaios-1.0.4/ank -k get workloads; \
 	    else echo "Ankaios server stopped"; fi; \
@@ -95,7 +131,16 @@ status:
 logs:
 	@case "$(SERVICE)" in guardian|publisher|dfm|gateway|can-provider|databroker|zenoh) ;; \
 	    *) echo 'Unknown SERVICE; see images.tsv for service names.' >&2; exit 1 ;; esac
-	@$(SSH) "$(AUTOSD_SSH_HOST)" 'podman logs --tail 100 ota-autosd-$(SERVICE)'
+	@$(SSH) "$(AUTOSD_SSH_HOST)" 'set -eu; \
+	    if ! podman container exists ota-autosd-$(SERVICE); then \
+	        campaigns=$$(systemctl list-units "ota-campaign-*" --state=active,activating,deactivating --no-legend --plain --no-pager); \
+	        if [ -n "$$campaigns" ]; then \
+	            echo "$(SERVICE) container is temporarily absent during the active campaign restart/restoration."; \
+	            echo "Use make campaigns to follow progress; service logs resume when the stack is ready."; exit 0; \
+	        fi; \
+	        echo "No $(SERVICE) container is present. Use make status to inspect the stack." >&2; exit 1; \
+	    fi; \
+	    podman logs --tail 100 ota-autosd-$(SERVICE)'
 
 # Forwards bind to host loopback. Existing forwards need different local ports.
 connect:
@@ -105,3 +150,7 @@ connect:
 	    -L '127.0.0.1:$(SOVD_PORT):127.0.0.1:17690' \
 	    -L '127.0.0.1:$(ZENOH_PORT):127.0.0.1:17447' \
 	    "$(AUTOSD_SSH_HOST)"
+
+# Fault replay and verification run on the deployed AutoSD guest.
+campaigns:
+	@./campaigns.sh

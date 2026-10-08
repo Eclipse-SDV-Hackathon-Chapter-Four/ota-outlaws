@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Reads the campaign tool's evidence directory (`runs/`).
 //!
@@ -25,7 +25,7 @@
 //! runs/<id>-observe-<scenario>/…         an `observe` run: one scenario, no subdirectory
 //! ```
 //!
-//! A scenario is running while its Compose project (`campaign-<scenario>`)
+//! A scenario is running while its Compose project (`campaign-<run>-<scenario>`)
 //! has containers, or its recording changed in the last few seconds. When the
 //! dashboard's own campaign runner has stopped, changes from before it
 //! stopped no longer count.
@@ -266,9 +266,16 @@ fn scenario(dir: &Path, name: Option<&str>, activity: &Activity) -> ScenarioView
     let observations = std::fs::read(&recording)
         .map(|bytes| bytecount(&bytes))
         .unwrap_or(0);
+    let project = manifest
+        .as_ref()
+        .and_then(|m| m["run_id"].as_str())
+        .filter(|run_id| run_id.contains('/'))
+        .map(|run_id| project_name(&run_id.replace('/', "-")))
+        .unwrap_or_else(|| project_name(&id));
     let state = if report.is_some() {
         State::Done
-    } else if activity.projects.contains(&project_name(&id))
+    } else if activity.projects.contains(&project)
+        || activity.projects.contains(&project_name(&id))
         || modified_within(&recording, ACTIVE, activity.quiet_since)
     {
         State::Running
@@ -378,6 +385,30 @@ mod tests {
     #[test]
     fn project_names_match_the_campaign_runner() {
         assert_eq!(project_name("counter_stuck"), "campaign-counter-stuck");
+    }
+
+    #[test]
+    fn running_project_is_attributed_to_its_campaign() {
+        let dir = temp_runs("namespaced");
+        for id in ["run_a", "run_b"] {
+            write(
+                &dir.join(id).join("counter_stuck/manifest.json"),
+                &format!(r#"{{"run_id":"{id}/counter_stuck","scenario":"counter_stuck"}}"#),
+            );
+        }
+        let runs = Runs { dir };
+        let active = Activity {
+            projects: vec!["campaign-run-a-counter-stuck".to_owned()],
+            quiet_since: Some(SystemTime::now() + Duration::from_secs(1)),
+        };
+        assert_eq!(
+            runs.campaign("run_a", &active).unwrap().scenarios[0].state,
+            State::Running
+        );
+        assert_eq!(
+            runs.campaign("run_b", &active).unwrap().scenarios[0].state,
+            State::Incomplete
+        );
     }
 
     #[test]

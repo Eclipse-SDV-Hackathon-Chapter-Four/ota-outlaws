@@ -39,6 +39,12 @@ trap cleanup EXIT
 while read -r name image; do
     case "$name" in ''|'#'*) continue ;; esac
     [[ "$image" != '${DIAGNOSTICS_IMAGE}' ]] || image=$DIAGNOSTICS_IMAGE
+    if [[ -n "${AUTOSD_IMAGE_TAG:-}" ]]; then
+        case "$name" in
+            guardian) image="ota-outlaws/guardian:$AUTOSD_IMAGE_TAG" ;;
+            publisher) image="ota-outlaws/vss-publisher:$AUTOSD_IMAGE_TAG" ;;
+        esac
+    fi
     printf '%s %s\n' "$name" "$image"
 done < images.tsv > "$work/images.tsv"
 if [[ "$SKIP_IMAGES" == 0 ]]; then
@@ -98,6 +104,11 @@ for unit in ota-ankaios-*.service; do
         -e "s|--name bench-beta|--name $AUTOSD_AGENT_NAME|" "$unit" > "$work/$unit"
 done
 cp -R "$repo/can" "$work/can"
+case "${AUTOSD_CAN_MODE:-replay}" in
+    replay) ;;
+    socketcan) touch "$work/can/.socketcan" ;;
+    *) echo 'AUTOSD_CAN_MODE must be replay or socketcan' >&2; exit 2 ;;
+esac
 cp -R "$repo/diagnostics/catalog" "$work/catalog"
 cp "$repo/diagnostics/entrypoint.sh" "$work/entrypoint.sh"
 cp "$repo/config/guardian/safety-params.toml" "$work/safety-params.toml"
@@ -131,6 +142,7 @@ cd "$1"
 chmod 755 .transfer/busybox
 .transfer/busybox tar -xzf bundle.tar.gz
 rm bundle.tar.gz
+rm -f can/.campaign-active can/.campaign-source can/.campaign-guardian
 chcon -R -t container_file_t -l s0 can catalog entrypoint.sh safety-params.toml busybox
 podman volume exists ota-autosd-dfm || podman volume create ota-autosd-dfm
 volume_path=$(podman volume inspect ota-autosd-dfm --format '{{.Mountpoint}}')

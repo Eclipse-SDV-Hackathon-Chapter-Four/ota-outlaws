@@ -70,12 +70,18 @@ spec:
     - name: guardian
       image: localhost/ota-autosd/guardian:deployed
       imagePullPolicy: Never
+      command: [/bin/sh, -c]
+      args:
+        - |
+          while [ -f /can/.campaign-active ] && [ ! -f /can/.campaign-guardian ]; do sleep 0.05; done
+          exec /bin/sh /diagnostics-entrypoint.sh /usr/local/bin/guardian
       env:
         - {name: ZENOH_CONNECT, value: 'tcp/127.0.0.1:17447'}
         - {name: ZENOH_LISTEN, value: 'tcp/127.0.0.1:0'}
         - {name: SOVD_ENTITY, value: battery_guardian}
         - {name: RUST_LOG, value: info}
       volumeMounts:
+        - {name: can, mountPath: /can, readOnly: true}
         - {name: catalog, mountPath: /etc/guardian/catalog, readOnly: true}
         - {name: safety, mountPath: /etc/guardian/safety-params.toml, readOnly: true}
         - {name: guardian-tmp, mountPath: /tmp}
@@ -85,9 +91,19 @@ spec:
       command: [/busybox, sh, -c]
       args:
         - |
+          while [ -f /can/.campaign-active ] && [ ! -f /can/.campaign-source ]; do /busybox sleep 0.05; done
+          if [ -f /can/.socketcan ]; then
+            set -- --use-socketcan --canport vcan0 --no-val2dbc
+          fi
           for attempt in $(/busybox seq 1 150); do
             if /busybox nc -z -w 1 127.0.0.1 55555; then
-              exec ./dbcfeeder "$@"
+              if [ -f /can/.campaign-active ]; then
+                ./dbcfeeder "$@" || exit $?
+                # Keep one-shot replay completion from restarting the Ankaios pod.
+                while :; do /busybox sleep 3600; done
+              fi
+              if [ -f /can/.socketcan ]; then exec ./dbcfeeder "$@"; fi
+              exec ./dbcfeeder "$@" --infinite
             fi
             /busybox sleep 0.2
           done
@@ -96,7 +112,6 @@ spec:
         - can-provider
         - --dumpfile
         - /can/BMS_MSG1_CAN.asc
-        - --infinite
       env:
         - {name: KUKSA_ADDRESS, value: '127.0.0.1'}
         - {name: KUKSA_PORT, value: '55555'}
