@@ -9,12 +9,13 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! `campaign` command line. Run from the repository root.
 //!
 //! ```text
 //! campaign run <scenario>... | --all [--no-build] [--out runs]
+//!              [--runtime-hook PATH] [--run-id ID]
 //! campaign observe <scenario> [--seconds 60] [--zenoh tcp/127.0.0.1:7447]
 //!                             [--sovd http://127.0.0.1:7690/sovd/v1]
 //! campaign evaluate <run-dir>...
@@ -41,14 +42,35 @@ const ENTITY: &str = "battery_guardian";
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match dispatch(&args).await {
-        Ok(true) => {}
-        Ok(false) => std::process::exit(1),
+    let mut record_exit = true;
+    let code = match dispatch(&args).await {
+        Ok(true) => 0,
+        Ok(false) => 1,
         Err(error) => {
+            // A rejected attempt to reuse evidence must not replace the
+            // status of the process that owns that evidence directory.
+            record_exit = !error.chain().any(|cause| {
+                cause
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
+            });
             eprintln!("error: {error:#}");
-            std::process::exit(2);
+            2
+        }
+    };
+    if let Ok(options) = parse(args.get(1..).unwrap_or_default()) {
+        if let Some(id) = options.run_id.filter(|id| record_exit && valid_id(id)) {
+            let _ = std::fs::write(options.out.join(id).join("exit-code"), format!("{code}\n"));
         }
     }
+    std::process::exit(code);
+}
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 struct Options {
@@ -59,6 +81,8 @@ struct Options {
     seconds: u64,
     zenoh: String,
     sovd: String,
+    runtime_hook: Option<PathBuf>,
+    run_id: Option<String>,
 }
 
 fn parse(args: &[String]) -> anyhow::Result<Options> {
@@ -70,11 +94,15 @@ fn parse(args: &[String]) -> anyhow::Result<Options> {
         seconds: 60,
         zenoh: "tcp/127.0.0.1:7447".into(),
         sovd: "http://127.0.0.1:7690/sovd/v1".into(),
+        runtime_hook: None,
+        run_id: None,
     };
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let mut value = || iter.next().context(format!("{arg} needs a value"));
         match arg.as_str() {
+            "--runtime-hook" => options.runtime_hook = Some(PathBuf::from(value()?)),
+            "--run-id" => options.run_id = Some(value()?.clone()),
             "--all" => options.all = true,
             "--no-build" => options.no_build = true,
             "--out" => options.out = PathBuf::from(value()?),
@@ -119,12 +147,54 @@ fn passed(evaluation: &Evaluation) -> bool {
 }
 
 async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Result<bool> {
+    let capabilities = if let Some(hook) = &options.runtime_hook {
+        let output = tokio::process::Command::new(hook)
+            .arg("capabilities")
+            .output()
+            .await?;
+        if !output.status.success() {
+            bail!("runtime capabilities check failed");
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    } else {
+        vec!["network-isolation".to_owned(), "watchdog".to_owned()]
+    };
+    let supported = |s: &campaign::catalog::Scenario| match &s.stimulus {
+        Stimulus::CanTrace {
+            isolate, watchdog, ..
+        } => {
+            (!watchdog || capabilities.iter().any(|c| c == "watchdog"))
+                && isolate.as_ref().is_none_or(|service| {
+                    capabilities.iter().any(|c| {
+                        c == if service == "can-link" {
+                            "can-link-isolation"
+                        } else {
+                            "network-isolation"
+                        }
+                    })
+                })
+        }
+        _ => true,
+    };
+    if options.all {
+        for scenario in &context.catalog.scenarios {
+            if !supported(scenario) {
+                eprintln!(
+                    "skipping {}: runtime lacks required isolation or watchdog capability",
+                    scenario.id
+                );
+            }
+        }
+    }
     let ids: Vec<String> = if options.all {
         context
             .catalog
             .scenarios
             .iter()
-            .filter(|s| !matches!(s.stimulus, Stimulus::External))
+            .filter(|s| !matches!(s.stimulus, Stimulus::External) && supported(s))
             .map(|s| s.id.clone())
             .collect()
     } else {
@@ -134,15 +204,31 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         bail!("name a scenario or use --all");
     }
     for id in &ids {
-        if context.catalog.scenario(id).is_none() {
-            bail!("unknown scenario {id}");
+        let scenario = context
+            .catalog
+            .scenario(id)
+            .with_context(|| format!("unknown scenario {id}"))?;
+        if !supported(scenario) {
+            bail!("scenario {id} requires isolation or watchdog capability unavailable in this runtime");
         }
     }
-    if !options.no_build {
+    if !options.no_build && options.runtime_hook.is_none() {
         runner::build(repo).await?;
     }
-    let campaign_id = timestamp_id();
+    let campaign_id = options.run_id.clone().unwrap_or_else(timestamp_id);
+    if !valid_id(&campaign_id) {
+        bail!("invalid run ID");
+    }
     let campaign_dir = options.out.join(&campaign_id);
+    for id in &ids {
+        if campaign_dir.join(id).exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "scenario evidence already exists; use a new run ID",
+            )
+            .into());
+        }
+    }
     // The plan lets a viewer such as the dashboard show the progress of a
     // running campaign: which scenarios are still to come.
     std::fs::create_dir_all(&campaign_dir)?;
@@ -158,12 +244,18 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         repo: repo.to_path_buf(),
         fault_codes: context.fault_codes.clone(),
         entity: ENTITY.to_owned(),
+        runtime_hook: options.runtime_hook.clone(),
+        zenoh: options.zenoh.clone(),
+        sovd: options.sovd.clone(),
     };
+    let mut execution_failed = false;
     let mut evaluations = Vec::new();
     for id in &ids {
         let scenario = context.catalog.scenario(id).expect("checked above");
         let run_dir = campaign_dir.join(id);
-        std::fs::create_dir_all(&run_dir)?;
+        std::fs::create_dir_all(&campaign_dir)?;
+        std::fs::create_dir(&run_dir)
+            .context("scenario evidence already exists; use a new run ID")?;
         let manifest = manifest(
             repo,
             &format!("{campaign_id}/{id}"),
@@ -174,7 +266,10 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         write_json(&run_dir.join("manifest.json"), &manifest)?;
         let recorder = Recorder::create(&run_dir.join("recording.jsonl"))?;
         eprintln!("running {id} …");
+        let mut interrupted = false;
         if let Err(error) = runner::run(scenario, &settings, &run_dir, recorder).await {
+            execution_failed = true;
+            interrupted = error.is::<runner::Interrupted>();
             // The scenario is still judged: missing evidence makes it
             // INCONCLUSIVE, and the error stays next to the report.
             eprintln!("{id}: {error:#}");
@@ -183,6 +278,9 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         let evaluation = judge(repo, context, &run_dir)?;
         println!("{}", report::console(&evaluation));
         evaluations.push((id.to_string(), evaluation));
+        if interrupted {
+            break;
+        }
     }
     let summaries: Vec<_> = evaluations
         .iter()
@@ -195,10 +293,11 @@ async fn run(repo: &Path, context: &Context, options: &Options) -> anyhow::Resul
         campaign_dir.join("campaign.md"),
         report::campaign_markdown(&campaign_id, &summaries),
     )?;
+
     let judged: Vec<&Evaluation> = evaluations.iter().map(|(_, e)| e).collect();
     println!("{}", report::console_summary(&campaign_id, &judged));
     println!("evidence: {}", campaign_dir.join("campaign.md").display());
-    Ok(evaluations.iter().all(|(_, e)| passed(e)))
+    Ok(!execution_failed && evaluations.iter().all(|(_, e)| passed(e)))
 }
 
 async fn observe(repo: &Path, context: &Context, options: &Options) -> anyhow::Result<bool> {
@@ -260,7 +359,7 @@ fn judge(repo: &Path, context: &Context, run_dir: &Path) -> anyhow::Result<Evalu
         .scenario(&manifest.scenario)
         .with_context(|| format!("scenario {} not in the catalog", manifest.scenario))?;
     let observations = campaign::recording::read(&run_dir.join("recording.jsonl"))?;
-    let evaluation = evaluate(
+    let mut evaluation = evaluate(
         scenario,
         &observations,
         &context.budgets,
@@ -268,6 +367,51 @@ fn judge(repo: &Path, context: &Context, run_dir: &Path) -> anyhow::Result<Evalu
         &context.classes,
     )
     .map_err(|error| anyhow::anyhow!(error))?;
+    if evaluation.verdict == Verdict::Pass {
+        if let Ok(error) = std::fs::read_to_string(run_dir.join("error.txt")) {
+            evaluation.verdict = Verdict::Inconclusive;
+            evaluation.reason = format!("execution did not complete: {}", error.trim());
+        }
+    }
+    // Paired CAN evidence augments, rather than replaces, the shared safety
+    // evaluator. Bad stimulus cannot be credited as a Guardian pass.
+    if let Ok(bytes) = std::fs::read(run_dir.join("can-path.json")) {
+        let path: serde_json::Value = serde_json::from_slice(&bytes)?;
+        match path["classification"].as_str() {
+            Some("source_failure") => {
+                evaluation.verdict = Verdict::Inconclusive;
+                evaluation.reason = "source integrity failed; inspect can-path.json".to_owned();
+            }
+            Some("transport_failure") => {
+                evaluation.verdict = Verdict::Fail;
+                evaluation.reason =
+                    "measured CAN transport failed; inspect can-path.json".to_owned();
+            }
+            Some("evidence_incomplete") => {
+                evaluation.verdict = Verdict::Inconclusive;
+                evaluation.reason = "CAN evidence incomplete; inspect can-path.json".to_owned();
+            }
+            Some("verified") => {}
+            _ => bail!("invalid can-path classification"),
+        }
+        let classification = if path["classification"] != "verified" {
+            path["classification"].clone()
+        } else if evaluation.verdict == Verdict::Fail {
+            serde_json::json!("guardian_or_downstream_failure")
+        } else if evaluation.verdict == Verdict::Inconclusive {
+            serde_json::json!("application_evidence_incomplete")
+        } else {
+            serde_json::json!("verified")
+        };
+        write_json(
+            &run_dir.join("failure-layer.json"),
+            &serde_json::json!({
+                "classification": classification,
+                "can_path": path,
+                "verdict": evaluation.verdict,
+            }),
+        )?;
+    }
     let _ = repo;
     let report = Report {
         manifest: &manifest,
@@ -326,7 +470,14 @@ fn git_revision(repo: &Path) -> Option<String> {
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
     };
-    let revision = run(&["rev-parse", "--short", "HEAD"])?;
+    let revision = match run(&["rev-parse", "--short", "HEAD"]) {
+        Some(revision) => revision,
+        None => {
+            return std::fs::read_to_string(repo.join("git-revision.txt"))
+                .ok()
+                .map(|s| s.trim().to_owned())
+        }
+    };
     let dirty =
         run(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
     Some(if dirty {
@@ -337,12 +488,13 @@ fn git_revision(repo: &Path) -> Option<String> {
 }
 
 fn timestamp_id() -> String {
-    humantime::format_rfc3339_seconds(SystemTime::now())
+    let timestamp = humantime::format_rfc3339_nanos(SystemTime::now())
         .to_string()
         .replace([':', '-'], "")
         .replace('T', "-")
         .trim_end_matches('Z')
-        .to_owned()
+        .replace('.', "-");
+    format!("{timestamp}-{}", std::process::id())
 }
 
 fn hex(bytes: &[u8]) -> String {

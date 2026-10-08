@@ -8,7 +8,11 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
-# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+
+# AI-assisted: Codex / GPT-6 (gpt-6)
+
+# Build the shared campaign CLI for the AutoSD guest from the repository root:
+#   docker build --platform linux/arm64 -f campaign/Containerfile .
 
 FROM docker.io/library/rust:1-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends clang libclang-dev cmake && rm -rf /var/lib/apt/lists/*
@@ -16,11 +20,7 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo test --locked -p guardian-service --test diagnostics --no-run --message-format=json > /tmp/cargo-artifacts.json \
-    && sed -n '/"name":"diagnostics"/s/.*"executable":"\([^" ]*\)".*/\1/p' /tmp/cargo-artifacts.json > /tmp/campaign-executable \
-    && test "$(wc -l < /tmp/campaign-executable)" -eq 1 \
-    && cp "$(cat /tmp/campaign-executable)" /usr/local/bin/diagnostics-campaign
-
-FROM docker.io/library/debian:bookworm-slim
-COPY --from=build /usr/local/bin/diagnostics-campaign /usr/local/bin/diagnostics-campaign
-COPY diagnostics/entrypoint.sh /diagnostics-entrypoint.sh
+    cargo build --release --locked -p campaign --bin campaign \
+    && cp target/release/campaign /campaign
+FROM scratch
+COPY --from=build /campaign /campaign

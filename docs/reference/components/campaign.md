@@ -67,9 +67,8 @@ for retained history, and `environment_data` to correlate the record with the
 Guardian's session/event and requirement. A recovered DTC may have
 `testFailed: false` while `testFailedSinceLastClear: true` remains set. The
 collector matches `environment_data.session_id` and `event_id` to Guardian
-events. The exercised endpoint and response fields are shown in the
-[diagnostic integration test](../../../guardian-service/tests/diagnostics.rs)
-and [signal-chain guide](../../how-to/run-signal-chain.md).
+events. The exercised endpoint and response fields are described in the
+[signal-chain guide](../../how-to/run-signal-chain.md).
 
 ## Scenario catalog
 
@@ -356,12 +355,13 @@ spread that arrives as a spike, FSR-3.3), and the order checks `min_gt_avg`,
 - **Transport faults** (TS-08, TS-24: delay and reorder on the uProtocol
   channel): needs an injection point between the VSS Publisher and the
   Guardian. The scenarios exist as `external` and `planned`.
-- **Diagnostics outage alone**: still covered by
-  [`diagnostics/smoke_test.py`](../../../diagnostics/smoke_test.py). Combined
-  with a source loss, it is TS-27 (below).
-- **Evidence attribution and timing** (EC-1 to EC-3 referenced by HARA DFR-6):
-  only the attribution of a loss behind the tap (`samples_continue`) exists;
-  sequence diagnosis and delay measurement do not.
+- **Diagnostics outage alone**: not covered by the shipped campaign catalog.
+  The `pause` stimulus exists, but an outage scenario must measure its
+  OpenSOVD recovery budget from resume. Combined with a source loss, it is
+  TS-27 (below).
+- **Evidence attribution and timing** (EC-1 to EC-3 referenced by HARA DFR-6): only the attribution of a loss
+  behind the tap (`samples_continue`) exists; sequence diagnosis and delay
+  measurement do not.
 
 ## AI Assistance
 
@@ -371,3 +371,6 @@ This document was created with the assistance of **Claude Code** using the model
 
 The OpenSOVD evidence interface was added with the assistance of **GitHub
 Copilot** using the model **GPT-6 Luna**.
+
+Retired diagnostic-harness references were removed with assistance from
+**Codex** using **GPT-6** (`gpt-6`).

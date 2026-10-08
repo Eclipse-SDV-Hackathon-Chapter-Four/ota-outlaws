@@ -8,16 +8,17 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
-# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol); Codex / GPT-6 (gpt-6)
-
-.git
-**/target
-
-diagnostics/reports
-diagnostic-source
-
-# Local bench state includes writable disks and private per-run SSH keys.
-runs
-deploy/autosd/bench/local.toml
-deploy/autosd/bench/assets
-**/__pycache__
+# AI-assisted: Codex / GPT-6 (gpt-6)
+# The transfer helper supplies otaPod from pod.yaml in ankaios-state.yaml.
+apiVersion: v1
+workloads:
+  thermal-stack:
+    agent: bench-beta
+    runtime: podman-kube
+    restartPolicy: ON_FAILURE
+    configs:
+      pod_manifest: otaPod
+    runtimeConfig: |
+      playOptions: ["--build=false"]
+      manifest: |
+        {{> indent content=pod_manifest}}

@@ -9,16 +9,16 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
-//! Runs one scenario in a fresh Docker Compose project: starts the signal
+//! Runs one scenario through a deployment runtime: starts the signal
 //! chain and the diagnostics, starts the taps, replays the scenario's CAN
 //! trace once, waits until it has ended, and removes the project.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context};
 use thermal_contract::transport::ZenohEndpoints;
@@ -48,23 +48,46 @@ pub struct Settings {
     pub repo: PathBuf,
     pub fault_codes: Vec<String>,
     pub entity: String,
+    pub runtime_hook: Option<PathBuf>,
+    pub zenoh: String,
+    pub sovd: String,
 }
 
-pub struct Compose {
+pub struct Runtime {
+    hook: Option<PathBuf>,
     project: String,
     files: Vec<PathBuf>,
     env: Vec<(String, String)>,
     repo: PathBuf,
 }
 
-impl Compose {
+impl Runtime {
     fn command(&self, args: &[&str]) -> Command {
+        if let Some(hook) = &self.hook {
+            let mut command = Command::new(hook);
+            command
+                .args(args)
+                .current_dir(&self.repo)
+                .kill_on_drop(true);
+            return command;
+        }
+        let args = match args.first().copied() {
+            Some("start") => [vec!["up", "-d", "--no-build"], args[1..].to_vec()].concat(),
+            Some("finish") => vec!["down", "-v", "--remove-orphans"],
+            Some("stop") => [vec!["stop", "-t", "0"], args[1..].to_vec()].concat(),
+            Some("resume") => [vec!["unpause"], args[1..].to_vec()].concat(),
+            Some("logs") => [vec!["logs", "--no-color"], args[1..].to_vec()].concat(),
+            _ => args.to_vec(),
+        };
         let mut command = Command::new("docker");
         command.arg("compose").arg("-p").arg(&self.project);
         for file in &self.files {
             command.arg("-f").arg(file);
         }
-        command.args(args).current_dir(&self.repo);
+        command
+            .args(args)
+            .current_dir(&self.repo)
+            .kill_on_drop(true);
         for (key, value) in &self.env {
             command.env(key, value);
         }
@@ -74,14 +97,19 @@ impl Compose {
     async fn run(&self, args: &[&str]) -> anyhow::Result<()> {
         let output = self
             .command(args)
-            .stdout(Stdio::null())
+            .stdout(if self.hook.is_some() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .stderr(Stdio::piped())
-            .output()
-            .await
-            .context("cannot run docker compose")?;
+            .spawn()
+            .context("cannot run deployment runtime")?
+            .wait_with_output()
+            .await?;
         if !output.status.success() {
             bail!(
-                "docker compose {} failed: {}",
+                "runtime {} failed: {}",
                 args.join(" "),
                 String::from_utf8_lossy(&output.stderr).trim()
             );
@@ -91,6 +119,13 @@ impl Compose {
 
     async fn output(&self, args: &[&str]) -> anyhow::Result<String> {
         let output = self.command(args).output().await?;
+        if !output.status.success() {
+            bail!(
+                "runtime {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned()
             + &String::from_utf8_lossy(&output.stderr))
     }
@@ -98,6 +133,9 @@ impl Compose {
     /// Disconnects a service's container from the project network, or
     /// reconnects it.
     async fn network(&self, verb: &str, service: &str) -> anyhow::Result<()> {
+        if self.hook.is_some() {
+            return self.run(&[verb, service]).await;
+        }
         let container = self.output(&["ps", "-q", service]).await?;
         let container = container.lines().next().unwrap_or_default().trim();
         if container.is_empty() {
@@ -220,8 +258,93 @@ pub async fn run(
     recorder: Arc<Recorder>,
 ) -> anyhow::Result<()> {
     let plan = plan(scenario, &settings.repo)?;
-    let zenoh_port = free_port()?;
-    let sovd_port = free_port()?;
+    let mut zenoh_port = 0;
+    let mut sovd_port = 0;
+    let runtime = if let Some(hook) = &settings.runtime_hook {
+        Runtime {
+            hook: Some(hook.clone()),
+            project: String::new(),
+            files: Vec::new(),
+            env: Vec::new(),
+            repo: settings.repo.clone(),
+        }
+    } else {
+        compose_runtime(
+            scenario,
+            settings,
+            run_dir,
+            &plan,
+            &mut zenoh_port,
+            &mut sovd_port,
+        )?
+    };
+    let zenoh = if runtime.hook.is_some() {
+        settings.zenoh.clone()
+    } else {
+        format!("tcp/127.0.0.1:{zenoh_port}")
+    };
+    let sovd = if runtime.hook.is_some() {
+        settings.sovd.clone()
+    } else {
+        format!("http://127.0.0.1:{sovd_port}/sovd/v1")
+    };
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let execution = async {
+        if runtime.hook.is_some() {
+            let trace = plan
+                .trace
+                .as_ref()
+                .map(|(path, _)| path.as_str())
+                .unwrap_or("");
+            runtime
+                .run(&[
+                    "prepare",
+                    run_dir.to_str().context("invalid evidence path")?,
+                    trace,
+                ])
+                .await?;
+        }
+        drive(scenario, settings, &runtime, recorder, zenoh, sovd, plan).await
+    };
+    let result = tokio::select! {
+        result = execution => result,
+        _ = terminate.recv() => Err(Interrupted.into()),
+        _ = tokio::signal::ctrl_c() => Err(Interrupted.into()),
+    };
+    let logs = runtime.output(&["logs"]).await.unwrap_or_default();
+    let _ = std::fs::write(run_dir.join("services.log"), logs);
+    println!("Restoring the deployment after {}...", scenario.id);
+    let cleanup = runtime
+        .run(&["finish", run_dir.to_str().context("invalid evidence path")?])
+        .await;
+    if let Err(error) = &cleanup {
+        let _ = std::fs::write(
+            run_dir.join("restoration-error.txt"),
+            format!("{error:#}\n"),
+        );
+    }
+    result.and(cleanup)
+}
+
+#[derive(Debug)]
+pub struct Interrupted;
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("campaign interrupted")
+    }
+}
+impl std::error::Error for Interrupted {}
+
+fn compose_runtime(
+    scenario: &Scenario,
+    settings: &Settings,
+    run_dir: &Path,
+    plan: &Plan,
+    zenoh_port: &mut u16,
+    sovd_port: &mut u16,
+) -> anyhow::Result<Runtime> {
+    *zenoh_port = free_port()?;
+    *sovd_port = free_port()?;
     let provider = match &plan.trace {
         Some((trace, _)) => format!(
             "\x20 kuksa-can-provider:\n\
@@ -255,32 +378,20 @@ pub async fn run(
             id = scenario.id,
         ),
     )?;
-    let compose = Compose {
-        project: format!("campaign-{}", run_dir_name(run_dir)),
+    Ok(Runtime {
+        hook: None,
+        project: format!(
+            "campaign-{}-{}",
+            run_dir_name(run_dir.parent().context("missing campaign directory")?),
+            run_dir_name(run_dir)
+        ),
         files: vec![settings.repo.join("docker-compose.yml"), override_file],
         env: vec![
             ("SOVD_PORT".into(), sovd_port.to_string()),
             ("KUKSA_HOST_PORT".into(), free_port()?.to_string()),
         ],
         repo: settings.repo.clone(),
-    };
-
-    let result = drive(
-        scenario, settings, &compose, recorder, zenoh_port, sovd_port, plan,
-    )
-    .await;
-
-    let logs = compose
-        .output(&["logs", "--no-color"])
-        .await
-        .unwrap_or_default();
-    let _ = std::fs::write(run_dir.join("services.log"), logs);
-    // -t 0: the containers only serve this run, waiting 10 s per container for a
-    // graceful stop would make up most of a scenario's time.
-    let _ = compose
-        .run(&["down", "-t", "0", "-v", "--remove-orphans"])
-        .await;
-    result
+    })
 }
 
 fn injection(recorder: &Recorder, action: &str, detail: String) {
@@ -293,23 +404,22 @@ fn injection(recorder: &Recorder, action: &str, detail: String) {
 async fn drive(
     scenario: &Scenario,
     settings: &Settings,
-    compose: &Compose,
+    compose: &Runtime,
     recorder: Arc<Recorder>,
-    zenoh_port: u16,
-    sovd_port: u16,
+    zenoh: String,
+    sovd_url: String,
     plan: Plan,
 ) -> anyhow::Result<()> {
-    let mut chain = vec!["up", "-d", "--no-build"];
+    let mut chain = vec!["start"];
     chain.extend_from_slice(CHAIN);
     compose.run(&chain).await?;
 
-    let sovd_url = format!("http://127.0.0.1:{sovd_port}/sovd/v1");
     wait_for_sovd(&sovd_url, &settings.entity).await?;
 
     let taps = record::start(
         Arc::clone(&recorder),
         &ZenohEndpoints {
-            connect: vec![format!("tcp/127.0.0.1:{zenoh_port}")],
+            connect: vec![zenoh],
             mode: Some("client".to_owned()),
             ..Default::default()
         },
@@ -323,16 +433,25 @@ async fn drive(
     // Let the subscriptions reach the router before the first sample.
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let source_started = Instant::now();
-    if plan.trace.is_some() {
+    let distributed = compose.hook.is_some()
+        && compose
+            .output(&["capabilities"])
+            .await?
+            .lines()
+            .any(|s| s == "distributed-source");
+    if distributed {
+        // Bring up SocketCAN decoding and arm evidence before Guardian starts.
+        // No battery readiness frame can contaminate the measured fault trace.
+        compose.run(&["ready"]).await?;
+    }
+    let mut source_started = Instant::now();
+    if plan.trace.is_some() && !distributed {
         injection(
             &recorder,
             "start_can_provider",
             format!("scenario {}", scenario.id),
         );
-        compose
-            .run(&["up", "-d", "--no-build", "kuksa-can-provider"])
-            .await?;
+        compose.run(&["start", "kuksa-can-provider"]).await?;
         wait_for_samples(&recorder).await?;
     }
 
@@ -341,7 +460,7 @@ async fn drive(
         crate::evaluate::GUARDIAN_START,
         "the Guardian starts".to_owned(),
     );
-    compose.run(&["up", "-d", "--no-build", "guardian"]).await?;
+    compose.run(&["start", "guardian"]).await?;
     wait_for_log(compose, "guardian", "subscribed to battery temperature").await?;
     injection(
         &recorder,
@@ -356,6 +475,25 @@ async fn drive(
             &recorder,
             "start_watchdog",
             "the watchdog starts".to_owned(),
+        );
+    }
+
+    if distributed {
+        let epoch = compose.output(&["measure"]).await?;
+        let epoch_ms: u64 = epoch
+            .trim()
+            .parse()
+            .context("runtime measure must return epoch milliseconds")?;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+        if epoch_ms <= now {
+            bail!("source epoch already elapsed; cannot preserve distributed timing");
+        }
+        source_started = Instant::now() + Duration::from_millis(epoch_ms - now);
+        tokio::time::sleep_until(source_started.into()).await;
+        injection(
+            &recorder,
+            "start_can_provider",
+            format!("peer A measured epoch_ms={epoch_ms}"),
         );
     }
 
@@ -378,12 +516,12 @@ async fn drive(
                 compose.run(&args).await?;
                 injection(&recorder, "pause", services.join(", "));
                 tokio::time::sleep(duration).await;
-                args[0] = "unpause";
+                args[0] = "resume";
                 compose.run(&args).await?;
                 injection(&recorder, "unpause", services.join(", "));
             }
             Action::Stop(services) => {
-                let mut args = vec!["stop", "-t", "0"];
+                let mut args = vec!["stop"];
                 args.extend(services.iter().map(String::as_str));
                 compose.run(&args).await?;
                 injection(&recorder, "stop", services.join(", "));
@@ -456,18 +594,15 @@ async fn wait_for_sovd(url: &str, entity: &str) -> anyhow::Result<()> {
 
 /// Waits until a service logs `text`. Follows the log instead of polling it,
 /// so the wait ends as soon as Docker delivers the line.
-async fn wait_for_log(compose: &Compose, service: &str, text: &str) -> anyhow::Result<()> {
+async fn wait_for_log(compose: &Runtime, service: &str, text: &str) -> anyhow::Result<()> {
     let mut child = compose
-        .command(&["logs", "--follow", "--no-color", service])
+        .command(&["logs", "--follow", service])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .context("cannot run docker compose logs")?;
-    let stdout = child
-        .stdout
-        .take()
-        .context("no output of docker compose logs")?;
+        .context("cannot run runtime logs")?;
+    let stdout = child.stdout.take().context("no output of runtime logs")?;
     let mut lines = BufReader::new(stdout).lines();
     let found = tokio::time::timeout(Duration::from_secs(60), async {
         while let Some(line) = lines.next_line().await? {

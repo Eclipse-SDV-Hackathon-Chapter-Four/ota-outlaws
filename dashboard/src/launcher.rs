@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Starts and stops campaigns.
 //!
@@ -137,12 +137,28 @@ impl Launcher {
 
     /// The scenarios the campaign tool can run on its own (not `external`).
     pub fn scenarios(&self) -> anyhow::Result<Vec<ScenarioInfo>> {
+        self.scenarios_for(false)
+    }
+
+    pub fn scenarios_for(&self, opendut: bool) -> anyhow::Result<Vec<ScenarioInfo>> {
         let context = campaign::Context::load(&self.repo)?;
         Ok(context
             .catalog
             .scenarios
             .iter()
-            .filter(|s| !matches!(s.stimulus, Stimulus::External))
+            .filter(|s| match &s.stimulus {
+                Stimulus::External => false,
+                Stimulus::CanTrace {
+                    isolate, watchdog, ..
+                } => {
+                    if opendut {
+                        !watchdog && isolate.as_deref().is_none_or(|s| s == "can-link")
+                    } else {
+                        isolate.as_deref() != Some("can-link")
+                    }
+                }
+                _ => true,
+            })
             .map(|s| ScenarioInfo {
                 id: s.id.clone(),
                 description: s.description.clone(),
@@ -229,10 +245,13 @@ impl Launcher {
             .containers(&format!("com.docker.compose.project={}", self.project))
             .await
             .ok()?;
-        containers
+        let container = containers
             .iter()
-            .find(|c| c["Labels"]["com.docker.compose.service"] == "opensovd-dfm")
-            .and_then(|c| c["Image"].as_str().map(str::to_owned))
+            .find(|c| c["Labels"]["com.docker.compose.service"] == "opensovd-dfm")?;
+        // The list API can return a raw image ID when its original tag has
+        // moved. Compose needs the configured image reference, not that ID.
+        let inspect = self.docker.inspect(container["Id"].as_str()?).await.ok()?;
+        inspect["Config"]["Image"].as_str().map(str::to_owned)
     }
 
     fn runner_config(&self, args: &[String], diagnostics_image: Option<&str>) -> Value {
@@ -425,5 +444,12 @@ mod tests {
         );
         let scenarios = launcher.scenarios().unwrap();
         assert!(scenarios.iter().any(|s| s.id == "counter_stuck"));
+        assert!(!scenarios.iter().any(|s| s.id == "can_link_interruption"));
+        let remote = launcher.scenarios_for(true).unwrap();
+        assert!(remote.iter().any(|s| s.id == "can_link_interruption"));
+        assert!(remote.iter().any(|s| s.id == "source_dropout_replay"));
+        for id in ["transport_dropout", "guardian_crash", "guardian_hang"] {
+            assert!(!remote.iter().any(|s| s.id == id));
+        }
     }
 }

@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
-/* AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5) */
+/* AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6) */
 
 // Dashboard front end: plain JavaScript, no build step. Polls the API every
 // two seconds and renders the active tab.
@@ -48,6 +48,7 @@ const state = {
   rebuild: false,
   runnerKey: '',
   busy: false,
+  switching: false,
   signals: new Map(),
   signalLoads: new Map(),
   hover: null,
@@ -116,6 +117,25 @@ function component(service) {
   return components().find((c) => c.service === service);
 }
 
+function isRemote() { return state.overview && state.overview.backend === 'opendut'; }
+$('backend').onchange = async (e) => {
+  const backend = e.target.value;
+  state.switching = true;
+  e.target.disabled = true;
+  try {
+    // Finish polling the previous runtime before replacing its evidence state.
+    await tickTask;
+    await change('/api/backend', 'POST', {backend});
+    state.campaignId = null; state.campaign = null; state.campaigns = [];
+    state.campaignError = null; state.collapsed.clear(); state.hover = null;
+    state.scenarioList = null; state.picked.clear(); state.pickAll = true;
+    state.signals.clear(); state.signalLoads.clear(); state.detail = null;
+    state.detailFetched = 0; state.sovd = null; state.faultDetails = {};
+    await refreshOverview(); renderTabs(); renderView(); tick();
+  } catch (error) { toast(error.message, true); e.target.value = state.overview ? state.overview.backend : 'compose'; }
+  finally { state.switching = false; tick(); }
+};
+
 // --- tabs --------------------------------------------------------------------
 
 function setTab(tab) {
@@ -154,19 +174,18 @@ function renderView() {
 
 // --- polling -----------------------------------------------------------------
 
-let ticking = false;
+let tickTask = null;
 
-async function tick() {
-  if (ticking) return;
-  ticking = true;
-  try {
+function tick() {
+  if (state.switching) return Promise.resolve();
+  if (tickTask) return tickTask;
+  tickTask = (async () => {
     await refreshOverview();
     if (state.tab === 'overview') fillOverview();
     else if (state.tab === 'campaign') await refreshCampaign();
     else if (state.tab.startsWith('c:')) await refreshComponent(state.tab.slice(2));
-  } finally {
-    ticking = false;
-  }
+  })().finally(() => { tickTask = null; });
+  return tickTask;
 }
 
 async function refreshOverview() {
@@ -186,11 +205,15 @@ async function refreshOverview() {
   const snap = state.overview && state.overview.snapshot;
   $('conn-dot').className = 'dot ' + (state.connected ? (snap && snap.error ? 'paused' : 'running') : 'exited');
   $('conn-text').textContent = !state.connected ? 'dashboard API unreachable'
-    : snap && snap.error ? 'Docker: ' + snap.error
+    : snap && snap.error ? (isRemote() ? (snap.error_source === 'controller' ? 'OpenDUT controller: ' + snap.error : 'AutoSD diagnostics: ' + (String(snap.error).includes('Connection refused') ? 'endpoint is not listening yet' : snap.error)) : 'Docker: ' + snap.error)
       : 'updated ' + new Date().toLocaleTimeString([], { hour12: false });
+  $('conn-text').title = snap && snap.error ? String(snap.error) : '';
+  $('backend').value = state.overview ? state.overview.backend : 'compose';
+  $('backend').querySelector('option[value="opendut"]').disabled = !(state.overview && state.overview.opendut_configured);
+  $('backend').disabled = state.switching || state.busy || Boolean(state.overview && (state.overview.campaign.runner.running || state.overview.campaign.runner.recovery));
   if (snap) {
     const running = snap.components.filter((c) => c.state === 'running').length;
-    $('subtitle').textContent = `Compose project ${snap.project} · ${running} of ${snap.components.length} components running`;
+    $('subtitle').textContent = `${isRemote() ? 'Runtime' : 'Compose project'} ${snap.project} · ${running} of ${snap.components.length} components running`;
   }
 }
 
@@ -239,6 +262,7 @@ function memoryCell(c) {
 }
 
 function powerButtons(c) {
+  if (isRemote()) return '<span class="small muted">managed by Ankaios</span>';
   if (c.state === 'missing') return '<span class="small muted">not created</span>';
   const on = c.state === 'running' || c.state === 'restarting' || c.state === 'paused';
   return `<div class="row">
@@ -248,6 +272,7 @@ function powerButtons(c) {
 }
 
 function fillOverview() {
+  $('ov-start-all').disabled = isRemote(); $('ov-stop-all').disabled = isRemote();
   const body = $('ov-body');
   if (!body || !state.overview) return;
   const rows = components().map((c) => `
@@ -268,7 +293,7 @@ function fillOverview() {
     <tr class="clickable" data-tab="campaign">
       <td><div class="row"><span class="dot ${live ? 'live' : 'idle'}"></span><strong>Campaign Tool</strong></div>
         <div class="small muted">Runs fault campaigns through the real chain and judges them</div>
-        <div class="small mono muted">${camp.runner && camp.runner.exists ? 'container campaign-runner' : 'started here, or on the host: cargo run -p campaign'}</div></td>
+        <div class="small mono muted">${isRemote() ? 'AutoSD / OpenDUT bench controller' : (camp.runner && camp.runner.exists ? 'container campaign-runner' : 'started here, or on the host: cargo run -p campaign')}</div></td>
       <td>${live
         ? `<span class="badge info">campaign running</span><div class="small">${esc(live.id)}</div>
            <div class="small muted">${live.scenario ? 'scenario ' + esc(live.scenario) + ' · ' : ''}${live.done} of ${live.total} done</div>`
@@ -504,7 +529,7 @@ function dtcSkeleton() {
             <option value="history">failed since last clear</option>
           </select>
           <button class="btn" id="dtc-print">Print report (PDF)</button>
-          <button class="btn danger" id="dtc-clear-all">Clear all faults</button>
+          <button class="btn danger" id="dtc-clear-all" ${isRemote() ? 'disabled' : ''}>Clear all faults</button>
         </div>
       </div>
       <div class="tiles" id="dtc-tiles"></div>
@@ -628,7 +653,7 @@ function fillDtc() {
         <td>${esc(f.occurrence_counter ?? '—')}<div class="small muted">aging ${esc(f.aging_counter ?? '—')} · healing ${esc(f.healing_counter ?? '—')}</div></td>
         <td><div class="row">
           <button class="btn small" data-detail="${esc(f.code)}">${open ? 'Hide' : 'Details'}</button>
-          <button class="btn small danger" data-clear="${esc(f.code)}">Clear</button></div></td>
+          <button class="btn small danger" data-clear="${esc(f.code)}" ${isRemote() ? 'disabled' : ''}>Clear</button></div></td>
       </tr>
       ${open ? `<tr><td colspan="7" class="detail">${faultDetailHtml(f.code)}</td></tr>` : ''}`;
   }).join('') : '<tr><td colspan="7" class="muted">no DTC matches the filter</td></tr>';
@@ -808,12 +833,11 @@ function fillCampaignBanner(running) {
   if (running) {
     el.className = 'banner live';
     el.innerHTML = `<span class="dot live"></span><div><strong>Campaign ${esc(running.id)} is running</strong>
-      <div class="muted small">${running.scenario ? 'current scenario <span class="mono">' + esc(running.scenario) + '</span> · ' : 'between scenarios · '}${running.done} of ${running.total} scenarios done</div></div>`;
+      <div class="muted small">${running.phase ? esc(running.phase) + ' · ' : ''}${running.scenario ? 'current scenario <span class="mono">' + esc(running.scenario) + '</span> · ' : 'between scenarios · '}${running.done} of ${running.total} scenarios done</div></div>`;
   } else {
     el.className = 'banner';
     el.innerHTML = `<span class="dot idle"></span><div><strong>No campaign running</strong>
-      <div class="muted small">Start one below, or on the host with <span class="mono">cargo run -p campaign -- run --all</span>.
-      The report appears here while it runs.</div></div>`;
+      <div class="muted small">${isRemote() ? 'Choose scenarios below. Fresh AutoSD peers are prepared for the campaign, and reports remain available after cleanup.' : 'Start one below, or on the host with <span class="mono">cargo run -p campaign -- run --all</span>. The report appears here while it runs.'}</div></div>`;
   }
 }
 
@@ -882,7 +906,7 @@ function fillCampaign() {
 function scenarioCard(s) {
   const verdict = scenarioVerdict(s);
   const r = s.report;
-  const collapsed = state.collapsed.has(s.id) || (!r && s.state !== 'running');
+  const collapsed = state.collapsed.has(s.id) || (!r && s.state !== 'running' && !s.observations);
   let body;
   if (r) {
     body = scenarioReportHtml(r, s, !collapsed);
@@ -892,6 +916,10 @@ function scenarioCard(s) {
       ${s.manifest ? signalHtml(s.manifest.run_id, null, true) : ''}`;
   } else {
     body = `<div class="muted">${s.state === 'pending' ? 'not started yet' : 'not judged: the campaign tool stopped during this scenario'}</div>`;
+    if (s.manifest && s.observations) {
+      body += `<div class="small muted">${s.observations} retained observations (samples, Guardian events, OpenSOVD changes)</div>
+        ${signalHtml(s.manifest.run_id, null, !collapsed)}`;
+    }
   }
   if (s.error) body += `<h3>Run error</h3><pre class="file">${esc(s.error)}</pre>`;
   return `
@@ -1285,20 +1313,25 @@ function fillRunner() {
   const info = $('cp-runner-info');
   if (!info || !runner) return;
   const leftovers = (state.overview.campaign.projects || []).length > 0;
-  $('cp-start').disabled = !runner.available || runner.running || state.busy;
-  $('cp-stop').disabled = state.busy || !(runner.running || leftovers);
+  $('cp-build').disabled = isRemote();
+  $('cp-build').parentElement.style.display = isRemote() ? 'none' : '';
+  $('cp-start').disabled = !runner.available || runner.running || state.busy || state.switching;
+  $('cp-stop').disabled = state.busy || state.switching || !(runner.running || runner.recovery || leftovers);
   let text;
   if (!runner.available) {
     text = `Campaigns cannot be started here: ${esc(runner.unavailable)}`;
   } else if (runner.running) {
     text = `<span class="dot live"></span> running <span class="mono">campaign ${esc((runner.args || []).join(' '))}</span>
-      since ${esc(new Date(runner.started_at).toLocaleTimeString())}`;
+      since ${esc(new Date(runner.started_at).toLocaleTimeString())}${runner.phase ? ' · ' + esc(runner.phase) : ''}`;
   } else if (runner.exists) {
     text = `Last run <span class="mono">campaign ${esc((runner.args || []).join(' '))}</span> ended with exit code
-      ${esc(runner.exit_code)}: ${EXIT_MEANING[runner.exit_code] || 'stopped'}.`;
+      ${esc(runner.exit_code)}: ${runner.phase === 'cancelled' ? 'cancelled; evidence retained' : (isRemote() && runner.exit_code !== 0 ? 'campaign or bench setup/cleanup failed; see the log and retained evidence' : EXIT_MEANING[runner.exit_code] || 'stopped')}.`;
   } else {
-    text = 'The campaign runs in its own container (campaign-runner) with the repository mounted from the host; its evidence goes to runs/ as usual.';
+    text = isRemote() ? 'Creates fresh AutoSD peers through OpenDUT. Ankaios manages the DUT; application images are built from this checkout.' : 'The campaign runs in its own container (campaign-runner) with the repository mounted from the host; its evidence goes to runs/ as usual.';
   }
+  if (runner.sync_error) text += `<div class="err">Live evidence retrieval: ${esc(runner.sync_error.error)}</div>`;
+  if (runner.cleanup && runner.cleanup.failures && runner.cleanup.failures.length)
+    text += `<div class="err">Cleanup needs attention: ${esc(runner.cleanup.failures.join('; '))}</div>`;
   info.innerHTML = text;
   const log = runner.log || [];
   const last = log[log.length - 1];
@@ -1331,7 +1364,7 @@ async function startCampaign() {
 }
 
 async function stopCampaign() {
-  if (!confirm('Stop the running campaign? The scenario in progress stays unjudged; its Compose project is removed.')) return;
+  if (!confirm(isRemote() ? 'Cancel the OpenDUT campaign? Restoration and evidence collection finish before owned peers are removed.' : 'Stop the running campaign? The scenario in progress stays unjudged; its Compose project is removed.')) return;
   if (state.busy) return;
   state.busy = true;
   try {

@@ -1,0 +1,24 @@
+--- a/tcpthread.cpp
++++ b/tcpthread.cpp
+@@ -86,6 +86,7 @@
+     if (m_connect_state == DISCONNECTED) {
+       bool connect_successful = attempt_connect();
+       if (connect_successful) {
++        m_decoder.reset();
+         m_connect_state = CONNECTED;
+         ssize_t res = write(m_socket, protocolVersionBuffer, sizeof(protocolVersionBuffer)-1);
+         if (res != sizeof(protocolVersionBuffer)-1) {
+@@ -148,7 +149,12 @@
+             continue;
+           }
+
+-          receivedBytes = read(m_socket, buffer, expectedBytes);
++          // A readiness notification must never block this worker: it also
++          // drains the outgoing CAN queue. Retry a transient empty receive.
++          receivedBytes = recv(m_socket, buffer, expectedBytes, MSG_DONTWAIT);
++          if (receivedBytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
++            continue;
++          }
+           if (receivedBytes < 0) {
+             lerror << "recvfrom error." << std::endl;
+             /* close connection */

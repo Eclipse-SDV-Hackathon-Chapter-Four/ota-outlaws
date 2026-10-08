@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6 (gpt-6)
+
+name: opendut-can-peer
+
+content:
+  repos:
+    - id: epel
+      baseurl: https://dl.fedoraproject.org/pub/epel/10/Everything/$arch/
+
+  rpms:
+    # Remote access and troubleshooting
+    - openssh-server
+    - openssh-clients
+    - dnf
+    - curl
+    - ca-certificates
+    - chrony
+    - hostname
+    - iproute
+    - iputils
+    - procps-ng
+    - tmux
+    - less
+    - vim-minimal
+    - python3
+    # Container workloads
+    - podman
+    # CAN support and utilities
+    - kmod
+    - kernel-automotive-modules-extra
+    - can-utils
+
+  add_files:
+    - path: /etc/modules-load.d/opendut-can.conf
+      source_path: files/opendut-can.conf
+    - path: /etc/modprobe.d/opendut-can.conf
+      source_path: files/opendut-can-options.conf
+    - path: /etc/systemd/system/opendut-vcan.service
+      source_path: files/opendut-vcan.service
+
+  systemd:
+    enabled_services:
+      - sshd.service
+      - chronyd.service
+      - opendut-vcan.service
+
+auth:
+  # Development-only sample credentials: root / password.
+  root_password: "$6$xoLqEUz0cGGJRx01$H3H/bFm0myJPULNMtbSsOFd/2BnHqHkMD92Sfxd.EKM9hXTWSmELG8cf205l6dktomuTcgKGGtGDgtvHVXSWU."
+  sshd_config:
+    PasswordAuthentication: true
+    PermitRootLogin: true

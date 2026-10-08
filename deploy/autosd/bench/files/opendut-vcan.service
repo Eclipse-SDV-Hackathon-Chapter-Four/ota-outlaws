@@ -1,0 +1,26 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6 (gpt-6)
+
+# Installed in the AutoSD image: create vcan0 once during boot.
+# Leaving an existing interface in place makes repeated starts safe.
+[Unit]
+Description=Create virtual CAN interface for openDuT
+After=systemd-modules-load.service
+Before=opendut-edgar.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -ec 'if ! ip link show vcan0 >/dev/null 2>&1; then ip link add dev vcan0 type vcan; fi; ip link set dev vcan0 up'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
