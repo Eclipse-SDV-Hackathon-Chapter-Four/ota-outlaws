@@ -63,7 +63,7 @@ case "$operation" in
         evidence=$(cat "$state/evidence")
         # Resolve the fresh container before Guardian starts. Podman follow
         # polls journald and can consume most of the 300 ms startup budget;
-        # journalctl follows the same real stdout without that polling delay.
+        # Short journal reads flush the same real stdout promptly.
         # Scope to the container ID so logs from an earlier scenario cannot
         # satisfy the shared runner's readiness check.
         rm -f "$state/guardian-journal-id"
@@ -103,14 +103,27 @@ case "$operation" in
         fi
         ;;
     measure)
-        evidence=$(cat "$state/evidence")
-        epoch=$(python3 -c 'import time; print(time.time_ns()//1000000+150)')
+        has_trace=0
+        [[ -z "$(cat "$state/trace")" ]] || has_trace=1
+        # Choose the deadline on A after SSH command startup, so the outbound
+        # trip cannot consume the arming lead before the source is released.
+        before=$EPOCHREALTIME
+        epoch=$(a "python3 - '$source_dir' '$has_trace' <<'PYARM'
+import sys, time
+from pathlib import Path
+root = Path(sys.argv[1])
+epoch = time.time_ns() // 1_000_000 + 150
+if sys.argv[2] == '1':
+    pending = root / 'epoch.next'
+    pending.write_text(str(epoch) + '\\n')
+    pending.replace(root / 'epoch')
+else:
+    (root / 'source-can.jsonl').write_text('{\"kind\":\"completed\"}\\n')
+print(epoch, flush=True)
+PYARM")
+        printf '{"before_s":"%s","returned_s":"%s","epoch_ms":%s}\n' \
+            "$before" "$EPOCHREALTIME" "$epoch" > "$(cat "$state/evidence")/source-arming.json"
         printf '%s\n' "$epoch" > "$state/epoch"
-        if [[ -n "$(cat "$state/trace")" ]]; then
-            a "printf '%s\\n' '$epoch' > '$source_dir/epoch.next'; mv '$source_dir/epoch.next' '$source_dir/epoch'"
-        else
-            a "printf '%s\\n' '{\"kind\":\"completed\"}' > '$source_dir/source-can.jsonl'"
-        fi
         printf '%s\n' "$epoch"
         ;;
     pause|resume|stop)
@@ -154,8 +167,14 @@ PYLINK
         ;;
     logs)
         if [[ "${1:-}" == --follow && "${2:-}" == guardian && -s "$state/guardian-journal-id" ]]; then
-            exec journalctl --all --no-pager --output=cat --follow --lines=all \
-                "CONTAINER_ID_FULL=$(cat "$state/guardian-journal-id")"
+            # A followed journal stream can buffer stdout to a pipe. Read the
+            # actual fresh-container records in short, completed reads so the
+            # readiness line is flushed promptly before scheduling the source.
+            id=$(cat "$state/guardian-journal-id")
+            while true; do
+                journalctl --all --no-pager --output=cat --lines=all "CONTAINER_ID_FULL=$id"
+                sleep .01
+            done
         fi
         exec "$single" logs "$@"
         ;;

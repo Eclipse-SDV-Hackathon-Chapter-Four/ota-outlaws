@@ -141,8 +141,11 @@ diagnostics, and are not used as proof of synchronization. Original guest Chrony
 configuration is backed up and restored during teardown; only job-owned overlays
 are modified.
 
-The arming lead is 150 ms, keeping startup inside the existing 300 ms freshness
-requirement. The source keeps its schedule when muted: frames are explicitly
+The source chooses its future epoch with a 150 ms arming lead after the SSH
+command arrives on A, keeping outbound command latency out of that lead and
+startup inside the existing 300 ms freshness requirement. B still rejects an
+epoch that has elapsed on return; `source-arming.json` retains the command's
+send and return times against that epoch. The source keeps its schedule when muted: frames are explicitly
 marked suppressed, never sent in a catch-up burst. The source runs at guest FIFO priority 10 to reduce competing guest work; no host
 scheduler privileges are needed. It sleeps until 90 ms before each deadline, then
 uses a bounded active wait to reduce vCPU wake-up jitter. The AutoSD bench accepts
