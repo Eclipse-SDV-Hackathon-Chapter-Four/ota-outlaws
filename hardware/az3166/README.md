@@ -162,7 +162,7 @@ When Button A is pressed, the bridge runs the OTA Outlaws full campaign
 by the running campaign to the board over UDP. Each `campaign_result`
 message carries the scenario, the verdict, and, from `host/hara_map.json`, the
 HARA test ID `ts` (for example `TS-05`), a short `name`, the `title`, and a
-ready display `line` of at most 21 characters (for example
+ready display `line` of at most 21 characters (only with `--rich`: the firmware drops datagrams of 160 bytes or more) (for example
 `TS-05 LateData   PASS`; `INCO` stands for INCONCLUSIVE). The OLED can show one
 line per test as soon as that scenario completes; it does not wait for the
 campaign's final report. Before it starts, the bridge removes Docker projects
