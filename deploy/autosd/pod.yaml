@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6 (gpt-6)
+# AUTOSD_DIR is rendered by the transfer helper; all service configuration lives here.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ota-autosd
+# Keep /dev/shm on the shared pod IPC mount; memory emptyDir hides it per container.
+spec:
+  hostNetwork: true
+  restartPolicy: OnFailure
+  containers:
+    - name: dfm
+      image: localhost/ota-autosd/dfm:deployed
+      imagePullPolicy: Never
+      command: [/bin/sh, /diagnostics-entrypoint.sh]
+      args: [/usr/local/bin/dfm_bin, --catalog-dir, /catalog, --storage-dir, /data]
+      volumeMounts:
+        - {name: catalog, mountPath: /catalog, readOnly: true}
+        - {name: entrypoint, mountPath: /diagnostics-entrypoint.sh, readOnly: true}
+        - {name: dfm-tmp, mountPath: /tmp}
+        - {name: dfm-data, mountPath: /data}
+    - name: gateway
+      image: localhost/ota-autosd/gateway:deployed
+      imagePullPolicy: Never
+      command: [/bin/sh, /diagnostics-entrypoint.sh]
+      args: [/usr/local/bin/opensovd-gateway, --url, 'http://127.0.0.1:17690/sovd', --dfm-fault-app, battery_guardian]
+      volumeMounts:
+        - {name: entrypoint, mountPath: /diagnostics-entrypoint.sh, readOnly: true}
+        - {name: gateway-tmp, mountPath: /tmp}
+    - name: zenoh
+      image: localhost/ota-autosd/zenoh:deployed
+      imagePullPolicy: Never
+      args: [--listen, 'tcp/127.0.0.1:17447']
+    - name: databroker
+      image: localhost/ota-autosd/databroker:deployed
+      imagePullPolicy: Never
+      args: [--insecure, --address, '127.0.0.1', --vss, /vss/vss_dbc.json]
+      volumeMounts:
+        - {name: can, mountPath: /vss, readOnly: true}
+    - name: publisher
+      image: localhost/ota-autosd/publisher:deployed
+      imagePullPolicy: Never
+      command: [/bin/bash, -c]
+      args:
+        - |
+          for attempt in {1..150}; do
+            if (echo >/dev/tcp/127.0.0.1/55555) 2>/dev/null &&
+               (echo >/dev/tcp/127.0.0.1/17447) 2>/dev/null; then
+              exec /usr/local/bin/vss-publisher
+            fi
+            sleep 0.2
+          done
+          echo "KUKSA/Zenoh readiness timed out" >&2
+          exit 1
+      env:
+        - {name: DATABROKER_ADDR, value: 'http://127.0.0.1:55555'}
+        - {name: ZENOH_CONNECT, value: 'tcp/127.0.0.1:17447'}
+        - {name: ZENOH_LISTEN, value: 'tcp/127.0.0.1:0'}
+        - {name: RUST_LOG, value: info}
+    - name: guardian
+      image: localhost/ota-autosd/guardian:deployed
+      imagePullPolicy: Never
+      env:
+        - {name: ZENOH_CONNECT, value: 'tcp/127.0.0.1:17447'}
+        - {name: ZENOH_LISTEN, value: 'tcp/127.0.0.1:0'}
+        - {name: SOVD_ENTITY, value: battery_guardian}
+        - {name: RUST_LOG, value: info}
+      volumeMounts:
+        - {name: catalog, mountPath: /etc/guardian/catalog, readOnly: true}
+        - {name: safety, mountPath: /etc/guardian/safety-params.toml, readOnly: true}
+        - {name: guardian-tmp, mountPath: /tmp}
+    - name: can-provider
+      image: localhost/ota-autosd/can-provider:deployed
+      imagePullPolicy: Never
+      command: [/busybox, sh, -c]
+      args:
+        - |
+          for attempt in $(/busybox seq 1 150); do
+            if /busybox nc -z -w 1 127.0.0.1 55555; then
+              exec ./dbcfeeder "$@"
+            fi
+            /busybox sleep 0.2
+          done
+          echo "KUKSA readiness timed out" >&2
+          exit 1
+        - can-provider
+        - --dumpfile
+        - /can/BMS_MSG1_CAN.asc
+        - --infinite
+      env:
+        - {name: KUKSA_ADDRESS, value: '127.0.0.1'}
+        - {name: KUKSA_PORT, value: '55555'}
+        - {name: DBC_FILE, value: /can/BMS_MSG1_CAN.dbc}
+        - {name: MAPPING_FILE, value: /can/vss_dbc.json}
+        - {name: CANDUMP_FILE, value: /can/BMS_MSG1_CAN.asc}
+      volumeMounts:
+        - {name: can, mountPath: /can, readOnly: true}
+        - {name: readiness-tool, mountPath: /busybox, readOnly: true}
+  volumes:
+    - name: readiness-tool
+      hostPath: {path: "${AUTOSD_DIR}/busybox", type: File}
+    - name: catalog
+      hostPath: {path: "${AUTOSD_DIR}/catalog", type: Directory}
+    - name: entrypoint
+      hostPath: {path: "${AUTOSD_DIR}/entrypoint.sh", type: File}
+    - name: can
+      hostPath: {path: "${AUTOSD_DIR}/can", type: Directory}
+    - name: safety
+      hostPath: {path: "${AUTOSD_DIR}/safety-params.toml", type: File}
+    - name: dfm-data
+      persistentVolumeClaim: {claimName: ota-autosd-dfm}
+    - name: dfm-tmp
+      emptyDir: {medium: Memory}
+    - name: gateway-tmp
+      emptyDir: {medium: Memory}
+    - name: guardian-tmp
+      emptyDir: {medium: Memory}
