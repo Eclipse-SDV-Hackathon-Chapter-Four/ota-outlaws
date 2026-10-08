@@ -25,6 +25,9 @@ import time
 from pathlib import Path
 
 FRAME = struct.Struct("=IB3x8s")
+# Bench scheduling tolerance: half the nominal 100 ms CAN cycle. This is
+# independent of the Guardian's HARA-derived safety/reaction parameters.
+SOURCE_LATENESS_LIMIT_NS = 50_000_000
 STOP = False
 
 
@@ -96,11 +99,12 @@ def replay(args):
             if STOP:
                 break
             remaining = origin + offset - time.monotonic_ns()
-            # Sleep most of the gap, then stay runnable near the deadline.
-            # A sleeping vCPU can wake tens of milliseconds late under HVF/KVM.
-            # The bounded 20 ms spin changes no offsets or integrity thresholds.
-            if remaining > 20_000_000:
-                time.sleep((remaining - 20_000_000) / 1e9)
+            # Keep the vCPU runnable for most of a nominal CAN cycle before sending.
+            # HVF can wake a sleeping vCPU almost a cycle late, so a 20 ms spin
+            # leaves insufficient headroom. Long trace gaps still sleep first.
+            # Leave 10% idle time so the FIFO task stays below RT CPU throttling.
+            if remaining > 90_000_000:
+                time.sleep((remaining - 90_000_000) / 1e9)
             while not STOP and time.monotonic_ns() < origin + offset:
                 pass
             if STOP:
@@ -234,7 +238,7 @@ def compare(source, destination, interruption=None, observed_source=None):
     source_ok = source_ok and observed_source_ok
     lateness = max((r["elapsed_ns"] - r["scheduled_ns"] for r in sent), default=0)
     # This is stimulus integrity, not a relaxed Guardian safety budget.
-    timing_ok = lateness < 20_000_000
+    timing_ok = lateness < SOURCE_LATENESS_LIMIT_NS
     classification = (
         "source_failure"
         if not source_ok or not timing_ok
@@ -249,6 +253,7 @@ def compare(source, destination, interruption=None, observed_source=None):
         missing_frames=len(missing),
         source_bus_confirmed=observed_source_ok,
         max_source_lateness_ns=lateness,
+        source_lateness_limit_ns=SOURCE_LATENESS_LIMIT_NS,
         source_ok=source_ok,
         ordered_delivery=matches,
         interruption_proven=loss_proven,

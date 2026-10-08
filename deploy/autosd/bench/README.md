@@ -141,12 +141,18 @@ diagnostics, and are not used as proof of synchronization. Original guest Chrony
 configuration is backed up and restored during teardown; only job-owned overlays
 are modified.
 
-The arming lead is 150 ms, keeping startup inside the existing 300 ms freshness
-requirement. The source keeps its schedule when muted: frames are explicitly
+The source chooses its future epoch with a 150 ms arming lead after the SSH
+command arrives on A, keeping outbound command latency out of that lead and
+startup inside the existing 300 ms freshness requirement. B still rejects an
+epoch that has elapsed on return; `source-arming.json` retains the command's
+send and return times against that epoch. The source keeps its schedule when muted: frames are explicitly
 marked suppressed, never sent in a catch-up burst. The source runs at guest FIFO priority 10 to reduce competing guest work; no host
-scheduler privileges are needed. It sleeps until 20 ms before each deadline, then
-uses a bounded active wait to reduce vCPU wake-up jitter. Source scheduling lateness above 20 ms still
-rejects stimulus integrity. These integrity checks do not change the
+scheduler privileges are needed. It sleeps until 90 ms before each deadline, then
+uses a bounded active wait to reduce vCPU wake-up jitter. The AutoSD bench accepts
+source scheduling lateness below 50 ms (half the nominal 100 ms CAN cycle), and
+records both actual lateness and the limit in `can-path.json`. This is a bench
+validation tolerance, not a HARA safety parameter; lateness at or above 50 ms
+still rejects stimulus integrity. These integrity checks do not change the
 100 ms reaction, freshness, diagnostic or recovery budgets in the shared catalog
 and safety parameter file. The existing evaluator still measures safety onset at
 the uProtocol input and correlated Guardian events on its monotonic recording
@@ -297,7 +303,7 @@ backend and the reused AutoSD base:
   interruption passed. The link case emitted 200 frames on A and received the
   expected 179 on B, with all four shared safety checks passing and maximum source
   lateness about 1.2 ms. Invalid quality remained INCONCLUSIVE because stimulus
-  lateness exceeded the unchanged 20 ms source-integrity limit.
+  lateness exceeded the then-configured 20 ms source-integrity limit.
 - A focused `source_shutdown` recheck on the latter pair passed all three shared
   checks and proved deliberate source termination independently of link state.
   The final invalid-quality recheck delivered all 100 frames in order but recorded

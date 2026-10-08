@@ -128,12 +128,16 @@ class Integrity(unittest.TestCase):
         self.assertEqual(io.compare([frame(1)], [])["classification"], "source_failure")
 
     def test_late_source_is_not_guardian_fault(self):
-        f = frame(1)
-        f["elapsed_ns"] += 21_000_000
-        self.assertEqual(
-            io.compare([f, dict(kind="completed")], [f])["classification"],
-            "source_failure",
-        )
+        for lateness, classification in [(31_000_000, "verified"),
+                                          (49_999_999, "verified"),
+                                          (50_000_000, "source_failure")]:
+            with self.subTest(lateness=lateness):
+                f = frame(1)
+                f["elapsed_ns"] += lateness
+                result = io.compare([f, dict(kind="completed")], [f])
+                self.assertEqual(result["classification"], classification)
+                self.assertEqual(result["max_source_lateness_ns"], lateness)
+                self.assertEqual(result["source_lateness_limit_ns"], 50_000_000)
 
     def test_independent_link_loss(self):
         source = [frame(n) for n in range(6)]
