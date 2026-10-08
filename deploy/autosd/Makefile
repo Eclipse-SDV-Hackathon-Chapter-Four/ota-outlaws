@@ -8,7 +8,7 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
-# AI-assisted: Codex / GPT-6 (gpt-6)
+# AI-assisted: Codex / GPT-6 (gpt-6); Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 # Run on the host from deploy/autosd: make up SKIP_IMAGES=1
 # Service definitions stay in pod.yaml; Ankaios is the only lifecycle owner.
@@ -48,8 +48,16 @@ SSH = ssh -p "$(AUTOSD_SSH_PORT)" -i "$(AUTOSD_SSH_KEY)" \
     -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$(AUTOSD_KNOWN_HOSTS)"
 
-.PHONY: help up down status logs connect campaigns remote-doctor remote-run remote-cleanup remote-test dashboard-controller
+.PHONY: help up down status logs connect campaigns remote-doctor remote-run remote-cleanup remote-test dashboard-controller \
+    backend-up backend-config backend-status backend-logs backend-down backend-destroy
 help:
+	@echo 'Local openDuT 0.10.2 backend (Docker Compose) for the two-peer bench:'
+	@echo 'backend-up      Start CARL/Keycloak/NetBird and write backend settings to CONFIG'
+	@echo 'backend-config  Rewrite backend settings (CA, EDGAR digest, CLEO) into CONFIG'
+	@echo 'backend-status  Show backend containers; backend-logs [BACKEND_SERVICES=carl]'
+	@echo 'backend-down    Stop the backend, keeping secrets and data'
+	@echo 'backend-destroy Remove the backend, its volumes and local secrets'
+	@echo ''
 	@echo 'Two-peer openDuT bench (configure bench/local.toml):'
 	@echo 'remote-doctor  Verify host prerequisites and reusable artifact hashes'
 	@echo 'remote-run     Create fresh peers and run SCENARIOS; empty selects all supported cases'
@@ -180,6 +188,13 @@ remote-run:
 remote-cleanup:
 	@test -n "$(STATE)" || { echo 'STATE must name the existing run directory'; exit 2; }
 	$(PYTHON) bench/controller.py cleanup --config "$(CONFIG)" --state "$(STATE)"
+
+# openDuT's own localenv Compose deployment, pinned to 0.10.2.
+backend-up backend-config backend-status backend-down backend-destroy:
+	CONFIG="$(abspath $(CONFIG))" backend/backend.sh $(@:backend-%=%)
+
+backend-logs:
+	backend/backend.sh logs $(BACKEND_SERVICES)
 
 remote-test:
 	$(PYTHON) -m unittest discover -s bench/tests -v

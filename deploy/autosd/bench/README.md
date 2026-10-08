@@ -38,6 +38,55 @@ in the dashboard's Runtime selector. See the [dashboard README](../../../compone
 for configuration, evidence paths, cancellation/recovery and current observation
 limits. Campaign scenarios and verdict logic remain in the shared Rust CLI.
 
+## Local openDuT backend (Docker Compose)
+
+The bench needs a separate openDuT 0.10.2 backend: CARL, Keycloak and NetBird
+management/signal/relay behind Traefik. If you have no shared backend, run one
+locally with Docker Compose from `deploy/autosd`:
+
+```sh
+make backend-up        # first start takes ~5-10 min (Keycloak provisioning)
+echo '127.0.0.1 opendut.local auth.opendut.local netbird.opendut.local netbird-api.opendut.local netbird-relay.opendut.local signal.opendut.local' | sudo tee -a /etc/hosts   # once
+make remote-doctor
+```
+
+`backend/backend.sh` clones openDuT at tag `v0.10.2` (commit verified) into the
+ignored `backend/.state/` and runs openDuT's own
+`.ci/deploy/localenv/docker-compose.yml` with
+[`backend/compose.override.yaml`](../backend/compose.override.yaml). The override:
+
+- publishes only HTTPS port 443 (ports 80/8080/8081 stay free for the Compose
+  stack and dashboard),
+- runs the amd64-only CARL image under emulation on ARM64 hosts,
+- installs CLEO for the container's own architecture
+  ([`backend/cleo-entrypoint.sh`](../backend/cleo-entrypoint.sh)); upstream always
+  downloads x86_64,
+- disables the telemetry stack, which the bench does not use,
+- replaces upstream's `/provision` host bind mount, which Docker Desktop on
+  macOS cannot share.
+
+Once CARL is healthy and CLEO completes an authenticated `list peers`,
+`backend-up` writes `backend`, `ca`, `edgar_sha256`, `backend_hosts` and
+`cleo_command` into `bench/local.toml`. It creates that file from the example if
+needed. The EDGAR digest is computed from CARL's own aarch64 distribution. CLEO
+runs through `docker exec -i opendut-cleo`, so `OPENDUT_CLEO_SETUP` is not
+needed. Guests reach the backend via the QEMU gateway `10.0.2.2:443`. The host
+needs the `/etc/hosts` line above because the controller downloads EDGAR from
+`https://opendut.local`.
+
+| Target | Purpose |
+|---|---|
+| `backend-up` | Provision secrets (once), start, wait for readiness, write settings |
+| `backend-config` | Rewrite the settings into `CONFIG` for a running backend |
+| `backend-status` / `backend-logs BACKEND_SERVICES="carl keycloak"` | Inspect |
+| `backend-down` | Stop containers; secrets, peers and NetBird state are kept |
+| `backend-destroy` | Remove containers, volumes and generated secrets/CA |
+
+`backend/backend.sh compose ...` runs any `docker compose` command on this
+deployment. Generated secrets live in `backend/.state/secrets/` and must not be
+committed. Base image, `air` launcher and their hashes still come from your
+artifact bundle; the backend does not provide them.
+
 ## Run
 
 Use an ARM64 Linux host with KVM or an Apple Silicon Mac with HVF. Install
@@ -335,4 +384,5 @@ host and inspect source/clock integrity rather than relaxing safety budgets.
 ## AI Assistance
 
 This document was created with the assistance of **Codex** using the model
-**GPT-6** (`gpt-6`).
+**GPT-6** (`gpt-6`), and extended with **Claude Code** using the model
+**Claude Opus 5.5** (`claude-opus-5-5`).

@@ -1,0 +1,39 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+
+# Override for openDuT v0.10.2's upstream .ci/deploy/localenv/docker-compose.yml.
+# backend.sh applies it; it keeps only what the two-peer bench needs:
+# CARL, CLEO, Keycloak and NetBird management/signal/relay behind Traefik.
+services:
+  traefik:
+    # Only HTTPS is used by CLEO, EDGAR and NetBird. Leave 80/8080/8081 free
+    # for the local Compose stack and dashboard. CARL advertises port 443.
+    ports: !override
+      - "443:443"
+
+  carl:
+    # The published CARL 0.10.2 image is linux/amd64 only; Docker Desktop on
+    # Apple Silicon runs it under emulation.
+    platform: linux/amd64
+    environment:
+      - OPENDUT_CARL_OPENTELEMETRY_ENABLED=false
+
+  cleo:
+    # Upstream always downloads x86_64 CLEO; fetch the container's own arch.
+    volumes:
+      - ${OTA_BACKEND_DIR:?}/cleo-entrypoint.sh:/opt/entrypoint.sh:ro
+
+  # Telemetry is not needed by the bench. The other telemetry services are
+  # scaled to zero through OPENDUT_LOCALENV_TELEMETRY_ENABLED=0.
+  otel-collector:
+    deploy:
+      replicas: 0

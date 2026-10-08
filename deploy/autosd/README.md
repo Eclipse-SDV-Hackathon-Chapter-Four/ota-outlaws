@@ -33,7 +33,9 @@ make remote-run SCENARIOS=""
 make remote-cleanup STATE=/absolute/path/to/run
 ```
 
-Configure `bench/local.toml` first; see [bench/README.md](bench/README.md) for
+Without a shared openDuT backend, `make backend-up` starts a local openDuT
+0.10.2 backend with Docker Compose and writes its settings into
+`bench/local.toml`. Configure the remaining `bench/local.toml` settings first; see [bench/README.md](bench/README.md) for
 prerequisites and evidence. `make remote-test` checks the bench helpers. The
 `up`, `campaigns` and other existing targets retain the single-VM replay path.
 
@@ -444,4 +446,5 @@ References: [Podman Kube YAML support](https://docs.podman.io/en/latest/markdown
 ## AI Assistance
 
 This document was created with the assistance of **Codex** using the model
-**GPT-6** (`gpt-6`).
+**GPT-6** (`gpt-6`) and **Claude Code** using the model **Claude Opus 5.5**
+(`claude-opus-5-5`).
