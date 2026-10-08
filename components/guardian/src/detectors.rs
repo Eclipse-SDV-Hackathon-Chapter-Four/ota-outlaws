@@ -141,8 +141,9 @@ impl StuckDetector {
     }
 }
 
-/// FSR-1.3: detects a valid maximum that rises by at least `r_trend` on
-/// average over at least `T_trend` (HARA F-7, TS-25).
+/// FSR-1.3: detects a valid maximum that rises by at least `r_trend`,
+/// sustained over at least `T_trend`: in both halves of the window
+/// (HARA F-7, TS-25).
 ///
 /// Works on source timestamps, so delivery jitter does not distort the rate.
 #[derive(Debug, Clone)]
@@ -176,9 +177,24 @@ impl TrendDetector {
         }
         let (start, start_max) = self.history[0];
         let span_ms = now.saturating_sub(start);
-        // The average rate over the actual span, so that a gap in the data
-        // cannot stretch the window and fake a slow rise into a trend.
-        span_ms >= self.duration_ms
-            && sample.max_c - start_max >= self.rise_c_per_s * span_ms as f32 / 1000.0
+        if span_ms < self.duration_ms {
+            return false;
+        }
+        // Sustained: both halves of the window rise at `r_trend`, so a short,
+        // fast rise after a plateau is not a trend. The rate uses the actual
+        // spans, so a gap in the data cannot fake a slow rise into a trend.
+        let middle = start + span_ms / 2;
+        let (mid, mid_max) = self
+            .history
+            .iter()
+            .rev()
+            .find(|(time, _)| *time <= middle)
+            .copied()
+            .unwrap_or((start, start_max));
+        let rises = |from: (u64, f32), to: (u64, f32)| {
+            let span_ms = to.0.saturating_sub(from.0);
+            span_ms > 0 && to.1 - from.1 >= self.rise_c_per_s * span_ms as f32 / 1000.0
+        };
+        rises((start, start_max), (mid, mid_max)) && rises((mid, mid_max), (now, sample.max_c))
     }
 }

@@ -12,7 +12,7 @@
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
 //! Fault onset detectors. The onset t0 is the first observation of the fault
-//! at the Guardian's input (Safety Concept, timing reference), not the time
+//! at the Guardian's input (the Campaign Tool onset convention), not the time
 //! the tool injected it: a fault that never reaches the Guardian must not count
 //! as detected.
 

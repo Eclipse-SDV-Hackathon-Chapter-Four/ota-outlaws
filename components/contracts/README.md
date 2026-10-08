@@ -14,14 +14,15 @@ SPDX-License-Identifier: EPL-2.0
 # Battery Thermal Contract
 
 The uProtocol interface between the VSS Publisher, the Battery Thermal Guardian,
-and the Evidence Collector. The payloads are defined in
+and the Rust campaign tool's evidence recorder. The payloads are defined in
 [`battery_thermal.proto`](battery_thermal.proto) and encoded as Protobuf
 (`UPAYLOAD_FORMAT_PROTOBUF`).
 
 The Rust crate in this folder (`thermal-contract`) generates the types and holds
 the topic addresses. It uses a vendored `protoc`, so no installation is needed.
-Other languages, such as the Python Evidence Collector, generate their types from
-the same `.proto` file.
+The campaign recorder and the services that publish or consume these messages
+are Rust. `diagnostics/smoke_test.py` orchestrates a separate diagnostics test
+suite; it is not a Python uProtocol evidence collector.
 
 ## Topics
 
@@ -30,12 +31,13 @@ the same `.proto` file.
 | Battery temperature | `//battery-vss/9001/1/9001` | VSS Publisher (`vss-publisher`) | `BatteryTemperature` |
 | Guardian events | `//guardian/9002/1/8001` | Battery Thermal Guardian (`guardian-service`) | `GuardianEvent` |
 | Guardian heartbeat | `//guardian/9002/1/8002` | Battery Thermal Guardian (`guardian-service`) | `Heartbeat` |
+| Supervisor events | `//guardian-watchdog/9003/1/8001` | Guardian watchdog (`watchdog`) | `SupervisorEvent` |
 
 ## BatteryTemperature
 
 One message per Data Broker update of the battery signals. The Guardian relies on
-the assumptions A-1 to A-3 of the
-[Safety Concept](../../docs/reference/hara.md#assumptions). This is how
+assumptions A-1 to A-3 in the
+[HARA interface assumptions](../../docs/reference/hara.md#interface-assumptions). This is how
 the VSS Publisher fulfills them:
 
 | Field | Assumption | Source in the VSS Publisher |
@@ -106,6 +108,19 @@ crashed or hung" (FSR-2.7). `session_id` is the same as in the Guardian's
 sent from the same loop that runs the Guardian core, so it stops when the core
 hangs, not only when the process ends.
 
+## SupervisorEvent
+
+Published by the [watchdog](../watchdog/README.md) on its own uEntity, so the
+occupant warning for a failed Guardian depends neither on the Guardian nor on
+the Evidence Collector (HARA DFR-5). `session_id` is the watchdog's session;
+`event_id` and `cause_event_id` link the events as in `GuardianEvent`.
+
+| Kind | When | Cause |
+|------|------|-------|
+| `GuardianLost` | No heartbeat for longer than `T_hb`, once per outage. Carries the last seen Guardian session and heartbeat sequence (empty and 0 if none) and `silence_ms` | — |
+| `MitigationRequested` | With every `GuardianLost`: `MITIGATION_DRIVER_WARNING_MONITORING_UNAVAILABLE` | `GuardianLost` |
+| `GuardianRestored` | First heartbeat after a loss: the Guardian's own warnings apply again | `GuardianLost` |
+
 ## AI Assistance
 
 This document was created with the assistance of **Claude Code** using the model
@@ -116,3 +131,9 @@ The GuardianEvent session field was added with assistance from **Codex** using
 
 The Heartbeat topic and payload were added with the assistance of **Claude Code**
 using the model **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The SupervisorEvent topic and payload were added with the assistance of
+**Claude Code** using the model **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The campaign-consumer description was reconciled with the implementation using
+**GitHub Copilot** and the model **GPT-6 Luna** (`GPT-6 Luna`).

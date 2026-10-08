@@ -102,8 +102,18 @@
   },
   "high_delta": {
     "ts": "",
-    "title": "High delta (planned)",
+    "title": "High delta",
     "short": "HighDelta"
+  },
+  "hot_spot": {
+    "ts": "",
+    "title": "Hot spot below the warning threshold",
+    "short": "HotSpot"
+  },
+  "source_loss_during_diagnostics_outage": {
+    "ts": "TS-27",
+    "title": "Source loss during DFM/OpenSOVD outage",
+    "short": "SrcLossDia"
   },
   "source_dropout": {
     "ts": "TS-04",

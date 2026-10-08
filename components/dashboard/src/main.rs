@@ -50,6 +50,7 @@ mod docker;
 mod events;
 mod launcher;
 mod runs;
+mod signal;
 mod sovd;
 mod taps;
 

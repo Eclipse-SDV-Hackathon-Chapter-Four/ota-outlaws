@@ -11,12 +11,13 @@
 
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-//! Guardian watchdog executable (FSR-2.7).
+//! Guardian watchdog executable (FSR-2.7, HARA DFR-5).
 //!
-//! Subscribes to the Guardian's `Heartbeat` and reports
-//! `BTG_GuardianHeartbeatLoss` to DFM when it stays away for longer than
-//! `T_hb`. Runs as its own process, because a crashed or hung Guardian
-//! cannot report its own failure.
+//! Subscribes to the Guardian's `Heartbeat`. When it stays away for longer
+//! than `T_hb`, the watchdog requests the occupant warning
+//! `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its own `SupervisorEvent` topic
+//! and reports `BTG_GuardianHeartbeatLoss` to DFM. Runs as its own process,
+//! because a crashed or hung Guardian cannot report its own failure.
 //!
 //! Environment:
 //! - `HEARTBEAT_TIMEOUT_MS`: `T_hb` (default 1500)
@@ -30,15 +31,16 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use prost::Message;
 use thermal_contract::transport::{self, uri, ZenohEndpoints};
-use thermal_contract::{v1 as pb, GUARDIAN_HEARTBEAT};
+use thermal_contract::{v1 as pb, GUARDIAN_HEARTBEAT, SUPERVISOR_EVENTS};
 use tokio::time::MissedTickBehavior;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
-use up_rust::{UListener, UMessage};
+use up_rust::{UListener, UMessage, UMessageBuilder, UPayloadFormat, UTransport};
 use watchdog::diagnostics::{Diagnostics, DiagnosticsConfig, GuardianSeen, Report};
+use watchdog::supervisor::Supervisor;
 use watchdog::{HeartbeatMonitor, Transition};
 
-/// `T_hb` from the Safety Concept: three heartbeat periods of 500 ms.
+/// `T_hb` for HARA DFR-5: three heartbeat periods of 500 ms (TS-22/TS-23).
 const DEFAULT_TIMEOUT_MS: u64 = 1_500;
 /// How often the watchdog checks the timeout. Adds at most this much to the
 /// detection time.
@@ -47,6 +49,7 @@ const CHECK_INTERVAL: Duration = Duration::from_millis(100);
 /// State shared by the heartbeat listener and the timeout check.
 struct Shared {
     monitor: HeartbeatMonitor,
+    supervisor: Supervisor,
     last: Option<GuardianSeen>,
 }
 
@@ -75,13 +78,18 @@ async fn main() -> anyhow::Result<()> {
     let started = Instant::now();
     let shared = Arc::new(Mutex::new(Shared {
         monitor: HeartbeatMonitor::new(timeout_ms),
+        supervisor: Supervisor::new(diagnostics.session_id.clone()),
         last: None,
     }));
+    let warnings = WarningPublisher {
+        transport: Arc::clone(&transport),
+    };
 
     let source = uri(GUARDIAN_HEARTBEAT);
     let listener: Arc<dyn UListener> = Arc::new(HeartbeatListener {
         shared: Arc::clone(&shared),
         diagnostics: diagnostics.clone(),
+        warnings: warnings.clone(),
         started,
     });
     transport
@@ -102,18 +110,23 @@ async fn main() -> anyhow::Result<()> {
             _ = &mut shutdown => break,
             _ = ticker.tick() => {
                 let now = elapsed_ms(started);
-                let report = {
+                let lost = {
                     let mut shared = shared.lock().expect("watchdog state");
                     match shared.monitor.on_tick(now) {
-                        Transition::BecameLost => Some(Report::Lost {
-                            last: shared.last.clone(),
-                            silence_ms: shared.monitor.silence_ms(now),
-                        }),
+                        Transition::BecameLost => {
+                            let last = shared.last.clone();
+                            let silence_ms = shared.monitor.silence_ms(now);
+                            let events = shared.supervisor.on_lost(last.as_ref(), silence_ms, now);
+                            Some((events, Report::Lost { last, silence_ms }))
+                        }
                         _ => None,
                     }
                 };
-                if let Some(report) = report {
+                if let Some((events, report)) = lost {
                     warn!(?report, "Guardian heartbeat lost");
+                    // The occupant warning first: diagnostics must not delay
+                    // the safety reaction (HARA DFR-6).
+                    warnings.publish(events).await;
                     diagnostics.report(report);
                 }
             }
@@ -135,7 +148,47 @@ fn elapsed_ms(started: Instant) -> u64 {
 struct HeartbeatListener {
     shared: Arc<Mutex<Shared>>,
     diagnostics: Diagnostics,
+    warnings: WarningPublisher,
     started: Instant,
+}
+
+/// Publishes `SupervisorEvent`s on the watchdog's own topic (HARA DFR-5).
+#[derive(Clone)]
+struct WarningPublisher {
+    transport: Arc<dyn UTransport>,
+}
+
+impl WarningPublisher {
+    /// A failed publish is logged; the DFM report still follows.
+    async fn publish(&self, events: Vec<pb::SupervisorEvent>) {
+        for event in events {
+            info!(id = event.event_id, cause = event.cause_event_id, kind = ?event.kind, "supervisor event");
+            let message = UMessageBuilder::publish(uri(SUPERVISOR_EVENTS)).build_with_payload(
+                event.encode_to_vec(),
+                UPayloadFormat::UPAYLOAD_FORMAT_PROTOBUF,
+            );
+            match message {
+                Ok(message) => {
+                    match tokio::time::timeout(
+                        Duration::from_millis(100),
+                        self.transport.send(message),
+                    )
+                    .await
+                    {
+                        Ok(Ok(())) => {}
+                        result => warn!(
+                            ?result,
+                            id = event.event_id,
+                            "cannot publish supervisor event"
+                        ),
+                    }
+                }
+                Err(error) => {
+                    warn!(%error, id = event.event_id, "cannot build supervisor event message")
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -156,15 +209,20 @@ impl UListener for HeartbeatListener {
             session_id: heartbeat.session_id,
             sequence: heartbeat.sequence,
         };
-        let report = {
+        let (events, report) = {
             let mut shared = self.shared.lock().expect("watchdog state");
             shared.last = Some(guardian.clone());
-            match shared.monitor.on_heartbeat(elapsed_ms(self.started)) {
-                Transition::FirstHeartbeat => Some(Report::TestPassed { guardian }),
-                Transition::Recovered => Some(Report::Recovered { guardian }),
-                _ => None,
+            let now = elapsed_ms(self.started);
+            match shared.monitor.on_heartbeat(now) {
+                Transition::FirstHeartbeat => (Vec::new(), Some(Report::TestPassed { guardian })),
+                Transition::Recovered => (
+                    shared.supervisor.on_restored(&guardian, now),
+                    Some(Report::Recovered { guardian }),
+                ),
+                _ => (Vec::new(), None),
             }
         };
+        self.warnings.publish(events).await;
         if let Some(report) = report {
             info!(?report, "Guardian heartbeat present");
             self.diagnostics.report(report);

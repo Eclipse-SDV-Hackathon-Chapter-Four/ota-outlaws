@@ -11,14 +11,17 @@
 
 // AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
 
-//! Heartbeat supervision of the Battery Thermal Guardian (FSR-2.7).
+//! Heartbeat supervision of the Battery Thermal Guardian (FSR-2.7) and the
+//! independent occupant warning when it fails (HARA DFR-5).
 //!
-//! [`HeartbeatMonitor`] decides whether the Guardian is alive. It does no IO
-//! and owns no clock: the caller passes the time, so the logic is tested
-//! without a network or DFM. The executable in `main.rs` connects it to
-//! uProtocol and DFM.
+//! [`HeartbeatMonitor`] decides whether the Guardian is alive;
+//! [`supervisor::Supervisor`] turns a loss into the monitoring-unavailable
+//! warning. Neither does IO or owns a clock: the caller passes the time, so
+//! the logic is tested without a network or DFM. The executable in `main.rs`
+//! connects them to uProtocol and DFM.
 
 pub mod diagnostics;
+pub mod supervisor;
 
 /// Whether the Guardian's heartbeat is currently present.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

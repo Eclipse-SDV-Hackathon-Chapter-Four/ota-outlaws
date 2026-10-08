@@ -21,7 +21,10 @@ use serde::Serialize;
 
 use crate::catalog::{Expectation, Scenario, ScenarioStatus};
 use crate::onset::{Found, Onset, OnsetParams};
-use crate::recording::{EventKind, GuardianEvent, Observation, SampleRef, Tap, Temperature};
+use crate::recording::{
+    EventKind, GuardianEvent, Observation, SampleRef, SupervisorEvent, SupervisorKind, Tap,
+    Temperature,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -164,6 +167,10 @@ pub struct DtcEvidence {
     pub failed_ms: Option<u64>,
     /// From the event reaching the tap to `failed_ms`.
     pub latency_ms: Option<u64>,
+    /// The first poll that showed the failure only in the DTC's history
+    /// (passed, `testFailedSinceLastClear`), when no poll caught it failed,
+    /// for example because diagnostics were paused while it failed.
+    pub history_ms: Option<u64>,
     pub fault_type: Option<String>,
     pub severity: Option<String>,
     /// Status bits and counters of the last record of this event.
@@ -238,6 +245,7 @@ struct Run<'a> {
     all_samples: Vec<(u64, &'a Temperature)>,
     ready: Option<u64>,
     events: Vec<(u64, &'a GuardianEvent)>,
+    supervisor: Vec<(u64, &'a SupervisorEvent)>,
     sovd: Vec<(u64, &'a str, Option<u16>, &'a serde_json::Value)>,
     injections: Vec<(u64, &'a str)>,
     session_id: Option<String>,
@@ -261,12 +269,14 @@ impl<'a> Run<'a> {
     fn new(observations: &'a [Observation], cycle_ms: u64) -> Self {
         let mut samples = Vec::new();
         let mut events = Vec::new();
+        let mut supervisor = Vec::new();
         let mut sovd = Vec::new();
         let mut injections = Vec::new();
         for observation in observations {
             match &observation.tap {
                 Tap::BatteryTemperature(sample) => samples.push((observation.t_ms, sample)),
                 Tap::GuardianEvent(event) => events.push((observation.t_ms, event)),
+                Tap::SupervisorEvent(event) => supervisor.push((observation.t_ms, event)),
                 Tap::SovdFault {
                     code,
                     http_status,
@@ -293,11 +303,40 @@ impl<'a> Run<'a> {
             all_samples,
             ready,
             events,
+            supervisor,
             sovd,
             injections,
             session_id,
             window_end,
         }
+    }
+
+    /// The first monitoring-unavailable request of the watchdog at or after
+    /// `t0` that is caused by a `GuardianLost` event of the same watchdog
+    /// session, with that loss.
+    fn supervisor_warning(
+        &self,
+        t0: u64,
+    ) -> Option<(u64, &'a SupervisorEvent, &'a SupervisorEvent)> {
+        self.supervisor.iter().find_map(|(t, warning)| {
+            let requested = matches!(
+                &warning.kind,
+                SupervisorKind::MitigationRequested { mitigation }
+                    if mitigation == "DRIVER_WARNING_MONITORING_UNAVAILABLE"
+            );
+            if *t < t0 || !requested {
+                return None;
+            }
+            self.supervisor
+                .iter()
+                .map(|(_, e)| *e)
+                .find(|lost| {
+                    lost.session_id == warning.session_id
+                        && lost.event_id == warning.cause_event_id
+                        && matches!(lost.kind, SupervisorKind::GuardianLost { .. })
+                })
+                .map(|lost| (*t, *warning, lost))
+        })
     }
 
     /// Maps the Guardian's own time of an event onto the tool's clock. The
@@ -397,6 +436,102 @@ impl<'a> Run<'a> {
     }
 }
 
+/// HARA TS-27: judges a fault that falls into a DFM/OpenSOVD outage. The
+/// safety reaction must not wait for diagnostics, and the lifecycle must be
+/// visible after the resume, measured from the resume.
+fn diagnostics_outage(
+    run: &Run<'_>,
+    dtc: &str,
+    t0: u64,
+    budget: u64,
+    result: &mut Check,
+) -> Outcome {
+    let failed = |detail: String| Outcome::Failed { detail };
+    let unobservable = |detail: &str| Outcome::Unobservable {
+        detail: detail.to_owned(),
+    };
+    let injected = |action: &str, after: u64| {
+        run.injections
+            .iter()
+            .find(|(t, a)| *a == action && *t >= after)
+            .map(|(t, _)| *t)
+    };
+    let Some(paused) = injected("pause", 0) else {
+        return unobservable("diagnostics were never paused");
+    };
+    let Some(resumed) = injected("unpause", paused) else {
+        return unobservable("diagnostics were never resumed");
+    };
+    let Some((t_fault, fault)) = run.first_fault(dtc, t0) else {
+        return failed(format!("no {dtc} reported after the onset"));
+    };
+    if !(paused..resumed).contains(&t_fault) {
+        return unobservable("the fault was not detected while diagnostics were paused");
+    }
+    let recovered = run.caused_by(
+        fault,
+        |k| matches!(k, EventKind::FaultRecovered { dtc: d, .. } if d == dtc),
+    );
+    let ok = recovered.and_then(|(_, recovered)| {
+        run.events.iter().find(|(_, e)| {
+            e.event_id > recovered.event_id
+                && matches!(&e.kind, EventKind::MonitoringStatusChanged { previous, current } if previous == "DEGRADED" && current == "OK")
+        })
+    });
+    let (Some((_, recovered)), Some((t_ok, _))) = (recovered, ok) else {
+        return failed(format!(
+            "event #{} {dtc}: monitoring did not return to OK",
+            fault.event_id
+        ));
+    };
+    if *t_ok >= resumed {
+        return failed(format!(
+            "event #{} recovered only after diagnostics resumed",
+            recovered.event_id
+        ));
+    }
+    let records = run.sovd_records(dtc, fault);
+    if records.iter().any(|(t, _)| (paused..resumed).contains(t)) {
+        return unobservable(
+            "OpenSOVD showed the fault during the pause: the outage was not effective",
+        );
+    }
+    let passed = records.into_iter().find(|(t, body)| {
+        *t >= resumed
+            && body["status"]["testFailed"] == false
+            && body["status"]["testFailedSinceLastClear"] == true
+    });
+    let Some((t_visible, _)) = passed else {
+        return if run
+            .sovd
+            .iter()
+            .any(|(t, _, status, _)| *t >= resumed && *status == Some(200))
+        {
+            failed(format!(
+                "after the resume, OpenSOVD never showed {dtc} of event #{} as passed with its history",
+                fault.event_id
+            ))
+        } else {
+            unobservable("OpenSOVD never answered after the resume")
+        };
+    };
+    let latency = t_visible.saturating_sub(resumed);
+    result.t_ms = Some(t_visible);
+    result.latency_ms = Some(latency);
+    let text = format!(
+        "event #{} detected and #{} recovered during the outage ({} to {}); after the resume, OpenSOVD showed {dtc} passed with history and provenance",
+        fault.event_id,
+        recovered.event_id,
+        seconds(paused),
+        seconds(resumed),
+    );
+    if latency <= budget {
+        Outcome::Met { detail: text }
+    } else {
+        failed(format!("{text}, late"))
+    }
+}
+
 /// A raise of the thermal state to WARNING or more: the Guardian's detection
 /// of a thermal hazard.
 fn raises(kind: &EventKind) -> bool {
@@ -425,8 +560,12 @@ fn evidence_chain(
     let of_session = |e: &GuardianEvent| Some(e.session_id.as_str()) == session;
     // After the onset, and within the judged window: faults after it come
     // from the end of the stimulus.
-    let in_scope =
-        |t: u64| t0.is_some_and(|t0| t >= t0) && (run.window_end.is_none() || run.in_window(t));
+    // When the end of the stream is the injected fault, the reactions to it
+    // come after the window by design.
+    let windowed = scenario.onset != Onset::StreamEnd;
+    let in_scope = |t: u64| {
+        t0.is_some_and(|t0| t >= t0) && (!windowed || run.window_end.is_none() || run.in_window(t))
+    };
     let by_id: BTreeMap<u64, &GuardianEvent> = run
         .events
         .iter()
@@ -532,6 +671,7 @@ fn evidence_chain(
                     symptom: None,
                     failed_ms: None,
                     latency_ms: None,
+                    history_ms: None,
                     fault_type: None,
                     severity: None,
                     status: serde_json::Value::Null,
@@ -551,12 +691,24 @@ fn evidence_chain(
             let last = of_code.last().map(|(_, _, body)| *body);
             let shown = failed.map(|(_, _, body)| *body).or(last);
             let text = |value: &serde_json::Value| value.as_str().map(str::to_owned);
+            let history = if failed.is_some() {
+                None
+            } else {
+                of_code
+                    .iter()
+                    .find(|(_, _, body)| {
+                        body["status"]["testFailed"] == false
+                            && body["status"]["testFailedSinceLastClear"] == true
+                    })
+                    .map(|(t, _, _)| *t)
+            };
             diagnostics.push(DtcEvidence {
                 dtc: code.to_owned(),
                 detection_event_id: detection.event_id,
                 symptom: shown.and_then(|b| text(&b["symptom"])),
                 failed_ms: failed.map(|(t, _, _)| *t),
                 latency_ms: failed.map(|(t, _, _)| t.saturating_sub(detection.delivered_ms)),
+                history_ms: history,
                 fault_type: shown.and_then(|b| text(&b["environment_data"]["fault_type"])),
                 severity: shown.and_then(|b| text(&b["environment_data"]["severity"])),
                 status: last
@@ -566,11 +718,12 @@ fn evidence_chain(
                 environment_data: shown
                     .map(|b| b["environment_data"].clone())
                     .unwrap_or(serde_json::Value::Null),
-                passed_later: failed.is_some_and(|(t, _, _)| {
-                    of_code
-                        .iter()
-                        .any(|(later, _, body)| later > t && body["status"]["testFailed"] == false)
-                }),
+                passed_later: history.is_some()
+                    || failed.is_some_and(|(t, _, _)| {
+                        of_code.iter().any(|(later, _, body)| {
+                            later > t && body["status"]["testFailed"] == false
+                        })
+                    }),
             });
         }
     }
@@ -601,6 +754,7 @@ fn evidence_chain(
             e,
             Expectation::Sovd { .. }
                 | Expectation::Recovery { .. }
+                | Expectation::DiagnosticsOutage { .. }
                 | Expectation::OvertempDtc { .. }
         )
     });
@@ -704,11 +858,17 @@ fn evidence_chain(
     let visible: Vec<String> = diagnostics
         .iter()
         .filter_map(|d| {
-            let latency = d.latency_ms?;
+            let shown = match (d.latency_ms, d.history_ms) {
+                (Some(latency), _) => format!("failed in OpenSOVD {} after", seconds(latency)),
+                (None, Some(t)) => format!(
+                    "failure shown only in its history at {} (passed, testFailedSinceLastClear) for",
+                    seconds(t)
+                ),
+                (None, None) => return None,
+            };
             Some(format!(
-                "{} failed in OpenSOVD {} after event #{} ({}, {})",
+                "{} {shown} event #{} ({}, {})",
                 d.dtc,
-                seconds(latency),
                 d.detection_event_id,
                 d.severity.as_deref().unwrap_or("severity unknown"),
                 d.fault_type.as_deref().unwrap_or("fault type unknown"),
@@ -898,16 +1058,13 @@ pub fn evaluate(
         }
     }
 
-    let onset = early.or(onset);
-    let chain = evidence_chain(scenario, &run, onset.as_ref(), verdict, &reason);
-
+    let chain = evidence_chain(scenario, &run, judged, verdict, &reason);
     Ok(Evaluation {
         scenario: scenario.id.clone(),
         hara_tests: scenario.hara_tests.clone(),
         status: scenario.status,
         verdict,
         reason,
-        onset,
         session_id: run.session_id.clone(),
         window_end_ms: run.window_end,
         checks,
@@ -917,6 +1074,7 @@ pub fn evaluate(
         guardian_events: run.events.len(),
         chain,
         timeline: timeline(&run),
+        onset: early.or(onset),
     })
 }
 
@@ -965,6 +1123,11 @@ fn check(
     let missing_fault = |dtc: &str| failed(format!("no {dtc} reported after the onset"));
 
     match expectation {
+        Expectation::DiagnosticsOutage { dtc, budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = diagnostics_outage(run, dtc, t0, budget, &mut result);
+        }
         Expectation::SovdFault { dtc, budget, .. } => {
             let budget = resolve_budget(budget, budgets)?;
             result.budget_ms = Some(budget);
@@ -1021,6 +1184,55 @@ fn check(
                                 Outcome::Met {
                                     detail: format!("{dtc} passed again, history kept"),
                                 }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        Expectation::SupervisorWarning { budget, .. } => {
+            let budget = resolve_budget(budget, budgets)?;
+            result.budget_ms = Some(budget);
+            result.outcome = match run.supervisor_warning(t0) {
+                None => failed(
+                    "the watchdog never requested DRIVER_WARNING_MONITORING_UNAVAILABLE after the onset"
+                        .to_owned(),
+                ),
+                Some((t, warning, _)) => {
+                    let latency = t.saturating_sub(t0);
+                    result.t_ms = Some(t);
+                    result.latency_ms = Some(latency);
+                    let text = format!(
+                        "watchdog event #{} requested DRIVER_WARNING_MONITORING_UNAVAILABLE, cause #{} GuardianLost",
+                        warning.event_id, warning.cause_event_id
+                    );
+                    if latency <= budget {
+                        Outcome::Met { detail: text }
+                    } else {
+                        failed(format!("{text}, late"))
+                    }
+                }
+            };
+        }
+        Expectation::SupervisorRestored { .. } => {
+            result.outcome = match run.supervisor_warning(t0) {
+                None => failed("no watchdog warning to withdraw".to_owned()),
+                Some((t_warning, _, lost)) => {
+                    let restored = run.supervisor.iter().find(|(t, e)| {
+                        *t >= t_warning
+                            && e.session_id == lost.session_id
+                            && e.cause_event_id == lost.event_id
+                            && matches!(e.kind, SupervisorKind::GuardianRestored { .. })
+                    });
+                    match restored {
+                        None => failed("the watchdog never reported GuardianRestored".to_owned()),
+                        Some((t, event)) => {
+                            result.t_ms = Some(*t);
+                            Outcome::Met {
+                                detail: format!(
+                                    "watchdog event #{} GuardianRestored, cause #{}",
+                                    event.event_id, event.cause_event_id
+                                ),
                             }
                         }
                     }
@@ -1219,13 +1431,43 @@ fn check(
             result.outcome = match run.reference(after, t0, params) {
                 None => never_showed(after),
                 Some(reference) => {
+                    // The state the Guardian held when the reference came:
+                    // it may already be there, for example because it saw the
+                    // first sample before the tool saw it was ready.
+                    let held = run
+                        .events
+                        .iter()
+                        .filter(|(t, e)| {
+                            *t < reference
+                                && Some(e.session_id.as_str()) == run.session_id.as_deref()
+                                && matches!(e.kind, EventKind::ThermalStateChanged { .. })
+                        })
+                        .max_by_key(|(_, e)| e.event_id);
+                    let already = held.filter(|(_, e)| {
+                        matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if severity(current) >= severity(state))
+                    });
                     let reached = run.events.iter().find(|(t, e)| {
                         *t >= reference
                             && matches!(&e.kind, EventKind::ThermalStateChanged { current, .. } if severity(current) >= severity(state))
                     });
-                    match reached {
-                        None => failed(format!("thermal state never reached {state}")),
-                        Some((t, event)) => {
+                    match (already, reached) {
+                        (Some((t, event)), _) => {
+                            result.t_ms = Some(*t);
+                            result.latency_ms = Some(0);
+                            let current = match &event.kind {
+                                EventKind::ThermalStateChanged { current, .. } => current,
+                                _ => unreachable!(),
+                            };
+                            Outcome::Met {
+                                detail: format!(
+                                    "already {current} at the reference, since event #{} at {}",
+                                    event.event_id,
+                                    seconds(*t)
+                                ),
+                            }
+                        }
+                        (None, None) => failed(format!("thermal state never reached {state}")),
+                        (None, Some((t, event))) => {
                             let latency = t - reference;
                             result.t_ms = Some(*t);
                             result.latency_ms = Some(latency);

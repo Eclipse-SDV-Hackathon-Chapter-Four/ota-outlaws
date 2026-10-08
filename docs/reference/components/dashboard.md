@@ -41,12 +41,13 @@ depend on it. How to run it is in the [dashboard README](../../../components/das
 | Taps ([`taps.rs`](../../../components/dashboard/src/taps.rs)) | **Implemented** | Passive observers of the data between the components, for the input and output logs |
 | OpenSOVD ([`sovd.rs`](../../../components/dashboard/src/sovd.rs)) | **Implemented** | DTC list joined with the fault catalog, one DTC with its environment data, clearing |
 | Campaign evidence ([`runs.rs`](../../../components/dashboard/src/runs.rs)) | **Implemented** | Campaigns in `runs/`, which one is running, the reports of its scenarios |
+| Signal plot ([`signal.rs`](../../../components/dashboard/src/signal.rs)) | **Implemented** | Reduces a scenario's `recording.jsonl` to the series of its signal plot |
 | Web page ([`static/`](../../../components/dashboard/static)) | **Implemented** | Campaign, live chain, and diagnostics view, designed after DASHBOARDS.md. Plain JavaScript, no build step. Fonts (Sora, Manrope) load from Google Fonts and fall back to system fonts offline |
 | Launcher ([`launcher.rs`](../../../components/dashboard/src/launcher.rs)) | **Implemented** | Starts a campaign in a `campaign-runner` container, stops it, removes what it left behind |
 
 ## Design
 
-The design follows [DASHBOARDS.md](../../../DASHBOARDS.md) in the look of
+The design follows the look of
 [eclipsesdv.org](https://eclipsesdv.org/): Sora for headings and Manrope for
 text and numbers, the Eclipse SDV purple, magenta, and orange, and its logo.
 Every view opens with one sentence that answers its question, at most four key
@@ -76,7 +77,8 @@ The start page answers whether the Guardian passes its HARA tests, and why.
 - **All HARA tests**, collapsed: one row per HARA test with its title,
   scenarios, verdict, and reaction, then the scenarios that belong to no HARA
   test ("Further checks"). A click on a row opens the report of its scenarios:
-  the reason, the injected fault and onset, the
+  the reason, the injected fault and onset, the [signal plot](#signal-plot)
+  (also while the scenario runs), the
   [evidence chain](campaign.md#evidence-chain), and, one click further, the
   evidence table, detections, mitigations (with their cause chain), DTCs, the
   checks with latency and budget, the Guardian events, and the run details.
@@ -88,13 +90,35 @@ type `external`, which someone else has to inject, do not appear.
 
 Filters and the selection live in the address: the campaign and the opened
 tests are in the URL, and **Copy link to this view** copies it. **Print this
-report** opens the browser's print dialog; "Save as PDF" writes the file.
+report** opens the browser's print dialog, with the signal plot of every judged
+scenario; "Save as PDF" writes the file.
 
 The dashboard reads what the campaign tool writes to `runs/`. To show what is
 still to come, the campaign tool writes `plan.json` with the campaign's
 scenarios when it starts. A scenario counts as running while its Compose
 project (`campaign-<scenario>`) has running containers, or while its recording
 keeps growing.
+
+### Signal plot
+
+Each scenario report plots what the campaign tool recorded, on one time axis
+from the start of the recording:
+
+| Row | Shows | From the recording |
+|-----|-------|--------------------|
+| Plot | Maximum, average, and minimum cell temperature as the Guardian received them over uProtocol. Samples whose quality is not `VALID` are shaded and break the lines; so are gaps in the stream (more than four sample periods, at least 400 ms) | `battery_temperature` |
+| Vertical lines | The tool's injections (dashed; setup steps faint, the fault labeled), and the onset t0 from the report (solid) | `injection`, `report.json` |
+| thermal | The Guardian's thermal state: CLEAR, MONITORING, WARNING, CRITICAL, MITIGATING | `guardian_event` `ThermalStateChanged` |
+| monitoring | The Guardian's monitoring status | `guardian_event` `MonitoringStatusChanged` |
+| events | Detected faults ▲, recoveries ▼, mitigation requests ◆, watchdog events ■. Passed fault tests are left out | `guardian_event`, `supervisor_event` |
+| DTC | While a DTC's `testFailed` flag is set in OpenSOVD | `sovd_fault` |
+
+What follows the evaluation window (`window_end_ms`) is shaded: it was recorded
+during teardown and is not judged. Hovering shows the nearest sample and the
+states at that time. The page fetches the series from
+`GET /api/signal/<run_id>`, where `run_id` is the manifest's
+(`<campaign>/<scenario>`, or `<campaign>` for an `observe` run); judged runs
+once, a running scenario on every poll.
 
 ## Live chain view
 

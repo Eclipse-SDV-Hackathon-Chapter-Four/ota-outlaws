@@ -16,8 +16,12 @@ SPDX-License-Identifier: EPL-2.0
 Watches the Battery Thermal Guardian and reports when it stops working
 (FSR-2.7). The Guardian publishes a `Heartbeat` every 500 ms
 ([contract](../contracts/README.md#heartbeat)). When no heartbeat arrives for
-longer than `T_hb` (1500 ms), the watchdog reports `BTG_GuardianHeartbeatLoss`
-to DFM; OpenSOVD then shows it next to the Guardian's own faults.
+longer than `T_hb` (1500 ms), the watchdog
+
+1. requests the occupant warning `DRIVER_WARNING_MONITORING_UNAVAILABLE` on its
+   own uProtocol topic (HARA DFR-5), and
+2. reports `BTG_GuardianHeartbeatLoss` to DFM; OpenSOVD then shows it next to
+   the Guardian's own faults.
 
 The watchdog is a separate process and container because a crashed or hung
 Guardian cannot report its own failure. The Guardian sends its heartbeat from
@@ -27,6 +31,26 @@ the loop that runs its core, so the watchdog detects both:
   the new Guardian's first heartbeat recovers the fault.
 - **Hang:** the process stays alive but stops evaluating. Docker does not
   notice this; the watchdog does.
+
+## Occupant warning (HARA DFR-5)
+
+A failed Guardian cannot warn the occupants that thermal monitoring is gone,
+so the watchdog does it. It publishes `SupervisorEvent` messages on
+`//guardian-watchdog/9003/1/8001`
+([contract](../contracts/README.md#supervisorevent)), a uEntity of its own:
+
+| Event | When | Cause |
+|-------|------|-------|
+| `GuardianLost` | No heartbeat for longer than `T_hb`, once per outage | — |
+| `MitigationRequested` `DRIVER_WARNING_MONITORING_UNAVAILABLE` | Together with `GuardianLost` | `GuardianLost` |
+| `GuardianRestored` | First heartbeat after the loss; the Guardian's own warnings apply again | `GuardianLost` |
+
+The warning is published before the DFM report, so diagnostics never delay it
+(HARA DFR-6). The path depends neither on the Guardian nor on the Evidence
+Collector. The logic is in [`src/supervisor.rs`](src/supervisor.rs), with no IO
+and no clock, like the heartbeat monitor. The dashboard shows the topic, and the
+campaign checks it in the `guardian_crash` and `guardian_hang` scenarios
+(`supervisor_warning`, `supervisor_restored`).
 
 ## Fault
 
@@ -83,8 +107,12 @@ ZENOH_CONNECT=tcp/127.0.0.1:7447 cargo run -p watchdog
 cargo test -p watchdog
 ```
 
-The timeout logic in [`src/lib.rs`](src/lib.rs) takes the time as a parameter
-and does no IO, so it is tested without a network or DFM.
+The timeout logic in [`src/lib.rs`](src/lib.rs) and the warning logic in
+[`src/supervisor.rs`](src/supervisor.rs) take the time as a parameter and do no
+IO, so they are tested without a network or DFM.
+[`tests/supervisor.rs`](tests/supervisor.rs) starts the real binary without a
+Guardian, with `T_hb` = 300 ms, and checks over Zenoh that it requests the
+warning and withdraws it once heartbeats arrive.
 
 Checked by hand against the running stack, reading
 `/sovd/v1/apps/battery_guardian/faults/BTG_GuardianHeartbeatLoss`:
@@ -108,7 +136,8 @@ No campaign scenario automates these runs yet.
   followed by `Passed` within seconds. At least once the Guardian itself saw its
   input go stale at the same time, so the whole host stalled. Without load, no
   false alarm was seen. Raising `T_hb` (`HEARTBEAT_TIMEOUT_MS`) trades detection
-  time for fewer false alarms; that is a Safety Concept decision.
+  time for fewer false alarms; justify changes against [HARA DFR-5](../../docs/reference/hara.md#derived-functional-requirements)
+  and reverify TS-22 and TS-23.
 - The Guardian and the watchdog share DFM's PID namespace
   (`pid: "service:opensovd-dfm"` in `deploy/docker-compose.yml`). iceoryx2 treats every
   node with the caller's own PID as alive; with every container process being
@@ -116,9 +145,12 @@ No campaign scenario automates these runs yet.
   restarted Guardian could not report to DFM at all. `fault_lib` now also
   removes dead nodes before it connects
   ([patch notes](../../third-party/fault-lib/README.md)).
-- The occupant warning that the HARA asks for (DFR-5) is not part of this: the
-  watchdog reports to diagnostics, it does not request
-  `DriverWarningMonitoringUnavailable`.
+- **The warning is only published.** No HMI in this project displays it; the
+  dashboard shows it. It is sent once per outage and uProtocol publish keeps no
+  history, so a consumer that subscribes during an outage does not see it.
+- **Shared transport.** The warning travels over the same Zenoh router as the
+  Guardian's messages. A failed router stops both; the Guardian's own
+  freshness monitoring does not cover that case either.
 
 ## AI Assistance
 

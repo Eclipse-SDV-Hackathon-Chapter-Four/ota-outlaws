@@ -38,6 +38,10 @@
   --fail-bg: #fde8e8;
   --warn: #a85d00;
   --warn-bg: #fff0d4;
+  /* signal plot: the three cell temperatures */
+  --s-max: #c2185b;
+  --s-avg: #00897b;
+  --s-min: #3949ab;
   --pad-x: clamp(20px, 5vw, 72px);
   --section: clamp(32px, 5vw, 56px);
   --serif: "Sora", system-ui, sans-serif;
@@ -64,6 +68,9 @@
   --fail-bg: #3b1618;
   --warn: #ffb454;
   --warn-bg: #382a10;
+  --s-max: #ff79a8;
+  --s-avg: #4dd0b8;
+  --s-min: #8c9eff;
   color-scheme: dark;
 }
 
@@ -198,6 +205,59 @@ details[open] > summary::before { content: "−"; }
 details[open] > summary { margin-bottom: 8px; }
 pre { margin: 6px 0; padding: 12px 14px; border: 1px solid var(--border); font: 12px/1.5 var(--mono); overflow: auto; white-space: pre-wrap; }
 
+/* signal plot of a scenario (app.js, signalSvg) */
+.signal svg { display: block; width: 100%; height: auto; }
+.signal text { fill: var(--text-2); font-size: 11px; font-family: var(--sans); }
+.signal .grid { stroke: var(--border); stroke-width: 1; }
+.sig-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+.sig-max_c { stroke: var(--s-max); }
+.sig-avg_c { stroke: var(--s-avg); }
+.sig-min_c { stroke: var(--s-min); }
+.sig-invalid { fill: var(--warn-bg); }
+.sig-gap { fill: var(--surface-2); }
+.sig-after { fill: var(--text-3); opacity: 0.12; }
+.sig-inject { stroke: var(--text-3); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.sig-inject.setup { opacity: 0.45; }
+.sig-onset { stroke: var(--accent); stroke-width: 1.8; }
+.signal text.sig-label { fill: var(--text); font-size: 10.5px; }
+.signal text.sig-label.onset { fill: var(--accent); font-weight: 700; }
+.st-clear { fill: var(--pass-bg); }
+.st-monitoring { fill: var(--accent-soft); }
+.st-warning { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 1; }
+.st-critical, .st-mitigating { fill: var(--fail-bg); stroke: var(--fail); stroke-width: 1; }
+.mon-ok { fill: var(--pass-bg); }
+.mon-degraded { fill: var(--warn-bg); }
+.mon-lost { fill: var(--fail-bg); }
+.signal text.lane-text { fill: var(--text); font-size: 10px; pointer-events: none; }
+.signal text.lane-text.on-bad { fill: #fff; }
+.mk { stroke: var(--bg); stroke-width: 1; }
+.mk-detected { fill: var(--fail); }
+.mk-recovered { fill: var(--pass); }
+.mk-mitigation { fill: var(--warn); }
+.mk-supervisor { fill: var(--accent); }
+.sig-dtc { fill: var(--fail); opacity: 0.75; }
+.sig-cross { stroke: var(--text); stroke-width: 1; opacity: 0.4; pointer-events: none; }
+.signal-readout { color: var(--text-2); min-height: 1.4em; margin-top: 2px; }
+.signal-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.signal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.signal-legend i { display: inline-block; }
+.signal-legend .lg-line { width: 16px; height: 0; border-top: 2px solid; }
+.signal-legend .lg-line.sig-max_c { border-color: var(--s-max); }
+.signal-legend .lg-line.sig-avg_c { border-color: var(--s-avg); }
+.signal-legend .lg-line.sig-min_c { border-color: var(--s-min); }
+.signal-legend .lg-box { width: 12px; height: 10px; border: 1px solid var(--border-2); }
+.signal-legend .lg-box.sig-invalid { background: var(--warn-bg); }
+.signal-legend .lg-box.sig-gap { background: var(--surface-2); }
+.signal-legend .lg-box.sig-after { background: var(--text-3); opacity: 0.35; }
+.signal-legend .lg-box.sig-dtc { background: var(--fail); border-color: var(--fail); }
+.signal-legend .lg-vline { width: 0; height: 12px; border-left: 2px solid var(--accent); }
+.signal-legend .lg-vline.inject { border-left: 2px dashed var(--text-3); }
+.signal-legend .lg-mk { width: 9px; height: 9px; }
+.signal-legend .lg-mk.mk-detected { background: var(--fail); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.signal-legend .lg-mk.mk-recovered { background: var(--pass); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.signal-legend .lg-mk.mk-mitigation { background: var(--warn); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.signal-legend .lg-mk.mk-supervisor { background: var(--accent); }
+
 /* picker */
 .picker { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .picker .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px 24px; margin: 12px 0 14px; }
@@ -243,6 +303,16 @@ pre { margin: 6px 0; padding: 12px 14px; border: 1px solid var(--border); font: 
   #print-root th, #print-root td { border: 1px solid #999; padding: 3pt 5pt; font-size: 9.5pt; }
   #print-root .meta { color: #444; font-size: 9.5pt; margin-bottom: 10pt; }
   #print-root .scn-print { break-inside: avoid-page; margin-bottom: 10pt; }
+  /* The plot on paper uses the light colours, whatever the screen's theme. */
+  #print-root {
+    --bg: #ffffff; --surface-2: #f5f2f7; --text: #1f1f1f; --text-2: #5d5566; --text-3: #9a91a5;
+    --border: #e7e2ec; --border-2: #d3cbdb; --accent: #490b7d; --accent-soft: #eadff1;
+    --pass: #1a7f43; --pass-bg: #e2f4e8; --fail: #c62828; --fail-bg: #fde8e8; --warn: #a85d00; --warn-bg: #fff0d4;
+    --s-max: #c2185b; --s-avg: #00897b; --s-min: #3949ab;
+  }
+  #print-root .signal { break-inside: avoid; }
+  #print-root .signal-readout, #print-root .sig-cross { display: none; }
+  #print-root .signal-legend span i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* chain timeline: one lane per container, a bar for as long as it ran */

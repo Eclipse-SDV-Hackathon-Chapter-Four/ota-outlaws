@@ -14,7 +14,8 @@ SPDX-License-Identifier: EPL-2.0
 # Dashboard
 
 Web page for the safety evidence: the result of every HARA test with its
-evidence chain, the live signal chain, and the DTCs in OpenSOVD. How it is built is described in the
+evidence chain and a signal plot per scenario, the live signal chain, and the
+DTCs in OpenSOVD. How it is built is described in the
 [component documentation](../../docs/reference/components/dashboard.md).
 
 ## Run
@@ -76,7 +77,8 @@ cargo test -p dashboard
 The tests cover the Docker API parsing (HTTP responses, chunked bodies, log
 frames, tar archives), the HARA titles, the start
 order, the taps' ring buffers and line formats, the DTC catalog join, the
-campaign evidence reader, the campaign runner's container settings and path
+campaign evidence reader and run lookup, the signal plot series (DTC flag
+changes, half-written recordings), the campaign runner's container settings and path
 translation, and the header check for changes.
 
 ## AI Assistance

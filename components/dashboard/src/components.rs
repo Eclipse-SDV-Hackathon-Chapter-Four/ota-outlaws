@@ -95,10 +95,12 @@ pub const SPECS: &[Spec] = &[
         input: &[
             Source::Tap(TapId::BatteryTemperature),
             Source::Tap(TapId::GuardianEvents),
+            Source::Tap(TapId::SupervisorEvents),
         ],
         output: &[
             Source::Tap(TapId::BatteryTemperature),
             Source::Tap(TapId::GuardianEvents),
+            Source::Tap(TapId::SupervisorEvents),
         ],
         files: &[],
         rank: 0,
@@ -118,9 +120,12 @@ pub const SPECS: &[Spec] = &[
     Spec {
         service: "watchdog",
         title: "Guardian Watchdog",
-        role: "Watches the Guardian's heartbeat and reports its loss to DFM",
+        role: "Watches the Guardian's heartbeat; on loss, requests the monitoring-unavailable warning and reports to DFM",
         input: &[Source::Log(&["heartbeat"])],
-        output: &[Source::Log(&["DFM record", "DFM unavailable"])],
+        output: &[
+            Source::Tap(TapId::SupervisorEvents),
+            Source::Log(&["DFM record", "DFM unavailable"]),
+        ],
         files: &[],
         rank: 7,
     },

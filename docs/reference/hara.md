@@ -31,6 +31,18 @@ This is a preliminary, software-item-level HARA draft for the Battery Thermal Gu
 
 **Considered functionality:** The Battery Thermal Guardian shall monitor battery-cell temperature data, identify developing thermal hazards, and request occupant warnings and defined mitigation actions.
 
+### Interface assumptions
+
+These assumptions describe the current VSS Publisher-to-Guardian contract. They
+must be verified at integration boundaries; they do not establish vehicle-level
+safety by themselves.
+
+| ID | Assumption |
+|---|---|
+| A-1 | Each published `BatteryTemperature` carries a publisher sequence number and a source timestamp from the newest Data Broker update. If the update has no timestamp, publish time is used. Source timestamps are compared only with other source timestamps, not with the Guardian's local monotonic clock. |
+| A-2 | The Publisher treats an alive-counter update as the CAN-frame boundary and publishes only when all five battery signals are available. This relies on the CAN Provider writing the frame fields in DBC order with the counter last; provider sampling can still result in lost frames. |
+| A-3 | The alive counter and quality value are propagated from the mapped VSS signals. The 8-bit counter wraps from 255 to 0, and the Publisher translates the raw quality values to the contract enum. |
+
 ## Terms and traceability
 
 - **Fault:** A cause or defect, such as a dropped message or a biased sensor.
@@ -72,7 +84,7 @@ These are the fault campaign inputs. Class labels describe the likely injection 
 | F-12 | Temperature signal saturates at the upper representable value (255 °C) | Signal/Source | Guardian cannot distinguish sensor saturation from a genuinely extreme temperature; failure to apply high out-of-range handling could produce an unsafe assessment, while a conservative warning may be spurious if actual temperature is lower |
 | F-13 | Repeated temperature spikes exceed the configured rate plausibility limit within the suspect window | Signal | Guardian fails to escalate persistently implausible input, silently loses trustworthy thermal monitoring, or treats repeated invalid samples as grounds for an unsafe overtemperature mitigation |
 
-> NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility should be tracked separately as evidence-chain faults. They test whether a scenario is observable and its verdict is supportable; they are not temperature-input malfunctions by themselves.
+> NOTE: Diagnostic-path campaigns such as delayed DFM writes or partial OpenSOVD visibility are evidence-chain faults, not temperature-input malfunctions, and do not receive an F-* temperature-fault ID. A diagnostic-path outage may be combined with a named input fault in an explicit verification scenario to check that diagnostics do not delay the safety response; TS-27 combines F-9 with a DFM/OpenSOVD outage.
 
 ## Severity Definition
 
@@ -123,7 +135,8 @@ their fault with another fault or repeat the injected anomaly.
 
 Candidate safety goals are item/vehicle-level objectives. They are not one-to-one
 requirements to detect each injected fault; detailed detection and handling
-requirements belong in the functional safety concept and technical design.
+requirements are captured in the derived functional requirements and technical
+design.
 
 | ID | Related hazardous events | Candidate safety goal |
 |---|---|---|
@@ -135,41 +148,45 @@ requirements belong in the functional safety concept and technical design.
 
 ## Derived Functional Requirements
 
-The following candidate requirements are derived from SG-1 to SG-4. They refine
-the HARA goals for traceability; the referenced Safety Concept remains the source
-for existing Guardian FSR wording, parameter values, priority, and status.
+The following candidate requirements are derived from SG-1 to SG-4 and are the
+repository's safety-requirement reference. Tunable implementation values are
+defined in `config/guardian/safety-params.toml` and `components/campaign/scenarios.toml`;
+the comments and test mappings there trace values and checks back to HARA IDs.
+Implementation status is recorded in component documentation and verification
+tests; a listed requirement is not proof that it is implemented.
 
-| ID | HARA trace | Derived functional requirement | Safety Concept mapping |
+| ID | HARA trace | Derived functional requirement | Requirement / implementation trace |
 |---|---|---|---|
 | DFR-1 | SG-1; HE-1 to HE-3 | The Guardian shall detect each approved thermal-risk criterion and issue the corresponding occupant warning and mitigation response within its approved (`T_react = 100ms`). | FSR-1.1 to FSR-1.4 cover threshold, critical, trend, and hot-spot detection; FSR-1.6 and FSR-1.7 cover mitigation state/failure behavior. |
 | DFR-2 | SG-2; HE-1 to HE-3; F-11, F-12 | The Guardian shall treat a fresh VSS/uProtocol sample whose mapped CAN quality is `INVALID` or `ERROR_NOT_AVAILABLE`, or whose value is outside the configured range, as unusable, enter `DEGRADED`, and report the corresponding fault within `T_react`; it shall not treat the sample as evidence that the battery is safe. A high out-of-range value shall still raise at least `WARNING`. | FSR-3.2 and FSR-3.4; general loss handling in FSR-2.1 to FSR-2.6. |
 | DFR-3 | SG-2, SG-4; HE-1 to HE-3; F-11 | Invalid or degraded input, including a CAN quality flag other than `VALID`, shall not lower or clear an active thermal warning. Thermal state may be lowered only after the defined recovery conditions are met using valid samples. | FSR-1.5, FSR-2.5, FSR-2.6, and FSR-3.6. |
 | DFR-4 | SG-3; HE-4, HE-5, HE-6; F-6, F-8, F-12, F-13 | An isolated or repeated invalid, stale, duplicated, out-of-order, or saturated-high sample shall not by itself cause `CRITICAL` or an overtemperature mitigation. A saturated/high out-of-range value shall still cause at least `WARNING` because real danger cannot be excluded. Repeated spikes shall escalate monitoring to `DEGRADED` and report monitoring unavailable, without lowering the thermal state. | FSR-1.2, FSR-2.5, FSR-3.2, FSR-3.3, FSR-3.5, and FSR-3.6. |
-| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 only requires heartbeat observation by the Evidence Collector and restart of a terminated Guardian. |
-| DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. |
+| DFR-5 | SG-1, SG-2; HE-1 to HE-3; F-10 | An independent in-vehicle supervisor shall detect Guardian termination or loss of evaluation progress and request the defined monitoring-unavailable occupant warning through a path that does not depend on the Guardian or Evidence Collector. | FSR-2.7 is implemented by the Guardian heartbeat and separate watchdog; TS-22 and TS-23 exercise termination and hang. The warning is published over uProtocol; an HMI is outside the current implementation. |
+| DFR-6 | Diagnostic goal; all faulted events | Each detected fault shall be traceable from Guardian/equipment event through DFM and OpenSOVD to the campaign verdict; diagnostic failures shall not delay safety reactions. When diagnostics recover, queued failure and recovery records shall remain correlatable and the final lifecycle state shall be visible. | FSR-D.1 to FSR-D.4; EC-1 to EC-3. |
 | DFR-7 | F-3 | After two messages with the same counter the monitoring state `SUSPECT` is reported, after 10 messages it switchs to `DEGRADED`| |
 | DRF-8 | F-3 | After messages with same counter values are received and ten messages with monotonic increasing counter are received, signal state recovers to `OK`| |
-| DFR-9 | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher requirement or metadata exists in the current Safety Concept/protocol. |
+| DFR-9 | SG-1, SG-2; HE-1 to HE-3 | The temperature source/publisher shall identify a sample clipped below the CAN representation range (rather than a genuine `0 °C` measurement) and propagate that indication to the Guardian. If this cannot be provided, the vehicle/system safety analysis shall justify that treating the lower-bound value as valid cannot delay warning for applicable cold-operation thermal profiles. | No matching source/publisher metadata exists in the current protocol. |
 
 ## HARA-derived test scenarios
 
-Run each fault variant independently from a fresh Guardian instance
-unless a scenario explicitly tests recovery. Record the active configuration and
-observe the same input stream the Guardian receives. Timing parameters refer to
-the approved Safety Concept configuration.
+Run each fault variant independently from a fresh Guardian instance unless a
+scenario explicitly tests recovery or a named cross-domain combination. Record
+the active configuration and observe the same input stream the Guardian
+receives. Timing parameters are proposals in the shipped configuration and
+require validation against the vehicle/system safety analysis before approval.
 
 | HARA fault | Expected mitigation from test specifications | Covering test cases |
 |---|---|---|
 | F-1: Temperature value remains frozen while messages continue | No detection is demonstrated. TS-10 lists `DriverWarningMonitoringUnavailable` but explicitly treats the all-values-frozen case as a limitation probe. | TS-10 (limitation probe only) |
-| F-2: Message arrives after its allowed age/deadline | `DriverWarningMonitoringUnavailable` when the stale stream causes `DEGRADED`. | TS-05 covers a prolonged update gap, but not explicit rejection of a late-arriving message; proposed TS-24. |
+| F-2: Message arrives after its allowed age/deadline | `DriverWarningMonitoringUnavailable` when the stale stream causes `DEGRADED`. | TS-05, TS-24 |
 | F-3: Same message is delivered more than once | No mitigation for one duplicate; `DriverWarningMonitoringUnavailable` if repeated counters escalate monitoring to `DEGRADED`. | TS-07 |
 | F-4: Expected update is dropped before reaching the Guardian | `DriverWarningMonitoringUnavailable`; TS-06 also lists `DiscardSample`. | TS-05, TS-06, TS-15 |
 | F-5: Messages arrive out-of-order | `DriverWarningMonitoringUnavailable` if monitoring degrades; the stale sample must not update thermal assessment. | TS-08 |
 | F-6: One isolated temperature sample is outside the configured interval | No overtemperature mitigation from invalid input alone; preserve an active thermal warning and report `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`. | TS-12, TS-17, TS-18 |
 | F-7: Temperature drifts over time | `WARNING` for a sustained rising trend below `θ_warn`; no overtemperature mitigation before the critical criterion. | TS-25 |
-| F-8: One isolated temperature spike exceeds the rate plausibility limit | No overtemperature mitigation from the isolated invalid sample; `DiscardSample` is catalog-proposed, and `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-12, TS-19, TS-20 |
+| F-8: One isolated temperature spike exceeds the rate plausibility limit | `DiscardSample` for the rejected sample; no overtemperature mitigation from the isolated invalid sample; `DriverWarningMonitoringUnavailable` applies only if the configured response degrades monitoring. | TS-12, TS-19, TS-20 |
 | F-9: Source disconnects or replay stops | `DriverWarningMonitoringUnavailable`. | TS-03, TS-04, TS-15 |
-| F-10: Guardian terminates or evaluation hangs | `RestartGuardian` only where the runtime restart policy applies; no independent occupant warning is demonstrated. | TS-22 (termination), TS-23 (hang) |
+| F-10: Guardian terminates or evaluation hangs | `DriverWarningMonitoringUnavailable` from the independent watchdog (DFR-5); `RestartGuardian` where the runtime restart policy applies. | TS-22 (termination), TS-23 (hang) |
 | F-11: CAN source marks a fresh temperature frame invalid or unavailable | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid quality alone. | TS-11, TS-16 |
 | F-12: Temperature signal saturates at 255 °C | At least `WARNING`; `DriverWarningMonitoringUnavailable` if monitoring becomes `DEGRADED`; no overtemperature mitigation from invalid data alone. | TS-12, TS-26 |
 | F-13: Repeated temperature spikes exceed the rate limit within the suspect window | `DriverWarningMonitoringUnavailable`; no overtemperature mitigation from invalid spikes alone. | TS-21 |
@@ -610,8 +627,8 @@ within `T_suspect`.
 under FSR-3.5. At least `WARNING` is retained because the rise may be real; no
 invalid-only `CRITICAL` or overtemperature mitigation is allowed.
 
-**Expected Mitigations:** `DiscardSample` is catalog-proposed; record the
-actual event. No monitoring-unavailable warning for this one isolated spike.
+**Expected Mitigations:** `DiscardSample` for the spike. No
+monitoring-unavailable warning for this one isolated spike.
 
 **Evidence and Verdict Focus:** Record the single spike, surrounding valid
 samples, status/state, warning/DTC, and mitigation.
@@ -650,16 +667,18 @@ valid input active; confirm heartbeat receipt.
 
 **Stimulus:** Terminate the Guardian process once; inject no other fault.
 
-**Expected Result:** The Evidence Collector detects heartbeat loss and the
-runtime applies its configured restart policy. No independent in-vehicle
-occupant warning is implemented, so occupant protection is not demonstrated.
+**Expected Result:** The independent watchdog detects the heartbeat loss within
+`T_hb` and requests the monitoring-unavailable occupant warning on its own
+topic (DFR-5); it reports the loss to diagnostics. The runtime applies its
+configured restart policy.
 
-**Expected Mitigations:** `RestartGuardian` only if the configured runtime
-actually restarts it; independent warning remains a safety gap.
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` from the
+watchdog; `RestartGuardian` if the configured runtime restarts it.
 
-**Evidence and Verdict Focus:** Record last heartbeat, timeout, restart,
-process recovery, and collector event. Do not treat collector evidence as an
-occupant safety response.
+**Evidence and Verdict Focus:** Record last heartbeat, timeout, the watchdog's
+loss and warning events with their cause link, the diagnostic record, restart,
+and process recovery. Do not treat collector evidence as an occupant safety
+response.
 
 ### TS-23: Guardian evaluation hang
 
@@ -671,23 +690,27 @@ while valid input is active.
 **Stimulus:** Pause only the Guardian evaluation loop while leaving its process
 alive.
 
-**Expected Result:** Pass only if the heartbeat is tied to evaluation progress
-and a monitor detects its loss. Current requirements do not define hang
-detection or recovery.
+**Expected Result:** The heartbeat is tied to evaluation progress, so the
+watchdog detects its loss within `T_hb` while the process stays alive and
+requests the monitoring-unavailable occupant warning (DFR-5). When evaluation
+resumes, the watchdog reports the Guardian as restored.
 
-**Expected Mitigations:** Runtime recovery only if progress-aware supervision
-is implemented; occupant warning is not currently provided.
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` from the
+watchdog. A hung Guardian is not restarted.
 
 **Evidence and Verdict Focus:** Distinguish process liveness from evaluation
-progress and heartbeat. Mark blocked/failed against the catalog claim until
-hang detection/recovery is specified and implemented.
+progress and heartbeat. Record the watchdog's loss, warning, and restoration
+events with their cause links, and the diagnostic record.
 
 ### TS-24: Late-arriving stale message
 
 **HARA trace:** HE-1 to HE-3; SG-2; F-2; FSR-2.8.
 
-**Preconditions:** Enable source/Guardian clock synchronization and configure
-`T_age` and `T_stale`. Establish valid monitoring with a fresh sample stream.
+**Preconditions:** Configure `T_age` and `T_stale`. Establish valid monitoring
+with a fresh sample stream. The Guardian measures a sample's lateness against
+the last fresh sample (arrival gap minus source-timestamp gap), so no clock
+synchronization is needed; a delay that was already present at that sample is
+not visible this way.
 
 **Stimulus:** In an isolated run, hold back one sample until its source
 timestamp is older than `T_age`, then deliver it while withholding other fresh
@@ -697,13 +720,13 @@ samples until the freshness timeout is reached. Resume with valid fresh samples.
 the thermal assessment. The Guardian enters `DEGRADED` after the configured
 freshness timeout and recovers only under the valid-sample recovery conditions.
 
-**Expected Mitigations:** `DriverWarningMonitoringUnavailable` while monitoring
-is `DEGRADED`; no overtemperature mitigation from the stale sample alone.
+**Expected Mitigations:** `DiscardSample` for the late sample;
+`DriverWarningMonitoringUnavailable` while monitoring is `DEGRADED`; no
+overtemperature mitigation from the stale sample alone.
 
 **Evidence and Verdict Focus:** Record source timestamp, delivery time, measured
 sample age, `T_age`, `T_stale`, Guardian acceptance, status/state transitions,
-fault/DFM record, mitigation, and recovery. This proposal depends on synchronized
-clocks and FSR-2.8 being implemented.
+fault/DFM record, mitigation, and recovery.
 
 ### TS-25: Gradual temperature drift
 
@@ -748,12 +771,58 @@ mitigation, and latency. Keep this distinct from a generic high out-of-range
 sample; the test does not prove that saturation can be distinguished from a
 genuinely extreme temperature.
 
+### TS-27: Source loss during DFM/OpenSOVD outage
+
+**HARA trace:** HE-1 to HE-3; SG-2; F-9; DFR-2 and DFR-6; FSR-2.2, FSR-2.6,
+FSR-D.1, and FSR-D.2.
+
+**Preconditions:** Start a fresh Guardian and establish healthy monitoring with
+valid samples. Confirm the DFM/OpenSOVD path is available and record the
+Guardian session ID and baseline DTC state.
+
+**Stimulus:** Pause both the DFM and OpenSOVD gateway. While they remain paused,
+stop publishing temperature samples and allow the freshness timeout to expire.
+After the Guardian has detected the fault and requested the monitoring-
+unavailable warning, restore valid input and allow the Guardian to recover.
+Only then resume the DFM and OpenSOVD services.
+
+**Expected Result:** The Guardian detects F-9, enters `DEGRADED`, and issues
+the monitoring-unavailable warning within `T_stale + T_react`, without waiting
+for DFM or OpenSOVD. Thermal state is not lowered while monitoring is
+`DEGRADED`. After valid input returns, monitoring recovers even
+while diagnostics remain paused. No DFM/OpenSOVD visibility is expected during
+the outage. After resumption, the failure and recovery lifecycle is visible and
+the final DTC state is Passed with its failure history retained.
+
+**Expected Mitigations:** `DriverWarningMonitoringUnavailable` for the F-9
+freshness fault; no overtemperature mitigation is caused solely by the loss of
+input or diagnostic services.
+
+**Evidence and Verdict Focus:** Capture the last valid Guardian-input sample,
+diagnostic pause/resume times, `FaultDetected`, `MonitoringStatusChanged`,
+`MitigationRequested`, `FaultRecovered`, and return to `OK`, with event/cause
+IDs and Guardian timestamps. Confirm the warning request meets its safety
+reaction budget while diagnostics are paused. After resumption, verify the
+OpenSOVD DTC record has `testFailed: false`,
+`testFailedSinceLastClear: true`, preserved occurrence history, and matching
+session/event provenance. Do not measure diagnostic visibility latency from
+the outage onset; measure it from service restoration.
+
 ## AI Assistance
 
 This document was revised with the assistance of **GitHub Copilot (GPT-6 Luna)**.
 The fault mitigation and test coverage overview was added with the assistance of
 **GitHub Copilot** using the model **GPT-6 Luna**.
 
-Removing TS-11/TS-12, aligning TS-07 with DFR-7, and removing the coverage
-assessment column were done with the assistance of **Claude Code** using the
+Removing TS-11/TS-12, aligning TS-07 with DFR-7, removing the coverage
+assessment column, updating F-10, TS-22, and TS-23 to the watchdog's occupant
+warning (DFR-5), and updating `DiscardSample` and TS-24 to the implemented
+behavior were done with the assistance of **Claude Code** using the
 model **Claude Opus 5.5** (`claude-opus-5-5`).
+
+The combined F-9 diagnostic-outage analysis and TS-27 were added with the
+assistance of **GitHub Copilot** using the model **GPT-6 Luna**.
+
+The requirement traceability wording and references to a separate Safety
+Concept were reconciled with the HARA using **GitHub Copilot** and the model
+**GPT-6 Luna**.

@@ -16,7 +16,7 @@ SPDX-License-Identifier: EPL-2.0
 The deterministic safety core of the Battery Thermal Guardian, written in Rust.
 It has no I/O: adapters feed it samples and publish its events.
 
-- Requirements: [Safety Concept](../../docs/reference/hara.md)
+- Requirements: [HARA](../../docs/reference/hara.md#derived-functional-requirements)
 - Design: [Battery Thermal Guardian](../../docs/reference/components/battery-thermal-guardian.md)
 - Parameters: [`config/guardian/safety-params.toml`](../../config/guardian/safety-params.toml)
 
@@ -45,7 +45,7 @@ while monitoring is OK. Invalid, repeated, missing or stuck input interrupts
 recovery. Escalation remains immediate. Details:
 
 - Parts: [Battery Thermal Guardian](../../docs/reference/components/battery-thermal-guardian.md#core-and-adapters)
-- Requirements: status column of the [Safety Concept](../../docs/reference/hara.md#functional-safety-requirements)
+- Requirements: status and traceability in the [HARA-derived functional requirements](../../docs/reference/hara.md#derived-functional-requirements)
 
 After startup, monitors remain NotTested until sustained healthy input produces
 `FaultTestPassed`. This also clears a previous session's current DFM failure

@@ -98,6 +98,9 @@ const state = {
   showAllFaults: false,
   openFaults: new Set(),
   faultDetails: {},
+  signals: new Map(),
+  signalLoads: new Map(),
+  hover: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -319,6 +322,8 @@ function renderCampaignSkeleton() {
   $('view').onclick = onCampaignClick;
   $('view').onchange = onCampaignChange;
   $('view').addEventListener('toggle', onDetailsToggle, true);
+  $('view').onmousemove = signalHover;
+  $('view').onmouseleave = () => { state.hover = null; };
   loadCatalog();
 }
 
@@ -506,7 +511,10 @@ function rowDetailHtml(r) {
     const verdict = scenarioVerdict(cat, byId);
     let body;
     if (cs && cs.report) body = scenarioReportHtml(cs.report, false);
-    else if (cs && cs.state === 'running') body = `<p class="muted">Running now, ${esc(cs.observations)} observations so far.</p>`;
+    else if (cs && cs.state === 'running') {
+      body = `<p class="muted">Running now, ${esc(cs.observations)} observations so far.</p>
+        ${cs.manifest ? signalHtml(cs.manifest.run_id, null, true) : ''}`;
+    }
     else if (cs) body = `<p class="muted">${cs.state === 'pending' ? 'Not started yet.' : 'Not judged: the campaign tool stopped during this scenario.'}</p>`;
     else body = '<p class="muted">This scenario is not part of the campaign.</p>';
     if (cs && cs.error) body += `<pre>${esc(cs.error)}</pre>`;
@@ -573,6 +581,7 @@ function scenarioReportHtml(r, forPrint) {
     <p class="reason">${esc(r.reason)}</p>
     <p class="facts">Injected: <b>${esc(r.description)}</b>. Onset <b>${r.onset ? esc(secs(r.onset.t_ms) + ', ' + r.onset.description) : 'not observed'}</b>.
       ${r.note ? esc(r.note) : ''}</p>
+    ${manifest.run_id ? signalHtml(manifest.run_id, r, false) : ''}
     ${chainHtml(r, forPrint)}
     ${checks.length ? detailsBlock(manifest.run_id + ':checks', `Checks (${checks.length})`, `<table><thead><tr><th>Requirement</th><th>Expectation</th><th>Observed</th><th class="num">Latency</th><th class="num">Budget</th><th>Result</th></tr></thead><tbody>
       ${checks.map((c) => `<tr><td>${esc((c.expectation && c.expectation.requirement) || '—')}</td><td class="id">${esc(expectationText(c.expectation))}</td>
@@ -582,6 +591,243 @@ function scenarioReportHtml(r, forPrint) {
     ${timeline}
     ${detailsBlock(manifest.run_id + ':run', 'Run details', `<p class="facts">Hazard <b>${esc(r.hazard || '—')}</b>, safety goal <b>${esc(r.safety_goal || '—')}</b>.
       Guardian session <span class="mono">${esc(r.session_id || '—')}</span>.<br>Run <span class="mono">${esc(manifest.run_id)}</span>, started ${esc(manifest.started_at)}, git ${esc(manifest.git_revision || '—')}.</p>`, forPrint)}`;
+}
+
+// --- campaign: signal plot ------------------------------------------------------------
+// The temperatures the Guardian received, with its thermal state, monitoring
+// status, detections, mitigations, the tool's injections, and the DTCs failed
+// in OpenSOVD on one time axis. Drawn from the recording (signal.rs).
+
+const SIG = { W: 1000, L: 74, R: 12, T: 14, PH: 180, LANE: 18 };
+const SIG_LANES = ['thermal', 'monitoring', 'events', 'DTC'];
+// Tool actions that only set up the run; the others are the injected fault.
+const SETUP_ACTIONS = /^(start_|guardian_ready)/;
+
+function loadSignal(runId) {
+  if (!state.signalLoads.has(runId)) {
+    const path = '/api/signal/' + runId.split('/').map(encodeURIComponent).join('/');
+    state.signalLoads.set(runId, api(path)
+      .then((data) => state.signals.set(runId, { data, at: Date.now() }))
+      .catch((error) => state.signals.set(runId, { error: error.message, at: Date.now() }))
+      .finally(() => state.signalLoads.delete(runId)));
+  }
+  return state.signalLoads.get(runId);
+}
+
+// A judged run's plot is loaded once; a running one again every poll.
+function signalHtml(runId, report, live) {
+  if (!runId) return '';
+  const entry = state.signals.get(runId);
+  // Only the call that starts a load redraws when it lands: every redraw
+  // comes here again, and chaining on a pending load would multiply them.
+  const stale = !entry || (live && Date.now() - entry.at > POLL_MS);
+  if (stale && !state.signalLoads.has(runId)) loadSignal(runId).then(redrawSignals);
+  let inner;
+  if (!entry) inner = '<div class="muted small">loading signal…</div>';
+  else if (entry.error) inner = `<div class="muted small">no signal: ${esc(entry.error)}</div>`;
+  else inner = signalSvg(runId, entry.data, report) + signalLegend();
+  return `<h4>Signal</h4><div class="signal" data-run="${esc(runId)}">${inner}
+    <div class="signal-readout small mono">${esc(signalReadout(runId))}</div></div>`;
+}
+
+// The campaign view redraws only when its key changes; a loaded plot must show.
+function redrawSignals() {
+  state.bodyKey = '';
+  renderCampaignMain();
+}
+
+function signalScale(signal, report) {
+  const end = Math.max(signal.end_ms, (report && report.window_end_ms) || 0, 1000);
+  const x = (t) => SIG.L + (t / end) * (SIG.W - SIG.L - SIG.R);
+  const values = signal.samples.flatMap((p) => [p.max_c, p.avg_c, p.min_c]);
+  const lo = values.length ? Math.floor(Math.min(...values)) - 2 : 0;
+  const hi = values.length ? Math.ceil(Math.max(...values)) + 2 : 50;
+  const y = (v) => SIG.T + SIG.PH - ((v - lo) / (hi - lo)) * SIG.PH;
+  return { end, x, y, lo, hi };
+}
+
+function niceStep(span, count, steps) {
+  return steps.find((s) => span / s <= count) || steps[steps.length - 1];
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+}
+
+function signalSvg(runId, signal, report) {
+  const { end, x, y, lo, hi } = signalScale(signal, report);
+  const top = SIG.T, bottom = SIG.T + SIG.PH;
+  const lane0 = bottom + 24;
+  const height = lane0 + SIG_LANES.length * SIG.LANE + 4;
+  const right = SIG.W - SIG.R;
+  const samples = signal.samples;
+  const dt = median(samples.slice(1).map((p, i) => p.t_ms - samples[i].t_ms)) || 100;
+  const gap = Math.max(400, 4 * dt);
+  const out = [];
+
+  // Grid and axes.
+  const yStep = niceStep(hi - lo, 5, [1, 2, 5, 10, 20, 50, 100]);
+  for (let v = Math.ceil(lo / yStep) * yStep; v <= hi; v += yStep) {
+    out.push(`<line class="grid" x1="${SIG.L}" x2="${right}" y1="${y(v)}" y2="${y(v)}"/>
+      <text x="${SIG.L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`);
+  }
+  out.push(`<text x="${SIG.L - 6}" y="${top - 4}" text-anchor="end">°C</text>`);
+  const xStep = niceStep(end, 14, [500, 1000, 2000, 5000, 10000, 20000, 30000, 60000]);
+  for (let t = 0; t <= end; t += xStep) {
+    out.push(`<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${bottom}"/>
+      <text x="${x(t)}" y="${bottom + 14}" text-anchor="middle">${t / 1000} s</text>`);
+  }
+
+  // Missing data: samples marked invalid, and gaps in the stream.
+  samples.forEach((p, i) => {
+    if (p.quality !== 'VALID') {
+      out.push(`<rect class="sig-invalid" x="${x(p.t_ms)}" y="${top}" width="${Math.max(1.5, x(p.t_ms + dt) - x(p.t_ms))}"
+        height="${SIG.PH}"><title>${esc(secs(p.t_ms))}: quality ${esc(p.quality)}</title></rect>`);
+    }
+    const next = samples[i + 1];
+    if (next && next.t_ms - p.t_ms > gap) {
+      out.push(`<rect class="sig-gap" x="${x(p.t_ms)}" y="${top}" width="${x(next.t_ms) - x(p.t_ms)}" height="${SIG.PH}">
+        <title>no samples for ${esc(secs(next.t_ms - p.t_ms))}</title></rect>`);
+    }
+  });
+
+  // After the evaluation window: recorded, but not judged (teardown).
+  if (report && report.window_end_ms != null && report.window_end_ms < end) {
+    const w = x(report.window_end_ms);
+    out.push(`<rect class="sig-after" x="${w}" y="${top}" width="${right - w}" height="${height - 4 - top}">
+      <title>after the evaluation window (${esc(secs(report.window_end_ms))}): recorded, not judged</title></rect>`);
+  }
+
+  // Temperatures, broken at gaps and at invalid samples.
+  for (const key of ['min_c', 'avg_c', 'max_c']) {
+    let d = '', open = false, prev = null;
+    for (const p of samples) {
+      const ok = p.quality === 'VALID';
+      if (!ok || (prev && p.t_ms - prev.t_ms > gap)) open = false;
+      if (ok) {
+        d += `${open ? 'L' : 'M'}${x(p.t_ms).toFixed(1)} ${y(p[key]).toFixed(1)}`;
+        open = true;
+      }
+      prev = p;
+    }
+    out.push(`<path class="sig-line sig-${key}" d="${d}"/>`);
+  }
+
+  // Injections and the onset t0, across plot and lanes.
+  const laneEnd = height - 4;
+  for (const inj of signal.injections) {
+    const setup = SETUP_ACTIONS.test(inj.action);
+    out.push(`<line class="sig-inject ${setup ? 'setup' : ''}" x1="${x(inj.t_ms)}" x2="${x(inj.t_ms)}" y1="${top}" y2="${laneEnd}">
+      <title>${esc(secs(inj.t_ms))}: ${esc(inj.action)} — ${esc(inj.detail)}</title></line>`);
+    if (!setup) {
+      out.push(`<text class="sig-label" x="${x(inj.t_ms) + 3}" y="${top + 10}">${esc(inj.action)} ${esc(inj.detail)}</text>`);
+    }
+  }
+  if (report && report.onset) {
+    const t0 = x(report.onset.t_ms);
+    out.push(`<line class="sig-onset" x1="${t0}" x2="${t0}" y1="${top - 6}" y2="${laneEnd}">
+      <title>onset t0 ${esc(secs(report.onset.t_ms))}: ${esc(report.onset.description)}</title></line>
+      <text class="sig-label onset" x="${t0 + 3}" y="${top - 2}">t0</text>`);
+  }
+
+  // Lanes.
+  const laneY = (i) => lane0 + i * SIG.LANE;
+  SIG_LANES.forEach((name, i) => {
+    out.push(`<text x="${SIG.L - 6}" y="${laneY(i) + 12}" text-anchor="end">${name}</text>`);
+  });
+  const segments = (changes, i, cls) => changes.forEach((c, k) => {
+    const x1 = x(c.t_ms), x2 = x(k + 1 < changes.length ? changes[k + 1].t_ms : signal.end_ms);
+    out.push(`<rect class="${cls(c.value)}" x="${x1}" y="${laneY(i) + 2}" width="${Math.max(1, x2 - x1)}" height="${SIG.LANE - 4}">
+      <title>${esc(secs(c.t_ms))}: ${esc(c.value)}</title></rect>`);
+    if (x2 - x1 > 8 * c.value.length) {
+      out.push(`<text class="lane-text" x="${x1 + 4}" y="${laneY(i) + 12}">${esc(c.value)}</text>`);
+    }
+  });
+  segments(signal.thermal, 0, (v) => 'st st-' + v.toLowerCase());
+  segments(signal.monitoring, 1, (v) => 'mon mon-' + (v === 'OK' ? 'ok' : v === 'DEGRADED' ? 'degraded' : 'lost'));
+
+  const shape = { detected: 'M0 -6L6 5L-6 5Z', recovered: 'M0 6L6 -5L-6 -5Z', mitigation: 'M0 -6L6 0L0 6L-6 0Z',
+    supervisor: 'M-5 -5H5V5H-5Z' };
+  for (const m of signal.markers) {
+    out.push(`<path class="mk mk-${esc(m.kind)}" transform="translate(${x(m.t_ms).toFixed(1)} ${laneY(2) + SIG.LANE / 2})"
+      d="${shape[m.kind]}"><title>${esc(secs(m.t_ms))}: ${esc(m.text)}</title></path>`);
+  }
+
+  const failedSince = {};
+  const dtcBar = (code, from, to) => {
+    out.push(`<rect class="sig-dtc" x="${x(from)}" y="${laneY(3) + 2}" width="${Math.max(2, x(to) - x(from))}" height="${SIG.LANE - 4}">
+      <title>${esc(code)} failed in OpenSOVD ${esc(secs(from))} – ${esc(secs(to))}</title></rect>`);
+    if (x(to) - x(from) > 7 * code.length) {
+      out.push(`<text class="lane-text on-bad" x="${x(from) + 4}" y="${laneY(3) + 12}">${esc(code)}</text>`);
+    }
+  };
+  for (const d of signal.dtcs) {
+    if (d.failed) failedSince[d.code] = d.t_ms;
+    else if (failedSince[d.code] != null) { dtcBar(d.code, failedSince[d.code], d.t_ms); delete failedSince[d.code]; }
+  }
+  for (const [code, from] of Object.entries(failedSince)) dtcBar(code, from, signal.end_ms);
+
+  if (!samples.length) {
+    out.push(`<text x="${(SIG.L + right) / 2}" y="${(top + bottom) / 2}" text-anchor="middle">no temperature samples recorded</text>`);
+  }
+  // Crosshair at the hovered time; kept across the two-second redraws.
+  if (state.hover && state.hover.runId === runId) {
+    out.push(`<line class="sig-cross" x1="${x(state.hover.t)}" x2="${x(state.hover.t)}" y1="${top}" y2="${laneEnd}"/>`);
+  }
+  return `<svg viewBox="0 0 ${SIG.W} ${height}" role="img" aria-label="Battery temperature and Guardian reaction over time">
+    ${out.join('')}</svg>`;
+}
+
+function signalLegend() {
+  const item = (cls, text) => `<span><i class="${cls}"></i>${text}</span>`;
+  return `<div class="signal-legend small muted">
+    ${item('lg-line sig-max_c', 'max')}${item('lg-line sig-avg_c', 'avg')}${item('lg-line sig-min_c', 'min')}
+    ${item('lg-box sig-invalid', 'quality not VALID')}${item('lg-box sig-gap', 'no samples')}
+    ${item('lg-vline onset', 't0 onset')}${item('lg-vline inject', 'injection')}
+    ${item('lg-mk mk-detected', 'detected')}${item('lg-mk mk-recovered', 'recovered')}
+    ${item('lg-mk mk-mitigation', 'mitigation')}${item('lg-mk mk-supervisor', 'watchdog')}
+    ${item('lg-box sig-dtc', 'DTC failed')}${item('lg-box sig-after', 'after the evaluation window')}</div>`;
+}
+
+function signalReadout(runId) {
+  const entry = state.signals.get(runId);
+  if (!state.hover || state.hover.runId !== runId || !entry || !entry.data) return 'hover the plot for values';
+  const { t } = state.hover;
+  const signal = entry.data;
+  let best = null;
+  for (const p of signal.samples) if (!best || Math.abs(p.t_ms - t) < Math.abs(best.t_ms - t)) best = p;
+  const at = (changes) => (changes.filter((c) => c.t_ms <= t).pop() || { value: '—' }).value;
+  const sample = best && Math.abs(best.t_ms - t) < 1000
+    ? `sample at ${secs(best.t_ms)}: max ${best.max_c.toFixed(1)} · avg ${best.avg_c.toFixed(1)} · min ${best.min_c.toFixed(1)} °C · ${best.quality}`
+    : 'no sample nearby';
+  return `${secs(t)} — ${sample} — thermal ${at(signal.thermal)} · monitoring ${at(signal.monitoring)}`;
+}
+
+function signalHover(e) {
+  const box = e.target.closest('.signal');
+  const svg = box && box.querySelector('svg');
+  if (!svg) return;
+  const runId = box.dataset.run;
+  const entry = state.signals.get(runId);
+  if (!entry || !entry.data) return;
+  const rect = svg.getBoundingClientRect();
+  const px = ((e.clientX - rect.left) / rect.width) * SIG.W;
+  if (px < SIG.L || px > SIG.W - SIG.R) return;
+  const report = state.campaign && (state.campaign.scenarios.find((s) => s.report && s.report.manifest
+    && s.report.manifest.run_id === runId) || {}).report;
+  const { end } = signalScale(entry.data, report);
+  state.hover = { runId, t: Math.round(((px - SIG.L) / (SIG.W - SIG.L - SIG.R)) * end) };
+  box.querySelector('.signal-readout').textContent = signalReadout(runId);
+  let cross = svg.querySelector('.sig-cross');
+  if (!cross) {
+    cross = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    cross.setAttribute('class', 'sig-cross');
+    svg.appendChild(cross);
+  }
+  const vb = svg.viewBox.baseVal;
+  cross.setAttribute('x1', px); cross.setAttribute('x2', px);
+  cross.setAttribute('y1', SIG.T); cross.setAttribute('y2', vb.height - 4);
 }
 
 // --- campaign: actions ---------------------------------------------------------------------
@@ -714,10 +960,12 @@ async function stopCampaign() {
   }
 }
 
-function printCampaign() {
+async function printCampaign() {
   const model = buildModel();
   const c = model.campaign;
   if (!c) { toast('No campaign loaded', true); return; }
+  await Promise.all(c.scenarios.filter((x) => x.report && x.report.manifest)
+    .map((x) => loadSignal(x.report.manifest.run_id)));
   const s = summarise(model);
   const table = (rows, label, titled) => `<table><thead><tr><th>${label}</th><th>${titled ? 'Title' : 'Description'}</th><th>Scenarios</th><th>Verdict</th><th>Reaction</th></tr></thead><tbody>
     ${rows.map((r) => `<tr><td>${esc(r.ts)}</td><td>${esc(titled ? state.titles[r.ts] || '' : r.scenarios[0].description)}</td>

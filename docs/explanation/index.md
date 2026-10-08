@@ -13,5 +13,5 @@ SPDX-License-Identifier: EPL-2.0
 
 # Explanation
 
-- [Safety Concept](safety-concept.md): hazards, safety goals, and functional
-  safety requirements of the Battery Thermal Guardian
+- [Battery Thermal Guardian HARA](../reference/hara.md): hazards, safety goals,
+  derived requirements, and test scenarios

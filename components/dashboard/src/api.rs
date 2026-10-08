@@ -85,6 +85,7 @@ pub fn router(app: Shared) -> Router {
         .route("/api/campaign/stop", post(stop_campaign))
         .route("/api/campaigns", get(campaigns))
         .route("/api/campaigns/:id", get(campaign))
+        .route("/api/signal/*run_id", get(signal))
         .with_state(app)
 }
 
@@ -395,6 +396,20 @@ async fn campaign(State(app): State<Shared>, Path(id): Path<String>) -> ApiResul
         .map_err(|error| ApiError(StatusCode::NOT_FOUND, format!("{error:#}")))?;
     Ok(Json(
         serde_json::to_value(view).map_err(anyhow::Error::from)?,
+    ))
+}
+
+/// The signal plot of one scenario run; `run_id` as in its manifest.
+async fn signal(State(app): State<Shared>, Path(run_id): Path<String>) -> ApiResult {
+    let not_found = |error: anyhow::Error| ApiError(StatusCode::NOT_FOUND, format!("{error:#}"));
+    let dir = app
+        .runs
+        .run_dir(run_id.trim_start_matches('/'))
+        .map_err(not_found)?;
+    let signal = crate::signal::read(&dir.join("recording.jsonl"))
+        .map_err(|error| not_found(anyhow::Error::from(error).context("no recording yet")))?;
+    Ok(Json(
+        serde_json::to_value(signal).map_err(anyhow::Error::from)?,
     ))
 }
 
