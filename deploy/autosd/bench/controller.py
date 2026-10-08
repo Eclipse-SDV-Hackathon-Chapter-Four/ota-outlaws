@@ -503,7 +503,22 @@ class Bench:
                 run([*args, "true"])
 
     def provision(self, assets):
+        self.config["clock_configured"] = True
+        self.save()
         for peer in self.config["peers"]:
+            # The base can boot with its saved build date. Initialize these
+            # job-owned guests from the host before TLS, and verify the result.
+            self.ssh(peer, "set -e; test -f /opt/ota-bench-clock-original.conf || cp /etc/chrony.conf /opt/ota-bench-clock-original.conf; "
+                     "systemctl stop chronyd; date -u -s '@" + f"{time.time_ns() / 1e9:.9f}" + "'")
+            before = time.time_ns()
+            guest_time = int(self.ssh(peer, "date +%s%N").stdout)
+            after = time.time_ns()
+            clock = dict(offset_ns=guest_time - (before + after) // 2,
+                         uncertainty_ns=(after - before) // 2,
+                         limit_ns=1_000_000_000)
+            atomic_json(self.state / (peer["role"] + "-boot-clock.json"), clock)
+            if abs(clock["offset_ns"]) + clock["uncertainty_ns"] > clock["limit_ns"]:
+                raise RuntimeError("Fresh guest wall time is not within 1 s of the host")
             self.ssh(peer, "mkdir -p /tmp/can-testbench-provision")
             self.copy(
                 peer,
@@ -523,7 +538,7 @@ class Bench:
                 "/tmp/can-testbench-provision/",
             )
             command = (
-                "OPENDUT_BACKEND_URL="
+                "AUTOSD_BENCH_HOST_CLOCK_VERIFIED=1 OPENDUT_BACKEND_URL="
                 + shlex.quote(self.args.backend)
                 + " bash /tmp/can-testbench-provision/provision-guest.sh "
                 + shlex.quote(peer["name"])
@@ -596,8 +611,8 @@ class Bench:
             self.config["cluster_id"],
             timeout=70,
         )
-        for peer in (a, b):
-            self.ssh(peer, "chronyc waitsync 20 0.01 0 1", timeout=30)
+        # These probes compare payloads. synchronize() gates relative peer time
+        # after deployment verification and before any measured replay.
         # Retry readiness probes; measured campaigns have no retry/relaxed budget.
         for attempt in range(10):
             try:
@@ -667,8 +682,11 @@ class Bench:
         self.config["clock_configured"] = True
         self.save()
         for peer in (a, b):
-            self.ssh(peer, "cp /etc/chrony.conf /opt/ota-bench-clock-original.conf")
-        self.ssh(a, "cat >> /etc/chrony.conf; systemctl restart chronyd", data="\nallow " + addresses[1] + "/32\n")
+            self.ssh(peer, "test -f /opt/ota-bench-clock-original.conf || cp /etc/chrony.conf /opt/ota-bench-clock-original.conf")
+        # Only relative A/B time is required for distributed replay. Keep A as
+        # the fixed local reference; public NTP cannot step it during a trace.
+        self.ssh(a, "cat > /etc/chrony.conf; systemctl restart chronyd", data=
+                 "driftfile /var/lib/chrony/drift\nlocal stratum 10\nallow " + addresses[1] + "/32\n")
         self.ssh(b, "cat > /etc/chrony.conf; systemctl restart chronyd", data=
                  "server " + addresses[0] + " iburst minpoll 0 maxpoll 0\n"
                  "driftfile /var/lib/chrony/drift\nmakestep 0.001 3\nrtcsync\n")

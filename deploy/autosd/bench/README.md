@@ -133,7 +133,15 @@ Both independent CAN captures and the source replay process acknowledge readines
 before Guardian starts. The waiting source is released for a future epoch and every ASC timestamp is an absolute offset
 from that epoch on A's monotonic clock. Existing action offsets are anchored to
 that same epoch on B. A missed arming deadline is an execution failure, not a
-request to stretch the trace. B synchronizes to A through guest Chrony before application deployment. Before
+request to stretch the trace. Before TLS provisioning, the controller initializes
+each fresh guest's clock from the host and verifies the difference is within 1 s,
+including SSH uncertainty;
+the probes are retained as `a-boot-clock.json` and `b-boot-clock.json`. TLS certificate
+verification remains enabled. A then uses Chrony's
+[local reference mode](https://chrony-project.org/doc/4.6/chrony.conf.html#local)
+at stratum 10, and B synchronizes to A before application deployment. This bounds
+relative peer time without depending on public NTP availability or allowing an
+upstream correction to step A's clock during a trace; it is not proof of absolute UTC accuracy. Before
 any replay, the adapter bounds relative offset using current peer NTP delay,
 dispersion, offset and remaining clock correction; a bound above 10 ms rejects
 execution. Host SSH midpoint estimates are retained with their uncertainty for

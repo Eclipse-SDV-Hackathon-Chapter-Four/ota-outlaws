@@ -145,24 +145,32 @@ The bridge immediately acknowledges an accepted campaign request:
 ```
 
 As soon as the campaign CLI prints a completed scenario verdict, the bridge
-sends a result. The current bridge emits these fields:
+sends a result, including the current position and total number of runnable
+scenarios from `campaign/scenarios.toml`:
 
 ```json
-{"type":"campaign_result","id":23492,"scenario":"out_of_range","verdict":"PASS"}
+{"type":"campaign_result","id":23492,"n":12,"total":30,"scenario":"out_of_range","verdict":"PASS"}
 ```
 
 The board looks up `scenario` and `verdict` independently in the JSON object.
-It therefore tolerates additional fields such as `n` and `total`, or different
-field ordering, for example:
+It also reads `n` and `total` to show campaign progress. Fields may appear in
+different orders, for example:
 
 ```json
-{"type":"campaign_result","id":23492,"n":12,"total":19,"scenario":"out_of_range","verdict":"PASS"}
+{"type":"campaign_result","id":23492,"n":12,"total":30,"scenario":"out_of_range","verdict":"PASS"}
 ```
 
-The current Python bridge does not add `n` or `total`; they are optional
-metadata. Supported verdicts are `PASS`, `FAIL`, and `INCONCLUSIVE`.
-The firmware accepts UDP JSON datagrams up to 159 bytes and limits scenario
-names to 23 characters and verdicts to 15 characters.
+The bridge counts scenarios supported by the campaign CLI's default runtime
+(`network-isolation` and `watchdog`), excluding external scenarios and
+`can-link` isolation, and checks that each selected `.asc` trace exists in the
+chosen campaign checkout. The current upstream catalog yields 30 runnable
+scenarios; the value is derived at bridge startup rather than hard-coded.
+Supported verdicts are `PASS`, `FAIL`, and `INCONCLUSIVE`.
+
+The firmware accepts UDP JSON datagrams up to 159 bytes and stores scenario
+names up to 63 characters and verdicts up to 15 characters. Longer OLED
+scenario text is truncated with an ellipsis to fit the 21-character display
+row.
 
 When the process finishes, the bridge sends:
 
@@ -181,9 +189,9 @@ The SSD1306 display is updated by the ThreadX guardian thread:
 
 1. During normal operation, it cycles through onboard sensor pages.
 2. On Button A, it displays that the campaign is running.
-3. On each `campaign_result` UDP message, it shows the scenario ID and verdict,
-   for example `out_of_range` and `PASS`. It does not show the longer campaign
-   reason text.
+3. On each `campaign_result` UDP message, it shows the result position/total,
+   scenario ID, and verdict, for example `CAMPAIGN 12/30`, `out_of_range`, and
+   `PASS`. It does not show the longer campaign reason text.
 4. On `campaign_complete`, it stops holding the campaign page and returns to
    the sensor pages.
 
@@ -195,9 +203,9 @@ the current verdict. Between campaign results, the last verdict remains visible.
 
 The guardian thread polls NetX UDP non-blockingly every 100 ms. It bounds-checks
 the packet length, copies the datagram into a fixed-size buffer, matches the
-campaign request ID, and searches for the `scenario` and `verdict` string
-fields. Only those two strings are rendered on the OLED. The OLED uses its
-small text font to fit the scenario and verdict as separate lines.
+campaign request ID, and reads the `scenario`, `verdict`, `n`, and `total`
+fields. The OLED uses its small text font to show progress, the scenario, and
+the verdict as separate lines.
 
 ### OLED photo examples
 

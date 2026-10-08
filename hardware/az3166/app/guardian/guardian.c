@@ -1,7 +1,20 @@
-/*
- * SPDX-License-Identifier: MIT
+/* 
+ * Copyright (c) Microsoft
+ * Copyright (c) 2024 Eclipse Foundation
+ * 
+ *  This program and the accompanying materials are made available 
+ *  under the terms of the MIT license which is available at
+ *  https://opensource.org/license/mit.
+ * 
+ *  SPDX-License-Identifier: MIT
+ * 
+ *  Contributors: 
+ *     Microsoft         - Initial version
+ *     Frédéric Desbiens - 2024 version.
+ *     Uttarkar Sopan    - Feature enhanced to display the fault injected log via button pressed.
+ *     Microsoft Copilot - AI-assisted modifications
  */
-
+ 
 #include "cloud_config.h"
 #include "board_init.h"
 #include "nx_api.h"
@@ -23,7 +36,7 @@
 #define GUARDIAN_BUTTON_DEBOUNCE_POLLS 3U
 #define GUARDIAN_BAD_TEMPERATURE_C     120U
 #define GUARDIAN_DATAGRAM_MAX_LENGTH   160U
-#define GUARDIAN_SCENARIO_MAX_LENGTH   23U
+#define GUARDIAN_SCENARIO_MAX_LENGTH   63U
 #define GUARDIAN_VERDICT_MAX_LENGTH    15U
 
 typedef struct
@@ -206,11 +219,10 @@ static UINT json_string_field(const CHAR* message, const CHAR* name,
         {
             return 0U;
         }
-        if (length + 1U >= value_size)
+        if (length + 1U < value_size)
         {
-            return 0U;
+            value[length++] = character;
         }
-        value[length++] = character;
     }
 
     if (*cursor != '"' || length == 0U)
@@ -221,9 +233,60 @@ static UINT json_string_field(const CHAR* message, const CHAR* name,
     return 1U;
 }
 
+static UINT json_uint_field(const CHAR* message, const CHAR* name, uint32_t* value)
+{
+    CHAR key[32];
+    const CHAR* cursor;
+    uint32_t parsed = 0U;
+    int key_length = snprintf(key, sizeof(key), "\"%s\"", name);
+
+    if (key_length < 0 || (size_t)key_length >= sizeof(key))
+    {
+        return 0U;
+    }
+
+    cursor = strstr(message, key);
+    if (cursor == NX_NULL)
+    {
+        return 0U;
+    }
+    cursor += key_length;
+    while (*cursor == ' ' || *cursor == '\t')
+    {
+        cursor++;
+    }
+    if (*cursor++ != ':')
+    {
+        return 0U;
+    }
+    while (*cursor == ' ' || *cursor == '\t')
+    {
+        cursor++;
+    }
+    if (*cursor < '0' || *cursor > '9')
+    {
+        return 0U;
+    }
+
+    do
+    {
+        uint32_t digit = (uint32_t)(*cursor - '0');
+        if (parsed > (UINT32_MAX - digit) / 10U)
+        {
+            return 0U;
+        }
+        parsed = parsed * 10U + digit;
+        cursor++;
+    } while (*cursor >= '0' && *cursor <= '9');
+
+    *value = parsed;
+    return 1U;
+}
+
 static UINT receive_campaign_result(uint32_t expected_request_id,
                                     CHAR scenario[GUARDIAN_SCENARIO_MAX_LENGTH + 1U],
                                     CHAR verdict[GUARDIAN_VERDICT_MAX_LENGTH + 1U],
+                                    uint32_t* result_index, uint32_t* result_total,
                                     UINT* request_acknowledged, UINT* result_received,
                                     UINT* campaign_finished, UINT* campaign_failed)
 {
@@ -238,6 +301,8 @@ static UINT receive_campaign_result(uint32_t expected_request_id,
     *result_received = 0U;
     *campaign_finished = 0U;
     *campaign_failed = 0U;
+    *result_index = 0U;
+    *result_total = 0U;
 
     status = nx_udp_socket_receive(&guardian_socket, &packet, TX_NO_WAIT);
     if (status == NX_NO_PACKET)
@@ -282,6 +347,14 @@ static UINT receive_campaign_result(uint32_t expected_request_id,
                           GUARDIAN_VERDICT_MAX_LENGTH + 1U) &&
         response_id == (unsigned long)expected_request_id)
     {
+        (void)json_uint_field(message, "n", result_index);
+        (void)json_uint_field(message, "total", result_total);
+        if (*result_index == 0U || *result_total == 0U ||
+            *result_index > *result_total)
+        {
+            *result_index = 0U;
+            *result_total = 0U;
+        }
         *request_acknowledged = 1U;
         *result_received = 1U;
         return NX_SUCCESS;
@@ -383,6 +456,8 @@ void guardian_thread_entry(ULONG parameter)
     {
         CHAR scenario[GUARDIAN_SCENARIO_MAX_LENGTH + 1U] = {0};
         CHAR verdict[GUARDIAN_VERDICT_MAX_LENGTH + 1U] = {0};
+        uint32_t result_index = 0U;
+        uint32_t result_total = 0U;
         UINT request_acknowledged = 0U;
         UINT result_received = 0U;
         UINT campaign_finished = 0U;
@@ -390,6 +465,7 @@ void guardian_thread_entry(ULONG parameter)
         ULONG now = tx_time_get();
 
         status = receive_campaign_result(campaign_request_id, scenario, verdict,
+                                         &result_index, &result_total,
                                          &request_acknowledged, &result_received,
                                          &campaign_finished, &campaign_failed);
         if (status != NX_SUCCESS)
@@ -406,14 +482,15 @@ void guardian_thread_entry(ULONG parameter)
             {
                 campaign_running = 0U;
                 campaign_result_visible = 0U;
-                screen_print_campaign_result("campaign", "ERROR");
+                screen_print_campaign_result("campaign", "ERROR", 0U, 0U);
                 button_status_tick = now;
                 button_status_active = 1U;
             }
             else if (result_received)
             {
                 campaign_result_visible = 1U;
-                screen_print_campaign_result(scenario, verdict);
+                screen_print_campaign_result(scenario, verdict,
+                                             result_index, result_total);
                 button_status_tick = now;
                 button_status_active = 1U;
                 printf("Campaign result: %s %s\r\n", scenario, verdict);
@@ -430,7 +507,7 @@ void guardian_thread_entry(ULONG parameter)
         {
             if (campaign_running)
             {
-                screen_print_campaign_result("campaign", "BUSY");
+                screen_print_campaign_result("campaign", "BUSY", 0U, 0U);
             }
             else
             {
@@ -442,13 +519,13 @@ void guardian_thread_entry(ULONG parameter)
                     campaign_acknowledged = 0U;
                     campaign_result_visible = 0U;
                     campaign_request_tick = now;
-                    screen_print_campaign_result("campaign", "RUNNING");
+                    screen_print_campaign_result("campaign", "RUNNING", 0U, 0U);
                     printf("Button A: started full OTA Outlaws campaign (request %lu)\r\n",
                            (unsigned long)campaign_request_id);
                 }
                 else
                 {
-                    screen_print_campaign_result("campaign", "SEND ERROR");
+                    screen_print_campaign_result("campaign", "SEND ERROR", 0U, 0U);
                     printf("ERROR: Button A campaign request failed (0x%08x)\r\n", status);
                 }
             }
@@ -472,7 +549,7 @@ void guardian_thread_entry(ULONG parameter)
         {
             campaign_running = 0U;
             campaign_result_visible = 1U;
-            screen_print_campaign_result("campaign", "NO HOST");
+            screen_print_campaign_result("campaign", "NO HOST", 0U, 0U);
             button_status_tick = now;
             button_status_active = 1U;
             printf("ERROR: No campaign bridge response within 10 seconds\r\n");
