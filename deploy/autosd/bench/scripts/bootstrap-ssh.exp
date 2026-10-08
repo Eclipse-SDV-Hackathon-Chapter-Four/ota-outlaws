@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# https://www.eclipse.org/legal/epl-2.0
+#
+# SPDX-License-Identifier: EPL-2.0
+# AI-assisted: Codex / GPT-6 (gpt-6)
+# Arguments: forwarded SSH port, known_hosts path, public key.
+# Use explicitly supplied development credentials to install a public key; future
+# operations use key authentication. Return SSH's exit code, or 124 on timeout.
+# Development image credentials only; bootstrap a dedicated per-bench SSH key.
+set timeout 15
+log_user 0
+if {![info exists env(AUTOSD_BOOTSTRAP_PASSWORD)]} { exit 2 }
+set port [lindex $argv 0]
+set known_hosts [lindex $argv 1]
+set public_key [lindex $argv 2]
+spawn ssh -p $port -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts root@127.0.0.1 "umask 077; mkdir -p /root/.ssh; touch /root/.ssh/authorized_keys; grep -qxF '$public_key' /root/.ssh/authorized_keys || printf '%s\n' '$public_key' >> /root/.ssh/authorized_keys"
+expect {
+  -re "(?i)password:" { send -- "$env(AUTOSD_BOOTSTRAP_PASSWORD)\r"; exp_continue }
+  timeout { exit 124 }
+  eof { set result [wait]; exit [lindex $result 3] }
+}

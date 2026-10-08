@@ -142,6 +142,76 @@ kind = "recovery"
 dtc = "BTG_TempFreshnessLost"
 requirement = "FSR-2.6"
 
+# The CAN endpoint is interrupted while A keeps replaying. This differs from
+# transport_dropout: the uProtocol tap is downstream and loses samples too.
+[[scenario]]
+id = "can_link_interruption"
+description = "Peer B CAN endpoint goes down for 2 s while peer A continues replay"
+fault_class = "Transport"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-06"]
+status = "implemented"
+note = "Requires can-link-isolation. Source/destination CAN captures must show A continuing and B losing frames; safety budgets are unchanged."
+stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", isolate = "can-link", isolate_after_ms = 6050, isolate_for_ms = 2000 }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
+# Deterministic counterpart of the existing external source_dropout case.
+[[scenario]]
+id = "source_dropout_replay"
+description = "Peer A suppresses CAN sends for 2 s while the bench connection stays up"
+fault_class = "Source"
+hazard = "HE-1"
+safety_goal = "SG-2"
+hara_tests = ["TS-04"]
+status = "implemented"
+stimulus = { type = "can_trace", trace = "campaign/traces/nominal.asc", pause = ["kuksa-can-provider"], pause_after_ms = 6000, pause_for_ms = 2000 }
+onset = "gap"
+
+[[scenario.expect]]
+kind = "fault"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_stale + T_react"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "degraded"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.2"
+
+[[scenario.expect]]
+kind = "sovd"
+dtc = "BTG_TempFreshnessLost"
+budget = "T_diag"
+requirement = "FSR-D.2"
+
+[[scenario.expect]]
+kind = "recovery"
+dtc = "BTG_TempFreshnessLost"
+requirement = "FSR-2.6"
+
 [[scenario]]
 id = "counter_stuck"
 description = "AliveCounter remains fixed for 2 s while frames keep arriving"
