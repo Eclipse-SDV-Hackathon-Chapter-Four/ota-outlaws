@@ -42,7 +42,7 @@ const CHAIN: &[&str] = &[
 
 /// How long to keep recording after the last sample, so that OpenSOVD can
 /// catch up with the last Guardian events.
-const TAIL: Duration = Duration::from_secs(3);
+const TAIL: Duration = Duration::from_secs(2);
 
 pub struct Settings {
     pub repo: PathBuf,
@@ -275,7 +275,11 @@ pub async fn run(
         .await
         .unwrap_or_default();
     let _ = std::fs::write(run_dir.join("services.log"), logs);
-    let _ = compose.run(&["down", "-v", "--remove-orphans"]).await;
+    // -t 0: the containers only serve this run, waiting 10 s per container for a
+    // graceful stop would make up most of a scenario's time.
+    let _ = compose
+        .run(&["down", "-t", "0", "-v", "--remove-orphans"])
+        .await;
     result
 }
 
@@ -400,7 +404,7 @@ async fn drive(
     loop {
         let quiet = recorder
             .since_last_sample()
-            .is_some_and(|since| since > Duration::from_millis(1500));
+            .is_some_and(|since| since > Duration::from_millis(700));
         if source_started.elapsed() > trace_duration && quiet {
             break;
         }
