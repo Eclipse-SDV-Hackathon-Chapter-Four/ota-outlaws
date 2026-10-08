@@ -8,7 +8,7 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
-# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol)
+# AI-assisted: Codex / GPT-6.1 Sol (gpt-6.1-sol); Codex / GPT-6 (gpt-6)
 
 .git
 **/target
@@ -18,4 +18,8 @@ diagnostic-source
 
 .vscode
 start
+# Local bench state includes writable disks and private per-run SSH keys.
 runs
+deploy/autosd/bench/local.toml
+deploy/autosd/bench/assets
+**/__pycache__

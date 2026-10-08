@@ -189,7 +189,7 @@ For each component, document:
 | State and lifecycle | Deterministic Rust core receives samples and 50 ms ticks; service loads `config/guardian/safety-params.toml` and runs in Compose. |
 | Dependencies | uProtocol contract, Zenoh, safety parameters, and DFM for diagnostics. |
 | Failure behavior | Invalid or missing input raises defined monitoring faults. Docker restarts a crashed process; the watchdog detects hangs. Diagnostic unavailability does not gate core evaluation. |
-| Verification | [Guardian requirement tests](../../components/guardian/tests/requirements.rs), [diagnostics tests](../../components/guardian-service/tests/diagnostics.rs), and Rust campaign scenarios. |
+| Verification | [Guardian requirement tests](../../components/guardian/tests/requirements.rs), [campaign diagnostic checks](../../components/campaign/tests/evaluate.rs), and Rust campaign scenarios. |
 
 ### Rust Campaign Tool
 
@@ -454,3 +454,6 @@ the model **GPT-6 Luna** (`GPT-6 Luna`).
 
 The workspace SBOM reference and regeneration command were added with the
 assistance of **GitHub Copilot** using the model **GPT-6 Luna** (`GPT-6 Luna`).
+
+The campaign verification link was updated with assistance from **Codex** using
+**GPT-6** (`gpt-6`).

@@ -21,7 +21,7 @@ Project plan: [Project Plan](docs/reference/project-plan.md)
 |--------|---------|
 | [`components/`](components/) | Everything that is built: [`guardian`](components/guardian/) (core), [`guardian-service`](components/guardian-service/) (uProtocol service), [`watchdog`](components/watchdog/), [`vss-publisher`](components/vss-publisher/), [`contracts`](components/contracts/) (Protobuf), [`dashboard`](components/dashboard/), and the [`campaign`](components/campaign/) tool with its scenarios and CAN traces |
 | [`config/`](config/) | [`guardian/`](config/guardian/) safety parameters and [`can/`](config/can/) DBC, VSS mapping, and the default CAN trace |
-| [`deploy/`](deploy/) | [`docker-compose.yml`](deploy/docker-compose.yml) of the stack and [`diagnostics/`](deploy/diagnostics/) (OpenSOVD image, fault catalog, smoke test); `docker compose up` works from the repository root through [`compose.yaml`](compose.yaml) |
+| [`deploy/`](deploy/) | [`docker-compose.yml`](deploy/docker-compose.yml) of the stack and [`diagnostics/`](deploy/diagnostics/) (OpenSOVD image, fault catalog), and [`autosd/`](deploy/autosd/) (AutoSD/Ankaios deployment and the openDuT bench); `docker compose up` works from the repository root through [`compose.yaml`](compose.yaml) |
 | [`hardware/az3166/`](hardware/az3166/) | The MXChip AZ3166 board (ThreadX firmware) and the host bridge that starts campaigns from its button |
 | [`third-party/`](third-party/) | `fault-lib`, vendored |
 | [`docs/`](docs/) | Reference, how-to, and explanation |
@@ -166,8 +166,8 @@ previous session’s current failure after testing, while preserving history. Ca
 the Guardian does not know which campaign is running.
 
 Configuration: `FAULT_CATALOG` (container default `/etc/guardian/catalog/battery_guardian.json`)
-and `SOVD_ENTITY` (default `battery_guardian`). `SOVD_URL` is used only by the
-integration tests. Their OpenSOVD visibility budget is two seconds. uProtocol
+and `SOVD_ENTITY` (default `battery_guardian`). Campaigns collect OpenSOVD
+evidence against the visibility budget in the scenario catalog. uProtocol
 event sends have a 100-ms timeout. Enqueue success does not guarantee diagnostic
 visibility or durable delivery across DFM restarts; a future collector must
 observe and report those failures.
@@ -183,30 +183,23 @@ warnings on a physical actuator.
 
 ## Verification
 
+From `deploy/autosd`, deploy with `make up` and run the shared campaign driver
+inside AutoSD through Ankaios:
+
 ```sh
-python3 deploy/diagnostics/smoke_test.py
+make campaigns
+make campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
 ```
 
-This builds the Guardian integration test image and runs five isolated
-campaigns: freshness loss, signal stuck, counter stuck, invalid quality, and a
-DFM/gateway outage. Inputs use the `BatteryTemperature` protobuf over real
-uProtocol/Zenoh. Tests assert baseline diagnostics, the fault → degraded →
-mitigation-request cause chain, session IDs, all available diagnostic metadata,
-and visibility timing. The outage pauses both diagnostics services, verifies the
-safety request while they are paused, resumes them, and checks retained evidence
-readback. Every scenario gets a fresh process, IPC namespace and storage volume,
-ensuring independent campaign evidence. Each campaign then restores healthy input
-and verifies fault recovery, monitoring OK, and matching DFM Passed readback
-without deleting fault history.
+The scenarios in `components/campaign/scenarios.toml` exercise the deployed CAN → KUKSA →
+uProtocol → Guardian → DFM → OpenSOVD chain. Reports and recordings are copied
+into `runs/autosd/<run>/`; the original replay is restored after each campaign.
+See [AutoSD deployment](deploy/autosd/README.md) for prerequisites and
+[Run the tests](docs/how-to/run-tests.md) for unit tests and the Compose runtime.
 
-Reports, failed verdicts and logs are preserved in a unique timestamped directory
-under `deploy/diagnostics/reports/`; test containers and isolated volumes are removed.
-`DIAGNOSTICS_TEST_PORT` changes the default port 17690. `SKIP_TEST_BUILD=1` reuses
-an already built test image. The development stack is never cleared by these tests.
-
-These tests prove the team's diagnostics path and mitigation **requests**. They do
-not prove an actuator effect, CAN/KUKSA replay, AutoSD, Ankaios or remote reruns.
-The image's starter Guardian/injector binaries are no longer used by this suite.
+Diagnostics outage is not covered by the shipped scenario catalog. Campaigns
+verify mitigation requests; physical actuator effects and durable fault
+persistence remain outside their assertions.
 
 ## Lifecycle
 
@@ -240,33 +233,16 @@ On 6 October 2026, the initial reporting/readback check succeeded. The first
 recreation check failed with `ServiceInCorruptedState` because discovery files
 outlived shared memory; the entrypoint now keeps both in `/dev/shm` and resolves
 that issue. A subsequent fault-persistence check failed: after DFM recreation,
-OpenSOVD returned the catalog with reset fault statuses. This was observed in the previous development image and is not presented as passing. The smoke test checks
-reporting, clearing and service recovery; it does not assert durable persistence.
+OpenSOVD returned the catalog with reset fault statuses. This was observed in the previous development image and is not presented as passing.
+Campaigns do not assert durable persistence.
 
-## Guardian integration validation
+## Historical diagnostic validation
 
-On 7 October 2026, all five final Guardian campaigns passed: freshness loss,
-signal stuck, counter stuck, invalid quality, and paused DFM/gateway with retained
-fault readback after resume. Each asserted exact session/event metadata and the
-fault → degraded → mitigation-request cause chain. Normal diagnostic visibility
-was within the 2-second budget. The workspace's 49 tests, five VSS Publisher tests,
-formatting and warning-free lint checks passed. The updated Guardian runtime image
-was built and the live Guardian/DFM/gateway services were recreated successfully;
-the live gateway exposes exactly the four core diagnostic codes.
-
-Evidence is preserved under `deploy/diagnostics/reports/20261007-002330-a5a9a93c/`.
-An earlier packaging-transition run is also retained under
-`deploy/diagnostics/reports/20261007-002232-cebb1a09/`: its counter campaign failed before
-startup while the test image/entrypoint was being updated. It is not hidden or
-counted as a passing campaign. The subsequent complete final suite passed.
-
-Signal-stuck testing and recovery require the full three-second detector observation
-period plus the one-second healthy confirmation period. A maximum that jumps once
-and freezes again while reference temperatures move does not recover. The local
-`third-party/fault-lib` patch blocks newer IPC records behind older retries;
-Guardian still performs no OpenSOVD polling. Delivery remains best effort, with
-bounded queues and the upstream retry limit. The outage campaign restores healthy
-input while diagnostics are paused, then verifies the final Passed state after resume.
+The retired diagnostic harness passed five isolated checks on 7 October 2026.
+Its passing evidence remains under `deploy/diagnostics/reports/20261007-002330-a5a9a93c/`;
+the earlier failed packaging-transition run remains under
+`deploy/diagnostics/reports/20261007-002232-cebb1a09/`. These historical results do not
+establish coverage in the current campaign catalog.
 
 ## AI Assistance
 
@@ -274,3 +250,6 @@ This document was created with the assistance of **Codex** using the model
 **GPT-6.1 Sol** (`gpt-6.1-sol`). The section "Run the tests" was added with the
 assistance of **Claude Code** using the model **Claude Opus 5.5**
 (`claude-opus-5-5`).
+
+The AutoSD campaign validation note was added with assistance from **Codex**
+using **GPT-6** (`gpt-6`).

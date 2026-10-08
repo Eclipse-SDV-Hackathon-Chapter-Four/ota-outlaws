@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Reads the campaign tool's evidence directory (`runs/`).
 //!
@@ -25,7 +25,7 @@
 //! runs/<id>-observe-<scenario>/…         an `observe` run: one scenario, no subdirectory
 //! ```
 //!
-//! A scenario is running while its Compose project (`campaign-<scenario>`)
+//! A scenario is running while its Compose project (`campaign-<run>-<scenario>`)
 //! has containers, or its recording changed in the last few seconds. When the
 //! dashboard's own campaign runner has stopped, changes from before it
 //! stopped no longer count.
@@ -100,22 +100,38 @@ pub struct Activity {
 }
 
 impl Runs {
-    /// Campaigns, newest first. Directory names start with a timestamp.
+    /// Campaigns, newest first, including remote runs with randomly allocated IDs.
     pub fn list(&self, activity: &Activity) -> Vec<CampaignSummary> {
         let mut ids: Vec<String> = std::fs::read_dir(&self.dir)
             .map(|entries| {
                 entries
                     .filter_map(Result::ok)
-                    .filter(|e| e.path().is_dir())
+                    .filter(|e| {
+                        e.path().is_dir()
+                            && (e.path().join("plan.json").is_file()
+                                || e.path().join("manifest.json").is_file()
+                                || std::fs::read_dir(e.path())
+                                    .map(|cs| {
+                                        cs.filter_map(Result::ok)
+                                            .any(|c| c.path().join("manifest.json").is_file())
+                                    })
+                                    .unwrap_or(false))
+                    })
                     .map(|e| e.file_name().to_string_lossy().into_owned())
                     .collect()
             })
             .unwrap_or_default();
         ids.sort_unstable_by(|a, b| b.cmp(a));
-        ids.iter()
+        let mut views: Vec<_> = ids
+            .iter()
             .filter_map(|id| self.campaign(id, activity).ok())
-            .map(|view| summarize(&view))
-            .collect()
+            .collect();
+        views.sort_by(|a, b| {
+            b.started_at
+                .cmp(&a.started_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        views.iter().map(summarize).collect()
     }
 
     /// The running campaign, if any.
@@ -266,9 +282,16 @@ fn scenario(dir: &Path, name: Option<&str>, activity: &Activity) -> ScenarioView
     let observations = std::fs::read(&recording)
         .map(|bytes| bytecount(&bytes))
         .unwrap_or(0);
+    let project = manifest
+        .as_ref()
+        .and_then(|m| m["run_id"].as_str())
+        .filter(|run_id| run_id.contains('/'))
+        .map(|run_id| project_name(&run_id.replace('/', "-")))
+        .unwrap_or_else(|| project_name(&id));
     let state = if report.is_some() {
         State::Done
-    } else if activity.projects.contains(&project_name(&id))
+    } else if activity.projects.contains(&project)
+        || activity.projects.contains(&project_name(&id))
         || modified_within(&recording, ACTIVE, activity.quiet_since)
     {
         State::Running
@@ -381,6 +404,30 @@ mod tests {
     }
 
     #[test]
+    fn running_project_is_attributed_to_its_campaign() {
+        let dir = temp_runs("namespaced");
+        for id in ["run_a", "run_b"] {
+            write(
+                &dir.join(id).join("counter_stuck/manifest.json"),
+                &format!(r#"{{"run_id":"{id}/counter_stuck","scenario":"counter_stuck"}}"#),
+            );
+        }
+        let runs = Runs { dir };
+        let active = Activity {
+            projects: vec!["campaign-run-a-counter-stuck".to_owned()],
+            quiet_since: Some(SystemTime::now() + Duration::from_secs(1)),
+        };
+        assert_eq!(
+            runs.campaign("run_a", &active).unwrap().scenarios[0].state,
+            State::Running
+        );
+        assert_eq!(
+            runs.campaign("run_b", &active).unwrap().scenarios[0].state,
+            State::Incomplete
+        );
+    }
+
+    #[test]
     fn finished_campaign_with_verdicts() {
         let dir = temp_runs("finished");
         let campaign = dir.join("20261007-120000");
@@ -410,6 +457,25 @@ mod tests {
         let list = runs.list(&Activity::default());
         assert_eq!((list[0].pass, list[0].fail, list[0].scenarios), (1, 1, 2));
         assert!(runs.current(&Activity::default()).is_none());
+    }
+
+    #[test]
+    fn remote_runs_sort_by_start_time_and_ignore_wrapper_directories() {
+        let dir = temp_runs("remote-order");
+        write(
+            &dir.join("opendut-zzz/plan.json"),
+            r#"{"started_at":"2026-10-07T12:00:00Z","scenarios":["normal"]}"#,
+        );
+        write(
+            &dir.join("opendut-aaa/plan.json"),
+            r#"{"started_at":"2026-10-08T12:00:00Z","scenarios":["normal"]}"#,
+        );
+        std::fs::create_dir_all(dir.join("opendut-wrapper/nested")).unwrap();
+        let list = Runs { dir }.list(&Activity::default());
+        assert_eq!(
+            list.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["opendut-aaa", "opendut-zzz"]
+        );
     }
 
     #[test]

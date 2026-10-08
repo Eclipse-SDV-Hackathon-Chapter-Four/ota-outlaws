@@ -9,7 +9,7 @@
 # https://www.eclipse.org/legal/epl-2.0
 #
 # SPDX-License-Identifier: EPL-2.0
-# AI-assisted: GitHub Copilot / GPT-6 Luna (GPT-6 Luna)
+# AI-assisted: GitHub Copilot / GPT-6 Luna (GPT-6 Luna); Codex / GPT-6 (gpt-6)
 
 """Check local Markdown links and selected architecture/implementation facts."""
 
@@ -78,7 +78,8 @@ def check_markdown_links() -> list[str]:
     errors = []
     markdown_files = [
         path for path in ROOT.rglob("*.md")
-        if not any(part in {".git", "target", "node_modules", ".venv"} for part in path.parts)
+        if path.relative_to(ROOT).parts[0] != "runs"
+        and not any(part in {".git", "target", "node_modules", ".venv"} for part in path.parts)
     ]
     for source in markdown_files:
         text = markdown_without_fences(source.read_text(encoding="utf-8", errors="replace"))

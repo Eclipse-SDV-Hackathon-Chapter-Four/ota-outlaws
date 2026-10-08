@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Judges a recording against a scenario's expectations. A pure function of
 //! its inputs: no I/O, no clock. The verdict rules are those of the Safety
@@ -295,6 +295,16 @@ impl<'a> Run<'a> {
             .map(|(t, _)| *t);
         if let Some(ready) = ready {
             samples.retain(|(t, _)| *t >= ready);
+        } else if let Some((start, _)) = injections.iter().rev().find(|(_, a)| *a == GUARDIAN_START)
+        {
+            // Older recordings have no readiness marker. Align their input
+            // window to the Guardian clock rather than container invocation.
+            let process_start = events
+                .iter()
+                .map(|(t, e)| t.saturating_sub(e.guardian_time_ms))
+                .min()
+                .unwrap_or(*start);
+            samples.retain(|(t, _)| *t >= (*start).max(process_start));
         }
         let session_id = events.first().map(|(_, e)| e.session_id.clone());
         let window_end = samples.last().map(|(t, _)| t + cycle_ms);

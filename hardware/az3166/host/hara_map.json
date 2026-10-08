@@ -120,6 +120,16 @@
     "title": "Temperature source shutdown",
     "short": "source_dro"
   },
+  "source_dropout_replay": {
+    "ts": "TS-04",
+    "title": "Temperature source shutdown",
+    "short": "SrcDropRpl"
+  },
+  "can_link_interruption": {
+    "ts": "TS-06",
+    "title": "Publisher-to-Guardian transport dropout",
+    "short": "CanLinkInt"
+  },
   "invalid_during_critical": {
     "ts": "TS-11",
     "title": "Invalid source quality",

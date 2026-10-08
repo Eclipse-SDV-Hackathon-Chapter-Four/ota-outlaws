@@ -57,6 +57,14 @@ remembered. Purple marks what to look at, never "good". The attention colour,
 the Eclipse orange, appears only on something that needs action, always with a
 sign and words.
 
+**Runtime** in the header selects what the dashboard watches and runs
+campaigns on: the Docker Compose stack on this host, or AutoSD peers through
+OpenDUT, if configured (see the
+[dashboard README](../../../components/dashboard/README.md)). On AutoSD,
+Ankaios manages the services, so start, stop, restart, and clearing DTCs are
+not offered; campaigns build the images from the checkout and show the bench
+phase, evidence retrieval errors, and cleanup failures under "Runner output".
+
 ## Campaign view
 
 The start page answers whether the Guardian passes its HARA tests, and why.

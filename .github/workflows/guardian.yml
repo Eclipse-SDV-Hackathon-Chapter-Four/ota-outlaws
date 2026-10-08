@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol); GitHub Copilot / GPT-6 Luna (GPT-6 Luna)
+# AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol); GitHub Copilot / GPT-6 Luna (GPT-6 Luna); Codex / GPT-6 (gpt-6)
 
 name: Guardian
 
@@ -60,35 +60,3 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/diagnostics-image.yml
-
-  diagnostics:
-    needs: diagnostic-image
-    if: always() && (needs.diagnostic-image.result == 'success' || needs.diagnostic-image.result == 'skipped')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Load the pinned diagnostic image
-        run: |
-          . deploy/diagnostics/image.env
-          echo "DIAGNOSTICS_IMAGE=$DIAGNOSTICS_IMAGE" >> "$GITHUB_ENV"
-          echo "PINNED_SOURCE_REV=$PINNED_SOURCE_REV" >> "$GITHUB_ENV"
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pull the published diagnostic stack
-        run: |
-          docker pull "$DIAGNOSTICS_IMAGE"
-          revision=$(docker image inspect "$DIAGNOSTICS_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
-          test "$revision" = "$PINNED_SOURCE_REV"
-      - name: Test Guardian diagnostic campaigns
-        run: python3 deploy/diagnostics/smoke_test.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: diagnostic-evidence
-          path: deploy/diagnostics/reports/
