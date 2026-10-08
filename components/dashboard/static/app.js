@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
-/* AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5) */
+/* AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Claude Code / Claude Sonnet 5.5 (claude-sonnet-5-5); Codex / GPT-6 (gpt-6) */
 
 // Dashboard front end: plain JavaScript, no build step. It follows
 // DASHBOARDS.md: a headline sentence, at most four key metrics with their
@@ -59,10 +59,11 @@ const HEADLINES = [
   { when: (s) => s.running, text: (s) => `Running <em>${esc(s.running.scenario || 'the next scenario')}</em>, ${s.running.done} of ${s.running.total} done.` },
   { when: (s) => s.fail > 0, text: (s) => `<em>${plural(s.fail, 'HARA test')} failed:</em> ${esc(s.failed.slice(0, 4).join(', '))}${s.failed.length > 4 ? ' and more' : ''}.` },
   { when: (s) => s.inconclusive > 0, text: (s) => `Nothing failed, but <em>${plural(s.inconclusive, 'test')} could not be judged:</em> ${esc(s.inconclusiveIds.join(', '))}.` },
-  { when: (s) => s.judged > s.chainsComplete, text: (s) => `All ${s.tests} HARA tests passed, but <em>${plural(s.judged - s.chainsComplete, 'evidence chain')} ${s.judged - s.chainsComplete === 1 ? 'is' : 'are'} incomplete.</em>` },
-  { when: (s) => s.planned > 0, text: (s) => `All ${s.tests} HARA tests passed. <em>${plural(s.planned, 'planned check')}</em> ${s.planned === 1 ? 'is' : 'are'} still open.` },
+  { when: (s) => s.judged > s.chainsComplete, text: (s) => `${s.pass} HARA tests passed, but <em>${plural(s.judged - s.chainsComplete, 'evidence chain')} ${s.judged - s.chainsComplete === 1 ? 'is' : 'are'} incomplete.</em>` },
+  { when: (s) => s.planned > 0, text: (s) => `${s.pass} HARA tests passed. <em>${plural(s.planned, 'planned check')}</em> ${s.planned === 1 ? 'is' : 'are'} still open.` },
   { when: (s) => s.state !== 'done', text: (s) => `${s.pass} of ${s.tests} tests passed so far. The campaign stopped before the end.` },
-  { when: () => true, text: (s) => `A normal run. All ${s.tests} HARA tests passed and <em>nothing needs your attention.</em>` },
+  { when: (s) => s.pass < s.tests, text: (s) => `${s.pass} of ${s.tests} HARA tests passed. <em>${s.tests - s.pass} were not covered by this campaign.</em>` },
+  { when: () => true, text: (s) => `A normal run. All ${s.pass} HARA tests passed and <em>nothing needs your attention.</em>` },
 ];
 
 // --- state -----------------------------------------------------------------------------
