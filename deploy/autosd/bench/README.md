@@ -30,6 +30,14 @@ reports. `can_io.py` only schedules/suppresses raw ASC frames on A, captures raw
 CAN on both guests and checks delivery integrity. It contains no scenario catalog,
 Guardian test expectations, diagnostic client or safety evaluator.
 
+## Dashboard
+
+The same two-peer controller can be launched from the dashboard. Start
+`make dashboard-controller` on the native host, then select **AutoSD / OpenDUT**
+in the dashboard's Runtime selector. See the [dashboard README](../../../dashboard/README.md)
+for configuration, evidence paths, cancellation/recovery and current observation
+limits. Campaign scenarios and verdict logic remain in the shared Rust CLI.
+
 ## Run
 
 Use an ARM64 Linux host with KVM or an Apple Silicon Mac with HVF. Install

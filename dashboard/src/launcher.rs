@@ -137,12 +137,28 @@ impl Launcher {
 
     /// The scenarios the campaign tool can run on its own (not `external`).
     pub fn scenarios(&self) -> anyhow::Result<Vec<ScenarioInfo>> {
+        self.scenarios_for(false)
+    }
+
+    pub fn scenarios_for(&self, opendut: bool) -> anyhow::Result<Vec<ScenarioInfo>> {
         let context = campaign::Context::load(&self.repo)?;
         Ok(context
             .catalog
             .scenarios
             .iter()
-            .filter(|s| !matches!(s.stimulus, Stimulus::External))
+            .filter(|s| match &s.stimulus {
+                Stimulus::External => false,
+                Stimulus::CanTrace {
+                    isolate, watchdog, ..
+                } => {
+                    if opendut {
+                        !watchdog && isolate.as_deref().is_none_or(|s| s == "can-link")
+                    } else {
+                        isolate.as_deref() != Some("can-link")
+                    }
+                }
+                _ => true,
+            })
             .map(|s| ScenarioInfo {
                 id: s.id.clone(),
                 description: s.description.clone(),
@@ -428,5 +444,12 @@ mod tests {
         );
         let scenarios = launcher.scenarios().unwrap();
         assert!(scenarios.iter().any(|s| s.id == "counter_stuck"));
+        assert!(!scenarios.iter().any(|s| s.id == "can_link_interruption"));
+        let remote = launcher.scenarios_for(true).unwrap();
+        assert!(remote.iter().any(|s| s.id == "can_link_interruption"));
+        assert!(remote.iter().any(|s| s.id == "source_dropout_replay"));
+        for id in ["transport_dropout", "guardian_crash", "guardian_hang"] {
+            assert!(!remote.iter().any(|s| s.id == id));
+        }
     }
 }

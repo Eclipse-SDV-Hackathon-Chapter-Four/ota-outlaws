@@ -21,6 +21,7 @@ CAMPAIGN_OUT ?= $(REPO_DIR)/runs/autosd
 
 PYTHON ?= $(shell command -v python3.14 || command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3)
 CONFIG ?= bench/local.toml
+CONTROLLER_PORT ?= 18100
 SCENARIOS ?= normal timeout invalid_quality source_dropout_replay can_link_interruption
 
 AUTOSD_BENCH_DIR ?= $(abspath ../../../can-testbench)
@@ -47,13 +48,14 @@ SSH = ssh -p "$(AUTOSD_SSH_PORT)" -i "$(AUTOSD_SSH_KEY)" \
     -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$(AUTOSD_KNOWN_HOSTS)"
 
-.PHONY: help up down status logs connect campaigns remote-doctor remote-run remote-cleanup remote-test
+.PHONY: help up down status logs connect campaigns remote-doctor remote-run remote-cleanup remote-test dashboard-controller
 help:
 	@echo 'Two-peer openDuT bench (configure bench/local.toml):'
 	@echo 'remote-doctor  Verify host prerequisites and reusable artifact hashes'
 	@echo 'remote-run     Create fresh peers and run SCENARIOS; empty selects all supported cases'
 	@echo 'remote-cleanup Retry interrupted cleanup: STATE=/absolute/path/to/run'
 	@echo 'remote-test    Check CAN evidence, clocks and local configuration'
+	@echo 'dashboard-controller Serve the local AutoSD/openDuT dashboard adapter'
 	@echo ''
 	@echo 'Single-VM AutoSD deployment:'
 	@echo 'up       Transfer updates, install missing Ankaios, start and wait for readiness'
@@ -181,3 +183,7 @@ remote-cleanup:
 
 remote-test:
 	$(PYTHON) -m unittest discover -s bench/tests -v
+
+# Runs on the native host, where QEMU can use HVF or KVM.
+dashboard-controller:
+	$(PYTHON) -u bench/dashboard.py --config "$(CONFIG)" --port "$(CONTROLLER_PORT)"

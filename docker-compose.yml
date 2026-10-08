@@ -9,7 +9,7 @@
 #
 # SPDX-License-Identifier: EPL-2.0
 
-# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5); Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6.1 Sol (gpt-6.1-sol)
+# AI-assisted: Claude Code / Claude Sonnet 5 (claude-sonnet-5); Claude Code / Claude Opus 5 (claude-opus-5); Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6); Codex / GPT-6.1 Sol (gpt-6.1-sol)
 
 # =============================================================================
 # Doctor Whodunit — Battery Thermal Guardian signal chain and DFM/OpenSOVD diagnostics
@@ -192,6 +192,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/repo:ro
     environment:
+      OPENDUT_CONTROLLER_URL: "${OPENDUT_CONTROLLER_URL:-http://host.docker.internal:18100}"
+      DASHBOARD_BACKEND: "${DASHBOARD_BACKEND:-compose}"
       ZENOH_CONNECT: "tcp/zenoh:7447"
       SOVD_URL: "http://opensovd-gateway:7690/sovd/v1"
       SOVD_ENTITY: battery_guardian
@@ -199,6 +201,8 @@ services:
       DATABROKER_ADDR: "http://kuksa-databroker:55555"
       RUNS_DIR: /repo/runs
       RUST_LOG: "info"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

@@ -61,6 +61,15 @@ case "$operation" in
         # Inspect the actual receiver process: its stdout may be buffered.
         # B never receives a path to the measured trace.
         evidence=$(cat "$state/evidence")
+        # Resolve the fresh container before Guardian starts. Podman follow
+        # polls journald and can consume most of the 300 ms startup budget;
+        # journalctl follows the same real stdout without that polling delay.
+        # Scope to the container ID so logs from an earlier scenario cannot
+        # satisfy the shared runner's readiness check.
+        rm -f "$state/guardian-journal-id"
+        if [[ "$(podman inspect ota-autosd-guardian --format '{{.HostConfig.LogConfig.Type}}')" == journald ]]; then
+            podman inspect ota-autosd-guardian --format '{{.Id}}' > "$state/guardian-journal-id"
+        fi
         python3 "$here/clock_io.py" --source "${source_host#root@}" > "$evidence/clock-synchronization.json" || {
             echo 'Peer clock quality failed; inspect clock-synchronization.json.' >&2; exit 1;
         }
@@ -143,7 +152,13 @@ else:
     (s/'link-interval.json').write_text(json.dumps([int((s/'link-down').read_text()), before]))
 PYLINK
         ;;
-    logs) exec "$single" logs "$@" ;;
+    logs)
+        if [[ "${1:-}" == --follow && "${2:-}" == guardian && -s "$state/guardian-journal-id" ]]; then
+            exec journalctl --all --no-pager --output=cat --follow --lines=all \
+                "CONTAINER_ID_FULL=$(cat "$state/guardian-journal-id")"
+        fi
+        exec "$single" logs "$@"
+        ;;
     finish)
         evidence=$1
         # All restoration steps run even if collection or another cleanup fails.

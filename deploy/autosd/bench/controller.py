@@ -32,6 +32,8 @@ import uuid
 if sys.version_info < (3, 11, 8):
     raise SystemExit("Python 3.11.8+ required; select it with make PYTHON=/path/to/python3")
 import tomllib
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dashboard_io import atomic_json, publish, SNAPSHOT
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -151,7 +153,7 @@ class Bench:
         if self.owned.exists():
             self.config = json.loads(self.owned.read_text())
         else:
-            job = uuid.uuid4().hex[:12]
+            job = getattr(args, "run_id", None) or uuid.uuid4().hex[:12]
             self.config = dict(job=job, cluster_id=str(uuid.uuid4()), peers=[], vms=[],
                                inputs=dict(base_sha256=args.base_sha256,
                                            air_sha256=args.air_sha256,
@@ -184,7 +186,35 @@ class Bench:
         self.env["SSL_CERT_FILE"] = str(Path(args.ca).resolve())
 
     def save(self):
-        self.owned.write_text(json.dumps(self.config, indent=2) + "\n")
+        atomic_json(self.owned, self.config)
+
+    def dashboard_phase(self, phase):
+        atomic_json(self.state / "dashboard-phase.json", {"phase": phase})
+
+    def dashboard_sync(self, final=False):
+        output = getattr(self.args, "dashboard_out", None)
+        if not output:
+            return
+        job = self.config["job"]
+        archive = self.state / "guest-evidence.tar.gz" if final else self.state / "dashboard-live.tar.gz"
+        if not final:
+            b = self.config["peers"][1]
+            remote = f"/opt/ota-outlaws-autosd/campaign-reports/{job}"
+            with archive.open("wb") as stream:
+                result = subprocess.run([*self.ssh_args(b),
+                    f"test -f {remote}/plan.json && /opt/ota-outlaws-autosd/busybox tar -czf - -C /opt/ota-outlaws-autosd/campaign-reports {job}"],
+                    stdout=stream, stderr=subprocess.PIPE, timeout=20)
+            if result.returncode and not archive.stat().st_size:
+                # The guest may still be preparing the first scenario. Once
+                # its plan exists, command failures are visible to the viewer.
+                if self.ssh(b, f"test -f {remote}/plan.json", check=False, timeout=5).returncode:
+                    return
+                raise RuntimeError("Live evidence archive failed: " + result.stderr.decode(errors="replace"))
+        publish(archive, output, job)
+        if not final:
+            snapshot = self.ssh(self.config["peers"][1],
+                "python3 - <<'PYDASH'\n" + SNAPSHOT + "\nPYDASH", timeout=60)
+            atomic_json(self.state / "dashboard-runtime.json", json.loads(snapshot.stdout))
 
     def cleo(self, *args, **kwargs):
         return run([*self.cleo_cmd, *args], env=self.env, **kwargs).stdout
@@ -807,13 +837,25 @@ class Bench:
         unit = "ota-campaign-" + job
         self.config["campaign_unit"] = unit
         self.save()
+        # An all-scenarios campaign includes bounded workload preparation and
+        # restoration for every case. Scale only the outer job deadline; the
+        # shared evaluator's measurement windows and budgets remain unchanged.
+        count = len(self.args.scenarios)
+        if "--all" in self.args.scenarios:
+            count = len(tomllib.loads((ROOT / "campaign/scenarios.toml").read_text())["scenario"])
+        campaign_timeout = max(3600, count * 600)
         self.ssh(
             b,
-            f"systemd-run --quiet --collect --uid=root --unit={unit} --property=RuntimeMaxSec=3600 --property=TimeoutStopSec=330 /bin/bash -c "
+            f"systemd-run --quiet --collect --uid=root --unit={unit} --property=RuntimeMaxSec={campaign_timeout} --property=TimeoutStopSec=330 /bin/bash -c "
             + shlex.quote(command + f" > {guest}/bench-tools/run.log 2>&1"),
         )
-        deadline = time.monotonic() + 4000
+        deadline = time.monotonic() + campaign_timeout + 400
+        self.dashboard_phase("running")
         while time.monotonic() < deadline:
+            try:
+                self.dashboard_sync()
+            except Exception as error:
+                atomic_json(self.state / "dashboard-sync-error.json", {"error": str(error)})
             if self.ssh(
                 b, f"systemctl is-active {unit}", check=False
             ).stdout.strip() not in ("active", "activating", "deactivating"):
@@ -1016,12 +1058,17 @@ def main():
     parser.add_argument("--source-cpus", type=int, choices=range(1, 9), default=2)
     parser.add_argument("--dut-cpus", type=int, choices=range(1, 9), default=4)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--run-id")
+    parser.add_argument("--dashboard-out")
     parser.add_argument("scenarios", nargs="*", default=["--all"])
     try:
         parser.set_defaults(**local_config(preliminary.config))
     except (OSError, ValueError, TypeError) as error:
         parser.error(str(error))
     args = parser.parse_intermixed_args()
+    if args.run_id and (not args.run_id.replace("-", "").replace("_", "").isalnum()
+                        or not args.run_id.isascii()):
+        parser.error("Invalid run ID")
     if not args.scenarios:
         args.scenarios = ["--all"]
     if args.operation != "cleanup":
@@ -1062,18 +1109,23 @@ def main():
         if setup:
             bench.cleo("setup", "--persistent", "user", data=setup + "\n")
         print("Creating fresh AutoSD peers...", flush=True)
+        bench.dashboard_phase("creating peers")
         bench.boot()
         bench.descriptors()
         print("Provisioning openDuT 0.10.2 and CAN compatibility...", flush=True)
+        bench.dashboard_phase("provisioning openDuT")
         bench.provision(bench.assets())
         print("Verifying actual CAN deployment dependency...", flush=True)
+        bench.dashboard_phase("verifying CAN connectivity")
         bench.connectivity()
         print("Synchronizing guest clocks across the bench...", flush=True)
+        bench.dashboard_phase("synchronizing clocks")
         bench.synchronize()
         print(
             "Building/deploying applications and running shared campaigns on B...",
             flush=True,
         )
+        bench.dashboard_phase("building and deploying applications")
         bench.applications()
     except BaseException as error:
         failed = True
@@ -1083,8 +1135,16 @@ def main():
         # Second signal cannot skip cleanup; cleanup can also be retried explicitly.
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
+        bench.dashboard_phase("restoring and collecting evidence")
         if not bench.cleanup():
             failed = True
+        if args.dashboard_out and (bench.state / "guest-evidence.tar.gz").is_file():
+            try:
+                bench.dashboard_sync(final=True)
+            except Exception as error:
+                atomic_json(bench.state / "dashboard-sync-error.json", {"error": str(error)})
+                failed = True
+    atomic_json(bench.state / "dashboard-result.json", {"exit_code": 1 if failed else 0})
     return 1 if failed else 0
 
 

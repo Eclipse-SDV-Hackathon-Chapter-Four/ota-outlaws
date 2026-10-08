@@ -100,22 +100,38 @@ pub struct Activity {
 }
 
 impl Runs {
-    /// Campaigns, newest first. Directory names start with a timestamp.
+    /// Campaigns, newest first, including remote runs with randomly allocated IDs.
     pub fn list(&self, activity: &Activity) -> Vec<CampaignSummary> {
         let mut ids: Vec<String> = std::fs::read_dir(&self.dir)
             .map(|entries| {
                 entries
                     .filter_map(Result::ok)
-                    .filter(|e| e.path().is_dir())
+                    .filter(|e| {
+                        e.path().is_dir()
+                            && (e.path().join("plan.json").is_file()
+                                || e.path().join("manifest.json").is_file()
+                                || std::fs::read_dir(e.path())
+                                    .map(|cs| {
+                                        cs.filter_map(Result::ok)
+                                            .any(|c| c.path().join("manifest.json").is_file())
+                                    })
+                                    .unwrap_or(false))
+                    })
                     .map(|e| e.file_name().to_string_lossy().into_owned())
                     .collect()
             })
             .unwrap_or_default();
         ids.sort_unstable_by(|a, b| b.cmp(a));
-        ids.iter()
+        let mut views: Vec<_> = ids
+            .iter()
             .filter_map(|id| self.campaign(id, activity).ok())
-            .map(|view| summarize(&view))
-            .collect()
+            .collect();
+        views.sort_by(|a, b| {
+            b.started_at
+                .cmp(&a.started_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        views.iter().map(summarize).collect()
     }
 
     /// The running campaign, if any.
@@ -441,6 +457,25 @@ mod tests {
         let list = runs.list(&Activity::default());
         assert_eq!((list[0].pass, list[0].fail, list[0].scenarios), (1, 1, 2));
         assert!(runs.current(&Activity::default()).is_none());
+    }
+
+    #[test]
+    fn remote_runs_sort_by_start_time_and_ignore_wrapper_directories() {
+        let dir = temp_runs("remote-order");
+        write(
+            &dir.join("opendut-zzz/plan.json"),
+            r#"{"started_at":"2026-10-07T12:00:00Z","scenarios":["normal"]}"#,
+        );
+        write(
+            &dir.join("opendut-aaa/plan.json"),
+            r#"{"started_at":"2026-10-08T12:00:00Z","scenarios":["normal"]}"#,
+        );
+        std::fs::create_dir_all(dir.join("opendut-wrapper/nested")).unwrap();
+        let list = Runs { dir }.list(&Activity::default());
+        assert_eq!(
+            list.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["opendut-aaa", "opendut-zzz"]
+        );
     }
 
     #[test]

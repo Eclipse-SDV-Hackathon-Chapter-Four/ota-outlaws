@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Dashboard for the Battery Thermal Guardian stack.
 //!
@@ -48,6 +48,7 @@ mod api;
 mod components;
 mod docker;
 mod launcher;
+mod remote;
 mod runs;
 mod signal;
 mod sovd;
@@ -123,6 +124,11 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| repo.join("runs")),
         },
         launcher,
+        remote: remote::Remote::from_env()?,
+        remote_selected: std::sync::atomic::AtomicBool::new(
+            env("DASHBOARD_BACKEND", "compose") == "opendut",
+        ),
+        backend_lock: tokio::sync::Mutex::new(()),
     });
     let address: SocketAddr = env("LISTEN", "0.0.0.0:8080")
         .parse()
