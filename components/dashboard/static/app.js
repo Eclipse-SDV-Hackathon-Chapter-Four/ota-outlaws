@@ -935,7 +935,9 @@ function onCampaignClick(e) {
     else if (a === 'pick-none') { state.picked.clear(); refreshAll(); }
     return;
   }
-  if (e.target.closest('details, summary, .detail')) return;
+  // The tests table itself sits in a <details>; only its toggles and an open
+  // row's detail are not row clicks.
+  if (e.target.closest('summary, .detail')) return;
   const row = e.target.closest('tr[data-row]');
   if (row) toggleRow(row.dataset.row);
 }
