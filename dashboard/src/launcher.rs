@@ -9,7 +9,7 @@
 //
 // SPDX-License-Identifier: EPL-2.0
 
-// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5)
+// AI-assisted: Claude Code / Claude Opus 5.5 (claude-opus-5-5); Codex / GPT-6 (gpt-6)
 
 //! Starts and stops campaigns.
 //!
@@ -229,10 +229,13 @@ impl Launcher {
             .containers(&format!("com.docker.compose.project={}", self.project))
             .await
             .ok()?;
-        containers
+        let container = containers
             .iter()
-            .find(|c| c["Labels"]["com.docker.compose.service"] == "opensovd-dfm")
-            .and_then(|c| c["Image"].as_str().map(str::to_owned))
+            .find(|c| c["Labels"]["com.docker.compose.service"] == "opensovd-dfm")?;
+        // The list API can return a raw image ID when its original tag has
+        // moved. Compose needs the configured image reference, not that ID.
+        let inspect = self.docker.inspect(container["Id"].as_str()?).await.ok()?;
+        inspect["Config"]["Image"].as_str().map(str::to_owned)
     }
 
     fn runner_config(&self, args: &[String], diagnostics_image: Option<&str>) -> Value {
