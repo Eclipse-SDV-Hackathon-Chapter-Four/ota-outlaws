@@ -18,8 +18,15 @@
 set -euo pipefail
 [[ $# == 2 ]] || { echo 'Usage: provision-guest.sh HOSTNAME BACKEND_HOSTS' >&2; exit 2; }
 hostnamectl set-hostname "$1"
-# Wait for a trustworthy clock before certificate validity checks.
-chronyc waitsync 20 0.1 0 2
+# The controller verifies fresh guest time against its host before provisioning.
+# Standalone callers still require external synchronization before TLS checks.
+if [[ "${AUTOSD_BENCH_HOST_CLOCK_VERIFIED:-}" != 1 ]]; then
+    chronyc waitsync 20 0.1 0 2 || {
+        echo 'Guest clock did not synchronize before provisioning.' >&2
+        chronyc tracking >&2
+        exit 1
+    }
+fi
 # QEMU user-network gateway reaches the Mac's published Docker ports.
 sed -i '/# can-testbench-host/d' /etc/hosts
 printf '%s # can-testbench-host\n' "$2" >> /etc/hosts
