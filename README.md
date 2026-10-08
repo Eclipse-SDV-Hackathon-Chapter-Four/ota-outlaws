@@ -17,6 +17,8 @@ Project plan: [Project Plan](docs/reference/project-plan.md)
 
 Hack Coach Interview Presentation: [Hack Coach Interview](OTA_Outlaws_HackCoachInterview_[EF_SDV_Hackathon_2026].pptx)
 
+Pitch Slides : [Pitch Slides](OTA_Outlaws_Pitch_[EF_SDV_Hackathon_2026]_v2.pptx)
+
 ## Repository layout
 
 | Folder | Content |
