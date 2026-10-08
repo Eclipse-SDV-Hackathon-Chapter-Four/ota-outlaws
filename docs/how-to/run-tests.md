@@ -13,30 +13,24 @@ SPDX-License-Identifier: EPL-2.0
 
 # Run the Tests
 
-Every command runs from the repository root. The levels build on each other:
-the first needs only Rust, the others need Docker.
+Every command runs from the repository root. Unit tests need Rust; runtime
+verification uses the shared campaign driver on AutoSD or Docker Compose.
 
 | Level | Command | Proves | Needs |
 |-------|---------|--------|-------|
 | 0. Documentation checks | `python3 docs/check_architecture.py` | local Markdown links and selected architecture claims resolve against the implementation | Python 3 |
 | 1. Unit and integration tests | `cargo test` | every component on its own, including the Guardian's requirements | Rust |
 | 2. Format and lint | `cargo fmt --all --check`<br>`cargo clippy --all-targets -- -D warnings` | code quality, as in CI | Rust |
-| 3. Fault campaigns | `cargo run -p campaign -- run --all` | the Guardian's reaction to real faults through the whole chain, with a verdict per scenario | Docker, diagnostics image |
-| 4. Diagnostic campaigns | `python3 diagnostics/smoke_test.py` | the DFM and OpenSOVD path, including a diagnostics outage | Docker, diagnostics image |
-| 5. Hardware demo | `cargo run -p campaign -- observe source_dropout` | the same verdict for a fault injected by hand | running stack |
+| 3. Fault campaigns | `make -C deploy/autosd campaigns` | the Guardian's reaction through the deployed chain, with diagnostic evidence and a verdict per scenario | AutoSD deployment |
+| 4. Hardware demo | `cargo run -p campaign -- observe source_dropout` | the same verdict for a fault injected by hand | running stack |
 
 ## Prerequisites
 
 - Rust (stable); `protoc` is vendored, no installation needed.
-- Docker with Compose, for levels 3 to 5.
-- The diagnostics image `local/opensovd-demo-fork:verified`, built once, for
-  levels 3 to 5:
-
-  ```sh
-  sh diagnostics/build-images.sh /path/to/Doctor-Whodunit
-  ```
-
-  See [Build from clean committed source](../../README.md#build-from-clean-committed-source-optional).
+- For AutoSD campaigns, deploy with `make -C deploy/autosd up`. See the
+  [AutoSD guide](../../deploy/autosd/README.md) for image and bench prerequisites.
+- For the optional Compose runtime, use Docker with Compose and the pinned
+  diagnostic image configured in `diagnostics/image.env`.
 
 ## 1. Unit and integration tests
 
@@ -63,22 +57,26 @@ CI runs both, and level 1, on every pull request.
 ## 3. Fault campaigns
 
 ```sh
-cargo run -p campaign -- run --all              # every scenario
-cargo run -p campaign -- run counter_stuck      # one scenario
-cargo run -p campaign -- run --all --no-build   # reuse the built images
+make -C deploy/autosd campaigns
+make -C deploy/autosd campaigns CAMPAIGNS="timeout counter_stuck invalid_quality"
 ```
 
-Each scenario replays a CAN trace once through the real chain (CAN provider,
-Data Broker, VSS Publisher, uProtocol, Guardian, DFM, OpenSOVD) in its own
-Compose project and judges the Guardian's reaction. The whole campaign takes
-about ten minutes. It can run while the development stack is up.
+The shared driver runs inside AutoSD and controls the deployed services through
+Ankaios. Each scenario exercises the CAN provider, Data Broker, VSS Publisher,
+uProtocol, Guardian, DFM and OpenSOVD, then restores the original replay.
+Evidence is copied to `runs/autosd/<run>/`.
 
-The evidence goes to `runs/<campaign>/`:
+The same driver also supports Docker Compose:
 
-- `campaign.md`: every scenario with its verdict;
-- `<scenario>/report.md`: the evidence chain from hazard to verdict;
-- `<scenario>/recording.jsonl`, `manifest.json`, `services.log`: the raw
-  evidence.
+```sh
+cargo run -p campaign -- run --all
+cargo run -p campaign -- run counter_stuck
+cargo run -p campaign -- run --all --no-build
+```
+
+Compose creates an isolated project per scenario and stores evidence in
+`runs/<campaign>/`. Both runtimes produce `campaign.md` plus per-scenario
+`report.md`, `recording.jsonl`, `manifest.json` and `services.log`.
 
 The exit code is 0 when every scenario with status `implemented` passed.
 Scenarios for planned requirements run too and are reported as FAIL until the
@@ -93,18 +91,7 @@ The scenarios and their expectations are in
 [`campaign/scenarios.toml`](../../campaign/scenarios.toml); the tool is
 described in [Campaign Tool](../reference/components/campaign.md).
 
-## 4. Diagnostic campaigns
-
-```sh
-python3 diagnostics/smoke_test.py
-```
-
-Runs the Guardian service with a test publisher against the real DFM and
-OpenSOVD, including a DFM and gateway outage. Reports go to
-`diagnostics/reports/`. Details are in the
-[README](../../README.md#verification).
-
-## 5. Hardware demo
+## 4. Hardware demo
 
 Start the stack, then record and judge while the fault is injected by hand,
 for example by virtually unplugging the board:
@@ -125,3 +112,6 @@ This document was created with the assistance of **Claude Code** using the model
 
 The documentation validation command was added with the assistance of
 **GitHub Copilot** using the model **GPT-6 Luna** (`GPT-6 Luna`).
+
+The campaign-only runtime workflow was updated with assistance from **Codex**
+using **GPT-6** (`gpt-6`).

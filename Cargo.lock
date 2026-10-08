@@ -1263,7 +1263,6 @@ dependencies = [
  "fault_lib",
  "guardian",
  "prost",
- "reqwest",
  "serde_json",
  "thermal-contract",
  "tokio",
